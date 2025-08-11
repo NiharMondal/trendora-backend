@@ -1,0 +1,21 @@
+import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config({ path: path.join(process.cwd(), ".env") });
+
+export const envConfig = {
+	node_env: process.env.NODE_ENV,
+	port: 5000,
+	db_url: process.env.DATABASE_URL,
+	access_token_secret: process.env.ACCESS_TOKEN_SECRET,
+	cloudinary: {
+		cloud_name: process.env.CLOUD_NAME,
+		api_key: process.env.API_KEY,
+		api_secret: process.env.API_SECRET,
+	},
+	front_end_url: process.env.FRONT_END_URL,
+	emailUtils: {
+		email: process.env.EMAIL,
+		password: process.env.PASSWORD,
+	},
+};

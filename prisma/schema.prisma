@@ -1,0 +1,190 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- ENUMS ----------
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  STRIPE
+  SSLCOMMERZ
+  CASH_ON_DELIVERY
+}
+
+// ---------- USER & AUTH ----------
+model User {
+  id        String     @id @default(uuid())
+  name      String
+  email     String     @unique
+  password  String
+  phone     String?    @unique
+  role      Role       @default(CUSTOMER)
+  addresses Address[]
+  orders    Order[]
+  reviews   Review[]
+  wishlist  Wishlist[]
+  isDeleted Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Address {
+  id         String  @id @default(uuid())
+  userId     String
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName   String
+  phone      String
+  street     String
+  city       String
+  state      String?
+  postalCode String
+  country    String
+  isDefault  Boolean @default(false)
+  Order      Order[]
+}
+
+// ---------- PRODUCT & CATEGORIES ----------
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  slug      String     @unique
+  parentId  String? // for subcategories
+  isDeleted Boolean    @default(false)
+  parent    Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryParent")
+  products  Product[]
+}
+
+model Product {
+  id            String           @id @default(uuid())
+  name          String
+  slug          String           @unique
+  description   String
+  basePrice     Decimal          @db.Decimal(10, 2)
+  discountPrice Decimal?         @db.Decimal(10, 2)
+  stockQuantity Int
+  isPublished   Boolean          @default(true)
+  categoryId    String
+  category      Category         @relation(fields: [categoryId], references: [id])
+  variants      ProductVariant[]
+  images        ProductImage[]
+  reviews       Review[]
+  wishlistItems Wishlist[]
+  orderItems    OrderItem[]
+  isDeleted     Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+model ProductVariant {
+  id        String      @id @default(uuid())
+  productId String
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size      String
+  color     String
+  stock     Int
+  price     Decimal     @db.Decimal(10, 2)
+  isDeleted Boolean     @default(false)
+  OrderItem OrderItem[]
+}
+
+model ProductImage {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  isMain    Boolean @default(false)
+  isDeleted Boolean @default(false)
+}
+
+// ---------- WISHLIST & REVIEWS ----------
+model Wishlist {
+  id        String  @id @default(uuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int
+  comment   String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------- ORDER & PAYMENT ----------
+model Order {
+  id                String        @id @default(uuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items             OrderItem[]
+  totalAmount       Decimal       @db.Decimal(10, 2)
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentMethod     PaymentMethod
+  orderStatus       OrderStatus   @default(PENDING)
+  shippingAddressId String
+  shippingAddress   Address       @relation(fields: [shippingAddressId], references: [id])
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  Payment           Payment[]
+}
+
+model OrderItem {
+  id        String          @id @default(uuid())
+  orderId   String
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product         @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+  quantity  Int
+  price     Decimal         @db.Decimal(10, 2) // price at time of order
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  orderId       String
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount        Decimal       @db.Decimal(10, 2)
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  transactionId String?
+  createdAt     DateTime      @default(now())
+}
