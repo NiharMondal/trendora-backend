@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from "express";
+import { Prisma } from "../../generated/prisma";
 
 export const globalErrorHandler = (
 	error: any,
@@ -12,6 +13,13 @@ export const globalErrorHandler = (
 		errorDetails: error,
 	};
 
+	if (error instanceof Prisma.PrismaClientKnownRequestError) {
+		if (error.code === "P2002") {
+			(errorResponse.statusCode = 400),
+				(errorResponse.message = "Duplicate key error"),
+				(errorResponse.errorDetails = "Already exist!");
+		}
+	}
 	res.status(errorResponse.statusCode).json({
 		success: false,
 		message: errorResponse.message,

@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { routesArray } from "./routes-array";
 
-const router = Router();
+const rootRouter = Router();
 
-routesArray.forEach((item) => router.use(item.path, item.element));
+routesArray.forEach((item) => rootRouter.use(item.path, item.element));
 
-export const rootRouter = router;
+export default rootRouter;
