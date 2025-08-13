@@ -2,7 +2,7 @@ import { Response } from "express";
 type TMeta = {
 	currentPage: number;
 	totalPages: number;
-	totalDocs: number;
+	totalData: number;
 };
 type TResponseData<T> = {
 	statusCode: number;

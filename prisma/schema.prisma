@@ -94,6 +94,7 @@ model Product {
   discountPrice Decimal?         @db.Decimal(10, 2)
   stockQuantity Int
   isPublished   Boolean          @default(true)
+  isFeatured    Boolean          @default(false)
   categoryId    String
   category      Category         @relation(fields: [categoryId], references: [id])
   variants      ProductVariant[]
@@ -115,7 +116,7 @@ model ProductVariant {
   stock     Int
   price     Decimal     @db.Decimal(10, 2)
   isDeleted Boolean     @default(false)
-  OrderItem OrderItem[]
+  orderItem OrderItem[]
 }
 
 model ProductImage {
@@ -163,7 +164,7 @@ model Order {
   shippingAddress   Address       @relation(fields: [shippingAddressId], references: [id])
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  Payment           Payment[]
+  payment           Payment[]
 }
 
 model OrderItem {

@@ -1,63 +1,74 @@
 import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
-import { categoryServices } from "./category.service";
+import { productServices } from "./product.service";
 
 const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await categoryServices.createIntoDB(req.body);
+	const data = await productServices.createIntoDB(req.body);
 
 	sendResponse(res, {
 		statusCode: 201,
-		message: "Category created successfully",
+		message: "Product created successfully",
 		data: data,
 	});
 });
 
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await categoryServices.findAllFromDB(req.query);
+	const data = await productServices.findAllFromDB(req.query);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Category fetched successfully",
+		message: "Product fetched successfully",
 		data: data,
 	});
 });
 const findById = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await categoryServices.findById(id);
+	const data = await productServices.findById(id);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Category fetched successfully",
+		message: "Product fetched successfully",
+		data: data,
+	});
+});
+const findBySlug = asyncHandler(async (req: Request, res: Response) => {
+	const slug = req.params.slug;
+	const data = await productServices.findBySlug(slug);
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Product fetched successfully",
 		data: data,
 	});
 });
 
 const updateData = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await categoryServices.updateData(id, req.body);
+	const data = await productServices.updateData(id, req.body);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Category updated successfully",
+		message: "Product updated successfully",
 		data: data,
 	});
 });
 const deleteData = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await categoryServices.deleteData(id);
+	const data = await productServices.deleteData(id);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Category deleted successfully",
+		message: "Product deleted successfully",
 		data: data,
 	});
 });
 
-export const categoryControllers = {
+export const productControllers = {
 	createIntoDB,
 	findAllFromDB,
 	findById,
+	findBySlug,
 	updateData,
 	deleteData,
 };

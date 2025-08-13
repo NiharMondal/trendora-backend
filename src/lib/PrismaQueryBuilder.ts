@@ -1,10 +1,7 @@
-import { Prisma } from "@prisma/client";
-
 interface PaginationMeta {
 	currentPage: number;
-	totalData: number;
 	totalPages: number;
-	limit: number;
+	totalData: number;
 }
 
 class PrismaQueryBuilder<TWhereInput> {
@@ -126,7 +123,6 @@ class PrismaQueryBuilder<TWhereInput> {
 		const totalPages = Math.ceil(totalData / this.limit);
 		return {
 			currentPage: this.page,
-			limit: this.limit,
 			totalData,
 			totalPages,
 		} as PaginationMeta;

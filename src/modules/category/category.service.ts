@@ -24,4 +24,46 @@ const findAllFromDB = async (query: Record<string, any>) => {
 	return { meta, category };
 };
 
-export const categoryServices = { createIntoDB, findAllFromDB };
+const findById = async (id: string) => {
+	const category = await prisma.category.findUniqueOrThrow({
+		where: { id },
+	});
+
+	return category;
+};
+
+const updateData = async (id: string, payload: Partial<Category>) => {
+	await prisma.category.findUniqueOrThrow({
+		where: { id },
+	});
+
+	const slug = generateSlug(payload.name as string);
+
+	const updatedData = await prisma.category.update({
+		where: { id },
+		data: { ...payload, slug },
+	});
+	return updatedData;
+};
+
+const deleteData = async (id: string) => {
+	await prisma.category.findUniqueOrThrow({
+		where: { id },
+	});
+	const data = await prisma.category.update({
+		where: { id },
+		data: {
+			isDeleted: true,
+		},
+	});
+
+	return data;
+};
+
+export const categoryServices = {
+	createIntoDB,
+	findAllFromDB,
+	findById,
+	updateData,
+	deleteData,
+};
