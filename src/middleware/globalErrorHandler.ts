@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { Prisma } from "../../generated/prisma";
+import { ZodError } from "zod";
 
 export const globalErrorHandler = (
 	error: any,
@@ -13,6 +14,29 @@ export const globalErrorHandler = (
 		errorDetails: error,
 	};
 
+	if (error instanceof ZodError) {
+		if (error.issues.length > 0) {
+			let errors = [];
+			errors = error.issues.map((issue) => ({
+				path: issue.path[0],
+				message: issue.message,
+			}));
+			errorResponse.statusCode = 400;
+			errorResponse.message = "Validation error";
+			errorResponse.errorDetails = errors;
+		}
+	}
+
+	if (error instanceof Prisma.PrismaClientValidationError) {
+		errorResponse.statusCode = 400;
+		errorResponse.message = error.name;
+		const match = error.message.match(
+			/Argument\s+`[^`]+`\s+is\s+missing\./
+		);
+		const result = match ? match[0] : null;
+
+		errorResponse.errorDetails = result;
+	}
 	if (error instanceof Prisma.PrismaClientKnownRequestError) {
 		if (error.code === "P2002") {
 			errorResponse.statusCode = 400;

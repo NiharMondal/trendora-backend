@@ -1,19 +1,17 @@
-import { Category, Prisma } from "../../../generated/prisma";
+import { Address, Category, Prisma } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import { generateSlug } from "../../helpers/slug";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 
-const createIntoDB = async (payload: Category) => {
-	const slug = generateSlug(payload.name);
-
-	const data = await prisma.category.create({
-		data: { ...payload, slug },
+const createIntoDB = async (payload: Address) => {
+	const address = await prisma.address.create({
+		data: payload,
 	});
 
-	return data;
+	return address;
 };
 
-const findAllFromDB = async (query: Record<string, any>) => {
+const findAddressByUserId = async (query: Record<string, any>) => {
 	const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query);
 
 	const prismaArgs = builder.search(["name"]).filter().paginate().build();
@@ -60,9 +58,9 @@ const deleteData = async (id: string) => {
 	return data;
 };
 
-export const categoryServices = {
+export const addressServices = {
 	createIntoDB,
-	findAllFromDB,
+	findAddressByUserId,
 	findById,
 	updateData,
 	deleteData,

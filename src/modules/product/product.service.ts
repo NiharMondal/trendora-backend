@@ -2,6 +2,7 @@ import { Prisma, Product } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import { generateSlug } from "../../helpers/slug";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
+import CustomError from "../../utils/customError";
 
 type ProductCreatePayload = Omit<
 	Product,
@@ -46,7 +47,12 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 const findAllFromDB = async (query: Record<string, any>) => {
 	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
 
-	const prismaArgs = builder.search(["name"]).filter().paginate().build();
+	const prismaArgs = builder
+		.withDefaultFilter({ isDeleted: false })
+		.search(["name"])
+		.filter()
+		.paginate()
+		.build();
 
 	const product = await prisma.product.findMany(prismaArgs);
 	const meta = await builder.getMeta(prisma.product);
@@ -57,6 +63,10 @@ const findAllFromDB = async (query: Record<string, any>) => {
 const findById = async (id: string) => {
 	const product = await prisma.product.findUniqueOrThrow({
 		where: { id },
+		include: {
+			variants: true,
+			images: true,
+		},
 	});
 
 	return product;
@@ -64,21 +74,50 @@ const findById = async (id: string) => {
 const findBySlug = async (slug: string) => {
 	const product = await prisma.product.findUniqueOrThrow({
 		where: { slug },
+		include: {
+			variants: true,
+			images: true,
+		},
 	});
 
 	return product;
 };
 
-const updateData = async (id: string, payload: Partial<Product>) => {
-	await prisma.product.findUniqueOrThrow({
-		where: { id },
-	});
+const updateData = async (
+	id: string,
+	payload: Partial<ProductCreatePayload>
+) => {
+	const { variants, images, ...rest } = payload;
+	const product = await prisma.product.findUnique({ where: { id } });
 
-	const slug = generateSlug(payload.name as string);
+	if (!product) {
+		throw new CustomError(404, "Product not found!");
+	}
+
+	const slug = generateSlug(rest.name || product.name);
 
 	const updatedData = await prisma.product.update({
 		where: { id },
-		data: { ...payload, slug },
+		data: {
+			...rest,
+			slug: slug,
+			variants: {
+				deleteMany: {},
+				createMany: {
+					data: variants ? variants.map((v) => ({ ...v })) : [],
+				},
+			},
+			images: {
+				deleteMany: {},
+				createMany: {
+					data: images ? images.map((v) => ({ ...v })) : [],
+				},
+			},
+		},
+		include: {
+			variants: true,
+			images: true,
+		},
 	});
 	return updatedData;
 };

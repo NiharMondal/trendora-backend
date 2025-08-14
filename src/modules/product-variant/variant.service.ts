@@ -21,4 +21,33 @@ const addVariants = async (productId: string, payload: ProductVariant[]) => {
 
 	return variants;
 };
-export const variantServices = { findByProductId, addVariants };
+
+const updateVariant = async (id: string, payload: Partial<ProductVariant>) => {
+	await prisma.productVariant.findUniqueOrThrow({ where: { id } });
+
+	const updatedData = await prisma.productVariant.update({
+		where: { id },
+		data: {
+			...payload,
+		},
+	});
+
+	return updatedData;
+};
+
+const deleteVariant = async (id: string) => {
+	const variant = await prisma.productVariant.update({
+		where: { id },
+		data: {
+			isDeleted: true,
+		},
+	});
+
+	return variant;
+};
+export const variantServices = {
+	findByProductId,
+	addVariants,
+	updateVariant,
+	deleteVariant,
+};

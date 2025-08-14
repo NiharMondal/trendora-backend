@@ -13,5 +13,14 @@ const registerUser = asyncHandler(async (req: Request, res: Response) => {
 		data: data,
 	});
 });
+const loginUser = asyncHandler(async (req: Request, res: Response) => {
+	const data = await authServices.loginUser(req.body);
 
-export const authControllers = { registerUser };
+	sendResponse(res, {
+		statusCode: 201,
+		message: "Logged in Successfully",
+		data: data,
+	});
+});
+
+export const authControllers = { registerUser, loginUser };

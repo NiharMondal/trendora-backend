@@ -6,12 +6,21 @@ interface PaginationMeta {
 
 class PrismaQueryBuilder<TWhereInput> {
 	private whereConditions: TWhereInput[] = [];
+	private defaultFilter: Partial<TWhereInput> = {};
 	private page = 1;
 	private limit = 10;
 	private orderByCondition: Record<string, "asc" | "desc"> = {};
 	private skip = 0;
 
 	constructor(private query: Record<string, any>) {}
+
+	/**
+	 * Add a default filter (e.g., isDeleted: false)
+	 */
+	withDefaultFilter(filter: Partial<TWhereInput>) {
+		this.defaultFilter = filter;
+		return this;
+	}
 
 	/**
 	 * Search in given fields (case-insensitive)
@@ -25,7 +34,7 @@ class PrismaQueryBuilder<TWhereInput> {
 						contains: searchValue,
 						mode: "insensitive",
 					},
-				})),
+				})) as any,
 			} as unknown as TWhereInput);
 		}
 		return this;
@@ -53,12 +62,11 @@ class PrismaQueryBuilder<TWhereInput> {
 				}),
 			} as any);
 		}
-
 		return this;
 	}
 
 	/**
-	 * Filter by numeric range
+	 * Numeric range filtering
 	 */
 	range(field: keyof TWhereInput, minMaxString?: string) {
 		if (minMaxString) {
@@ -74,7 +82,7 @@ class PrismaQueryBuilder<TWhereInput> {
 	}
 
 	/**
-	 * Add pagination
+	 * Pagination
 	 */
 	paginate() {
 		this.page = Number(this.query.page) || 1;
@@ -102,9 +110,14 @@ class PrismaQueryBuilder<TWhereInput> {
 	}
 
 	/**
-	 * Get the final Prisma args
+	 * Build final Prisma args
 	 */
 	build() {
+		// Always push default filter if provided
+		if (Object.keys(this.defaultFilter).length > 0) {
+			this.whereConditions.push(this.defaultFilter as TWhereInput);
+		}
+
 		return {
 			where: { AND: this.whereConditions } as any as TWhereInput,
 			skip: this.skip,
@@ -114,17 +127,22 @@ class PrismaQueryBuilder<TWhereInput> {
 	}
 
 	/**
-	 * Meta calculation
+	 * Meta info
 	 */
 	async getMeta(prismaModel: any) {
+		// Include default filter in count as well
+		if (Object.keys(this.defaultFilter).length > 0) {
+			this.whereConditions.push(this.defaultFilter as TWhereInput);
+		}
+
 		const totalData = await prismaModel.count({
 			where: { AND: this.whereConditions } as any,
 		});
 		const totalPages = Math.ceil(totalData / this.limit);
 		return {
 			currentPage: this.page,
-			totalData,
 			totalPages,
+			totalData,
 		} as PaginationMeta;
 	}
 }
