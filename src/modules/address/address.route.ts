@@ -5,6 +5,8 @@ import { addressValidation } from "./address.validation";
 
 const router = Router();
 
+router.get("/my-address", addressControllers.findAddressByUserId);
+
 router
 	.route("/:id")
 	.get(addressControllers.findById)

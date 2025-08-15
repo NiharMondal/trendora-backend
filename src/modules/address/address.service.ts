@@ -2,6 +2,7 @@ import { Address, Category, Prisma } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import { generateSlug } from "../../helpers/slug";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
+import CustomError from "../../utils/customError";
 
 const createIntoDB = async (payload: Address) => {
 	const address = await prisma.address.create({
@@ -11,15 +12,19 @@ const createIntoDB = async (payload: Address) => {
 	return address;
 };
 
-const findAddressByUserId = async (query: Record<string, any>) => {
-	const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query);
+const findAddressByUserId = async (userId: string) => {
+	const user = await prisma.user.findUnique({ where: { id: userId } });
 
-	const prismaArgs = builder.search(["name"]).filter().paginate().build();
+	if (!user) {
+		throw new CustomError(404, "Sorry, user not found!");
+	}
+	const addresses = await prisma.address.findMany({
+		where: {
+			userId: userId,
+		},
+	});
 
-	const category = await prisma.category.findMany(prismaArgs);
-	const meta = await builder.getMeta(prisma.category);
-
-	return { meta, category };
+	return addresses;
 };
 
 const findById = async (id: string) => {

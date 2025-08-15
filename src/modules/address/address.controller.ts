@@ -16,7 +16,8 @@ const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
 
 const findAddressByUserId = asyncHandler(
 	async (req: Request, res: Response) => {
-		const data = await addressServices.findAddressByUserId(req.query);
+		const userId = req.user.id;
+		const data = await addressServices.findAddressByUserId(userId);
 
 		sendResponse(res, {
 			statusCode: 200,
