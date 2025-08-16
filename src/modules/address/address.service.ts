@@ -1,7 +1,5 @@
 import { Address, Category, Prisma } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
-import { generateSlug } from "../../helpers/slug";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
 
 const createIntoDB = async (payload: Address) => {
@@ -36,16 +34,15 @@ const findById = async (id: string) => {
 };
 
 const updateData = async (id: string, payload: Partial<Category>) => {
-	const category = await prisma.category.findUniqueOrThrow({
+	await prisma.category.findUniqueOrThrow({
 		where: { id },
 	});
-
-	const slug = generateSlug(payload.name || category.name);
 
 	const updatedData = await prisma.category.update({
 		where: { id },
-		data: { ...payload, slug },
+		data: payload,
 	});
+
 	return updatedData;
 };
 
@@ -53,11 +50,8 @@ const deleteData = async (id: string) => {
 	await prisma.category.findUniqueOrThrow({
 		where: { id },
 	});
-	const data = await prisma.category.update({
+	const data = await prisma.category.delete({
 		where: { id },
-		data: {
-			isDeleted: true,
-		},
 	});
 
 	return data;
