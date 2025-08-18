@@ -13,4 +13,5 @@ const createAddress = z.object({
 	country: z.string({ error: "Country name is required" }),
 });
 
-export const addressValidation = { createAddress };
+export const updateAddress = createAddress.partial();
+export const addressValidation = { createAddress, updateAddress };

@@ -16,7 +16,10 @@ router.get(
 router
 	.route("/:id")
 	.get(addressControllers.findById)
-	.patch(addressControllers.updateData)
+	.patch(
+		validateRequest(addressValidation.updateAddress),
+		addressControllers.updateData
+	)
 	.delete(addressControllers.deleteData);
 
 router

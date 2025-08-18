@@ -1,4 +1,4 @@
-import { Address, Category, Prisma } from "../../../generated/prisma";
+import { Address } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import CustomError from "../../utils/customError";
 
@@ -26,19 +26,19 @@ const findAddressByUserId = async (userId: string) => {
 };
 
 const findById = async (id: string) => {
-	const category = await prisma.category.findUniqueOrThrow({
+	const address = await prisma.address.findUniqueOrThrow({
 		where: { id },
 	});
 
-	return category;
+	return address;
 };
 
-const updateData = async (id: string, payload: Partial<Category>) => {
-	await prisma.category.findUniqueOrThrow({
+const updateData = async (id: string, payload: Partial<Address>) => {
+	await prisma.address.findUniqueOrThrow({
 		where: { id },
 	});
 
-	const updatedData = await prisma.category.update({
+	const updatedData = await prisma.address.update({
 		where: { id },
 		data: payload,
 	});
@@ -47,10 +47,10 @@ const updateData = async (id: string, payload: Partial<Category>) => {
 };
 
 const deleteData = async (id: string) => {
-	await prisma.category.findUniqueOrThrow({
+	await prisma.address.findUniqueOrThrow({
 		where: { id },
 	});
-	const data = await prisma.category.delete({
+	const data = await prisma.address.delete({
 		where: { id },
 	});
 

@@ -70,7 +70,7 @@ model Address {
   postalCode String
   country    String
   isDefault  Boolean @default(false)
-  Order      Order[]
+  order      Order[]
 }
 
 // ---------- PRODUCT & CATEGORIES ----------
@@ -164,7 +164,8 @@ model Order {
   shippingAddress   Address       @relation(fields: [shippingAddressId], references: [id])
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  payment           Payment[]
+
+  payment Payment?
 }
 
 model OrderItem {
@@ -181,7 +182,7 @@ model OrderItem {
 
 model Payment {
   id            String        @id @default(uuid())
-  orderId       String
+  orderId       String        @unique
   order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   amount        Decimal       @db.Decimal(10, 2)
   method        PaymentMethod

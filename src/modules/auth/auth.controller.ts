@@ -17,7 +17,7 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 	const data = await authServices.loginUser(req.body);
 
 	sendResponse(res, {
-		statusCode: 201,
+		statusCode: 200,
 		message: "Logged in Successfully",
 		data: data,
 	});

@@ -1,6 +1,7 @@
 import { addressRouter } from "../modules/address/address.route";
 import { authRouter } from "../modules/auth/auth.route";
 import { categoryRouter } from "../modules/category/category.route";
+import { orderRouter } from "../modules/order/order.route";
 import { variantRouter } from "../modules/product-variant/variant.route";
 import { productRouter } from "../modules/product/product.route";
 import { reviewRouter } from "../modules/review/review.route";
@@ -12,8 +13,9 @@ export const routesArray = [
 	{ path: "/users", element: userRouter },
 	{ path: "/categories", element: categoryRouter },
 	{ path: "/products", element: productRouter },
-	// { path: "/products", element: variantRouter },
+	{ path: "/products", element: variantRouter },
 	{ path: "/wishlists", element: wishlistRouter },
 	{ path: "/reviews", element: reviewRouter },
 	{ path: "/address", element: addressRouter },
+	{ path: "/orders", element: orderRouter },
 ];
