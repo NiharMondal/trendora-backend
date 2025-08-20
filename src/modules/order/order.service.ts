@@ -1,5 +1,15 @@
-import { Order, OrderItem } from "../../../generated/prisma";
+import {
+	Order,
+	OrderItem,
+	OrderStatus,
+	PaymentMethod,
+	PaymentStatus,
+} from "../../../generated/prisma";
 import { prisma } from "../../config/db";
+import {
+	allowedTransitions,
+	ensureTransitionAllowed,
+} from "../../helpers/allowedTransition";
 import CustomError from "../../utils/customError";
 
 type OrderPayloadRequest = {
@@ -75,4 +85,81 @@ const createOrder = async (payload: OrderPayloadRequest) => {
 	});
 };
 
-export const orderServices = { createOrder };
+const markOrderStatus = async (
+	orderId: string,
+	payload: { orderStatus: OrderStatus }
+) => {
+	const nextStatus = payload.orderStatus;
+	return prisma.$transaction(async (tx) => {
+		const order = await tx.order.findUnique({
+			where: { id: orderId },
+		});
+
+		if (!order) throw new Error("Order not found");
+
+		// 1) State machine guard (no skipping / invalid moves)
+		ensureTransitionAllowed(order.orderStatus, nextStatus);
+
+		// 2) Payment guards
+		const isPrepaid =
+			order.paymentMethod === PaymentMethod.STRIPE ||
+			order.paymentMethod === PaymentMethod.SSLCOMMERZ;
+
+		if (
+			nextStatus === OrderStatus.SHIPPED &&
+			isPrepaid &&
+			order.paymentStatus !== PaymentStatus.PAID
+		) {
+			throw new Error("Cannot ship prepaid order until payment is PAID.");
+		}
+
+		if (
+			nextStatus === OrderStatus.DELIVERED &&
+			isPrepaid &&
+			order.paymentStatus !== PaymentStatus.PAID
+		) {
+			throw new Error(
+				"Cannot deliver prepaid order until payment is PAID."
+			);
+		}
+
+		// 3) Compute payment updates based on transition
+		let newPaymentStatus: PaymentStatus | undefined = undefined;
+
+		if (nextStatus === OrderStatus.DELIVERED) {
+			// COD becomes PAID at delivery-collection time
+			if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+				newPaymentStatus = PaymentStatus.PAID;
+			}
+		}
+
+		if (nextStatus === OrderStatus.CANCELED) {
+			// If already paid, you should refund externally first, then set REFUNDED.
+			// If not paid, mark FAILED (payment did not complete).
+			newPaymentStatus =
+				order.paymentStatus === PaymentStatus.PAID
+					? PaymentStatus.REFUNDED
+					: PaymentStatus.FAILED;
+		}
+
+		// 4) Apply updates atomically
+		if (newPaymentStatus) {
+			await tx.payment.updateMany({
+				where: { orderId },
+				data: { status: newPaymentStatus },
+			});
+		}
+
+		const updated = await tx.order.update({
+			where: { id: orderId },
+			data: {
+				orderStatus: nextStatus,
+				paymentStatus: newPaymentStatus ?? order.paymentStatus,
+			},
+			include: { items: true, payment: true },
+		});
+
+		return updated;
+	});
+};
+export const orderServices = { createOrder, markOrderStatus };

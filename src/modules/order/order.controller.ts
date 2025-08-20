@@ -12,5 +12,15 @@ const createOrder = asyncHandler(async (req: Request, res: Response) => {
 		data: data,
 	});
 });
+const markOrderStatus = asyncHandler(async (req: Request, res: Response) => {
+	const orderId = req.params.orderId;
+	const data = await orderServices.markOrderStatus(orderId, req.body);
 
-export const orderControllers = { createOrder };
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Order status updated successfully",
+		data: data,
+	});
+});
+
+export const orderControllers = { createOrder, markOrderStatus };
