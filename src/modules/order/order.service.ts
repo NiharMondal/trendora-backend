@@ -4,12 +4,11 @@ import {
 	OrderStatus,
 	PaymentMethod,
 	PaymentStatus,
+	Prisma,
 } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
-import {
-	allowedTransitions,
-	ensureTransitionAllowed,
-} from "../../helpers/allowedTransition";
+import { ensureTransitionAllowed } from "../../helpers/allowedTransition";
+import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
 
 type OrderPayloadRequest = {
@@ -85,6 +84,17 @@ const createOrder = async (payload: OrderPayloadRequest) => {
 	});
 };
 
+const findAllFromDB = async (query: Record<string, any>) => {
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+
+	const prismaArgs = builder.filter().paginate().build();
+
+	const orders = await prisma.order.findMany(prismaArgs);
+	const meta = await builder.getMeta(prisma.order);
+
+	return { meta, orders };
+};
+
 const markOrderStatus = async (
 	orderId: string,
 	payload: { orderStatus: OrderStatus }
@@ -95,7 +105,7 @@ const markOrderStatus = async (
 			where: { id: orderId },
 		});
 
-		if (!order) throw new Error("Order not found");
+		if (!order) throw new CustomError(400, "Order not found");
 
 		// 1) State machine guard (no skipping / invalid moves)
 		ensureTransitionAllowed(order.orderStatus, nextStatus);
@@ -110,7 +120,10 @@ const markOrderStatus = async (
 			isPrepaid &&
 			order.paymentStatus !== PaymentStatus.PAID
 		) {
-			throw new Error("Cannot ship prepaid order until payment is PAID.");
+			throw new CustomError(
+				400,
+				"Cannot ship prepaid order until payment is PAID."
+			);
 		}
 
 		if (
@@ -118,7 +131,8 @@ const markOrderStatus = async (
 			isPrepaid &&
 			order.paymentStatus !== PaymentStatus.PAID
 		) {
-			throw new Error(
+			throw new CustomError(
+				400,
 				"Cannot deliver prepaid order until payment is PAID."
 			);
 		}
@@ -144,7 +158,7 @@ const markOrderStatus = async (
 
 		// 4) Apply updates atomically
 		if (newPaymentStatus) {
-			await tx.payment.updateMany({
+			await tx.payment.update({
 				where: { orderId },
 				data: { status: newPaymentStatus },
 			});
@@ -162,4 +176,4 @@ const markOrderStatus = async (
 		return updated;
 	});
 };
-export const orderServices = { createOrder, markOrderStatus };
+export const orderServices = { createOrder, findAllFromDB, markOrderStatus };

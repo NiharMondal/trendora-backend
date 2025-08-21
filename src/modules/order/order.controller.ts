@@ -12,6 +12,15 @@ const createOrder = asyncHandler(async (req: Request, res: Response) => {
 		data: data,
 	});
 });
+const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
+	const data = await orderServices.findAllFromDB(req.query);
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Order status updated successfully",
+		data: data,
+	});
+});
 const markOrderStatus = asyncHandler(async (req: Request, res: Response) => {
 	const orderId = req.params.orderId;
 	const data = await orderServices.markOrderStatus(orderId, req.body);
@@ -23,4 +32,4 @@ const markOrderStatus = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 
-export const orderControllers = { createOrder, markOrderStatus };
+export const orderControllers = { createOrder, findAllFromDB, markOrderStatus };
