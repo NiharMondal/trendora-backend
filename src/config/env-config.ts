@@ -8,7 +8,7 @@ export const envConfig = {
 	port: 5000,
 	db_url: process.env.DATABASE_URL,
 	access_token_secret: process.env.ACCESS_TOKEN_SECRET,
-	front_end_url: process.env.FRONT_END_URL,
+	front_end_url: process.env.FRONTEND_URL,
 	cloudinary: {
 		cloud_name: process.env.CLOUD_NAME,
 		api_key: process.env.API_KEY,

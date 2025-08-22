@@ -7,14 +7,18 @@ import {
 	Prisma,
 } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
+import { envConfig } from "../../config/env-config";
 import { ensureTransitionAllowed } from "../../helpers/allowedTransition";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
-
+import Stripe from "stripe";
 type OrderPayloadRequest = {
 	items: OrderItem[];
 } & Order;
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+	apiVersion: "2025-07-30.basil",
+});
 const createOrder = async (payload: OrderPayloadRequest) => {
 	const { items, ...rest } = payload;
 
@@ -75,12 +79,33 @@ const createOrder = async (payload: OrderPayloadRequest) => {
 				orderId: order.id,
 				amount: totalAmount,
 				method: rest.paymentMethod,
+				status: PaymentStatus.PENDING,
 			},
 		});
 
-		// STRIPE
+		let paymentUrl: string | null = null;
 
-		return { order, payment };
+		// ---- STRIPE ----
+		if (rest.paymentMethod === PaymentMethod.STRIPE) {
+			const session = await stripe.checkout.sessions.create({
+				payment_method_types: ["card"],
+				line_items: items.map((item) => ({
+					price_data: {
+						currency: "BDT",
+						product_data: { name: `Product ${item.productId}` },
+						unit_amount: Math.round(Number(item.price) * 100),
+					},
+					quantity: item.quantity,
+				})),
+				mode: "payment",
+				success_url: `${envConfig.front_end_url}/payment-success?orderId=${order.id}`,
+				cancel_url: `${envConfig.front_end_url}/payment-cancel?orderId=${order.id}`,
+				metadata: { orderId: order.id, paymentId: payment.id },
+			});
+			paymentUrl = session.url as string;
+		}
+
+		return { order, payment, paymentUrl };
 	});
 };
 
