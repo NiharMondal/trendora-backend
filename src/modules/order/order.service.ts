@@ -19,7 +19,8 @@ type OrderPayloadRequest = {
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 	apiVersion: "2025-07-30.basil",
 });
-const createOrder = async (payload: OrderPayloadRequest) => {
+
+const createOrder = async (userId: string, payload: OrderPayloadRequest) => {
 	const { items, ...rest } = payload;
 
 	return await prisma.$transaction(async (tx) => {
@@ -63,26 +64,6 @@ const createOrder = async (payload: OrderPayloadRequest) => {
 			0
 		);
 
-		const order = await tx.order.create({
-			data: {
-				...rest,
-				totalAmount,
-				items: {
-					create: items,
-				},
-			},
-			include: { items: true },
-		});
-
-		const payment = await tx.payment.create({
-			data: {
-				orderId: order.id,
-				amount: totalAmount,
-				method: rest.paymentMethod,
-				status: PaymentStatus.PENDING,
-			},
-		});
-
 		let paymentUrl: string | null = null;
 
 		// ---- STRIPE ----
@@ -98,14 +79,42 @@ const createOrder = async (payload: OrderPayloadRequest) => {
 					quantity: item.quantity,
 				})),
 				mode: "payment",
-				success_url: `${envConfig.front_end_url}/payment-success?orderId=${order.id}`,
-				cancel_url: `${envConfig.front_end_url}/payment-cancel?orderId=${order.id}`,
-				metadata: { orderId: order.id, paymentId: payment.id },
+				success_url: `${envConfig.front_end_url}/payment-success`,
+				cancel_url: `${envConfig.front_end_url}/payment-cancel`,
+				metadata: { userId, items: JSON.stringify(items) },
 			});
 			paymentUrl = session.url as string;
 		}
 
-		return { order, payment, paymentUrl };
+		// ---- SSLCOMMERZ ----
+		if (rest.paymentMethod === PaymentMethod.SSLCOMMERZ) {
+		}
+
+		// ---- CASH_ON_DELIVERY ----
+		if (rest.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+			const order = await tx.order.create({
+				data: {
+					...rest,
+					totalAmount,
+					items: {
+						create: items,
+					},
+				},
+				include: { items: true },
+			});
+
+			const payment = await tx.payment.create({
+				data: {
+					orderId: order.id,
+					amount: totalAmount,
+					method: rest.paymentMethod,
+					status: PaymentStatus.PENDING,
+				},
+			});
+			paymentUrl = null;
+		}
+
+		return { paymentUrl };
 	});
 };
 

@@ -9,6 +9,8 @@ export const envConfig = {
 	db_url: process.env.DATABASE_URL,
 	access_token_secret: process.env.ACCESS_TOKEN_SECRET,
 	front_end_url: process.env.FRONTEND_URL,
+	stripe_secret_key: process.env.STRIPE_SECRET_KEY,
+	stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
 	cloudinary: {
 		cloud_name: process.env.CLOUD_NAME,
 		api_key: process.env.API_KEY,

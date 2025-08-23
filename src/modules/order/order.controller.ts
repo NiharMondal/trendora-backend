@@ -4,7 +4,8 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
 
 const createOrder = asyncHandler(async (req: Request, res: Response) => {
-	const data = await orderServices.createOrder(req.body);
+	const userId = req.user.id;
+	const data = await orderServices.createOrder(userId, req.body);
 
 	sendResponse(res, {
 		statusCode: 201,
@@ -21,6 +22,7 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
 		data: data,
 	});
 });
+
 const markOrderStatus = asyncHandler(async (req: Request, res: Response) => {
 	const orderId = req.params.orderId;
 	const data = await orderServices.markOrderStatus(orderId, req.body);
