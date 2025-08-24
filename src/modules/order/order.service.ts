@@ -20,7 +20,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 	apiVersion: "2025-07-30.basil",
 });
 
-const createOrder = async (userId: string, payload: OrderPayloadRequest) => {
+const createOrder = async (payload: OrderPayloadRequest) => {
 	const { items, ...rest } = payload;
 
 	return await prisma.$transaction(async (tx) => {
@@ -72,7 +72,7 @@ const createOrder = async (userId: string, payload: OrderPayloadRequest) => {
 				payment_method_types: ["card"],
 				line_items: items.map((item) => ({
 					price_data: {
-						currency: "BDT",
+						currency: "USD",
 						product_data: { name: `Product ${item.productId}` },
 						unit_amount: Math.round(Number(item.price) * 100),
 					},
@@ -81,7 +81,11 @@ const createOrder = async (userId: string, payload: OrderPayloadRequest) => {
 				mode: "payment",
 				success_url: `${envConfig.front_end_url}/payment-success`,
 				cancel_url: `${envConfig.front_end_url}/payment-cancel`,
-				metadata: { userId, items: JSON.stringify(items) },
+				metadata: {
+					userId: rest.userId,
+					shippingAddressId: rest.shippingAddressId,
+					items: JSON.stringify(items),
+				},
 			});
 			paymentUrl = session.url as string;
 		}
@@ -103,7 +107,7 @@ const createOrder = async (userId: string, payload: OrderPayloadRequest) => {
 				include: { items: true },
 			});
 
-			const payment = await tx.payment.create({
+			await tx.payment.create({
 				data: {
 					orderId: order.id,
 					amount: totalAmount,

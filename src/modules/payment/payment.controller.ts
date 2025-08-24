@@ -5,6 +5,7 @@ import { paymentServices } from "./payment.service";
 
 const createPaymentWithStripeWebhook = asyncHandler(
 	async (req: Request, res: Response) => {
+		console.log(req.body);
 		const sig = req.headers["stripe-signature"];
 		const data = await paymentServices.createPaymentWithStripeWebhook(
 			req.body,
@@ -12,7 +13,7 @@ const createPaymentWithStripeWebhook = asyncHandler(
 		);
 
 		sendResponse(res, {
-			statusCode: 200,
+			statusCode: 201,
 			message: "Payment created successfully",
 			data: data,
 		});
