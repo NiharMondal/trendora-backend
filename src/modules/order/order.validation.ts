@@ -7,7 +7,8 @@ const orderItems = z.array(
 			.nonempty({ error: "User ID can not be empty" }),
 		variantId: z
 			.string({ error: "User ID is required" })
-			.nonempty({ error: "User ID can not be empty" }),
+			.nonempty({ error: "User ID can not be empty" })
+			.optional(),
 		price: z.number({ error: "Price is required" }),
 		quantity: z.number({ error: "Quantity is required" }),
 	})

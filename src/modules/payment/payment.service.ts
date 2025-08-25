@@ -8,8 +8,17 @@ import {
 	PaymentStatus,
 } from "../../../generated/prisma";
 
+const SSLCommerzPayment = require("sslcommerz-lts");
+
+const store_id = envConfig.ssl.storeId;
+const store_passwd = envConfig.ssl.storePass;
+const is_live = false; //true for live, false for sandbox
+
+// stripe initialization
 const stripe = new Stripe(envConfig.stripe_secret_key as string);
 
+// ssl-commerz initialization
+const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
 const createPaymentWithStripeWebhook = async (body: any, sig: any) => {
 	let event;
 
@@ -66,5 +75,16 @@ const createPaymentWithStripeWebhook = async (body: any, sig: any) => {
 		throw new CustomError(500, "Failed to process webhook");
 	}
 };
-
-export const paymentServices = { createPaymentWithStripeWebhook };
+const createPaymentWithSSL = async (query: Record<string, any>) => {
+	if (!query || !query.status || !(query.status === "VALID")) {
+		throw new CustomError(400, "Payment is not valid");
+	}
+	const data = {
+		val_id: query.val_id,
+	};
+	const response = await sslcz.validate(data);
+};
+export const paymentServices = {
+	createPaymentWithStripeWebhook,
+	createPaymentWithSSL,
+};

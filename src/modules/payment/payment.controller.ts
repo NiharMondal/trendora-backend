@@ -19,5 +19,20 @@ const createPaymentWithStripeWebhook = asyncHandler(
 		});
 	}
 );
+const createPaymentWithSSL = asyncHandler(
+	async (req: Request, res: Response) => {
+		const query = req.query;
+		const data = await paymentServices.createPaymentWithSSL(query);
 
-export const paymentControllers = { createPaymentWithStripeWebhook };
+		sendResponse(res, {
+			statusCode: 201,
+			message: "Payment created successfully",
+			data: data,
+		});
+	}
+);
+
+export const paymentControllers = {
+	createPaymentWithStripeWebhook,
+	createPaymentWithSSL,
+};

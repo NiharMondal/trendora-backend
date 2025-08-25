@@ -7,18 +7,16 @@ import {
 	Prisma,
 } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
-import { envConfig } from "../../config/env-config";
+
 import { ensureTransitionAllowed } from "../../helpers/allowedTransition";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
-import Stripe from "stripe";
+import { createStripePaymentUrl } from "../../helpers/stripe";
+import { createSslPaymentUrl } from "../../helpers/ssl";
+
 type OrderPayloadRequest = {
 	items: OrderItem[];
 } & Order;
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-	apiVersion: "2025-07-30.basil",
-});
 
 const createOrder = async (payload: OrderPayloadRequest) => {
 	const { items, ...rest } = payload;
@@ -68,30 +66,18 @@ const createOrder = async (payload: OrderPayloadRequest) => {
 
 		// ---- STRIPE ----
 		if (rest.paymentMethod === PaymentMethod.STRIPE) {
-			const session = await stripe.checkout.sessions.create({
-				payment_method_types: ["card"],
-				line_items: items.map((item) => ({
-					price_data: {
-						currency: "USD",
-						product_data: { name: `Product ${item.productId}` },
-						unit_amount: Math.round(Number(item.price) * 100),
-					},
-					quantity: item.quantity,
-				})),
-				mode: "payment",
-				success_url: `${envConfig.front_end_url}/payment-success`,
-				cancel_url: `${envConfig.front_end_url}/payment-cancel`,
-				metadata: {
-					userId: rest.userId,
-					shippingAddressId: rest.shippingAddressId,
-					items: JSON.stringify(items),
-				},
-			});
-			paymentUrl = session.url as string;
+			const url = await createStripePaymentUrl(
+				rest.userId,
+				rest.shippingAddressId,
+				payload.items
+			);
+			paymentUrl = url;
 		}
 
 		// ---- SSLCOMMERZ ----
 		if (rest.paymentMethod === PaymentMethod.SSLCOMMERZ) {
+			const url = await createSslPaymentUrl();
+			paymentUrl = url;
 		}
 
 		// ---- CASH_ON_DELIVERY ----

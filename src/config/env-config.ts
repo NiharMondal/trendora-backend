@@ -11,6 +11,11 @@ export const envConfig = {
 	front_end_url: process.env.FRONTEND_URL,
 	stripe_secret_key: process.env.STRIPE_SECRET_KEY,
 	stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
+	ssl: {
+		api: process.env.SSL_COMMERZ_API,
+		storeId: process.env.SSL_STORE_ID,
+		storePass: process.env.SSL_STORE_PASSWORD,
+	},
 	cloudinary: {
 		cloud_name: process.env.CLOUD_NAME,
 		api_key: process.env.API_KEY,
