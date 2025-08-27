@@ -9,7 +9,6 @@ export const createPaymentWithStripeWebhook = router.post(
 	paymentControllers.createPaymentWithStripeWebhook
 );
 
-export const createPaymentWithSSL = router.post(
-	"/",
-	paymentControllers.createPaymentWithSSL
-);
+router.get("/ssl-validate", paymentControllers.createPaymentWithSSL);
+
+export const paymentRouter = router;

@@ -12,7 +12,7 @@ import { ensureTransitionAllowed } from "../../helpers/allowedTransition";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
 import { createStripePaymentUrl } from "../../helpers/stripe";
-import { createSslPaymentUrl } from "../../helpers/ssl";
+import { createCODService } from "../../helpers/cod";
 
 type OrderPayloadRequest = {
 	items: OrderItem[];
@@ -21,91 +21,45 @@ type OrderPayloadRequest = {
 const createOrder = async (payload: OrderPayloadRequest) => {
 	const { items, ...rest } = payload;
 
-	return await prisma.$transaction(async (tx) => {
-		// checking product or variant stock
-		for (const item of items) {
-			if (item.variantId) {
-				const variant = await tx.productVariant.findUnique({
-					where: { id: item.variantId },
-				});
-				if (!variant || variant.stock < item.quantity) {
-					throw new CustomError(
-						400,
-						`Insufficient stock for this variant`
-					);
-				}
-
-				await tx.productVariant.update({
-					where: { id: item.variantId },
-					data: { stock: { decrement: item.quantity } },
-				});
-			} else {
-				const product = await tx.product.findUnique({
-					where: { id: item.productId },
-				});
-				if (!product || product.stockQuantity < item.quantity) {
-					throw new CustomError(
-						400,
-						`Insufficient stock for this product`
-					);
-				}
-
-				await tx.product.update({
-					where: { id: item.productId },
-					data: { stockQuantity: { decrement: item.quantity } },
-				});
-			}
-		}
-		// count total price
-		const totalAmount = items.reduce(
-			(acc, item) => acc + Number(item.price) * item.quantity,
-			0
-		);
-
-		let paymentUrl: string | null = null;
-
-		// ---- STRIPE ----
-		if (rest.paymentMethod === PaymentMethod.STRIPE) {
-			const url = await createStripePaymentUrl(
-				rest.userId,
-				rest.shippingAddressId,
-				payload.items
-			);
-			paymentUrl = url;
-		}
-
-		// ---- SSLCOMMERZ ----
-		if (rest.paymentMethod === PaymentMethod.SSLCOMMERZ) {
-			const url = await createSslPaymentUrl();
-			paymentUrl = url;
-		}
-
-		// ---- CASH_ON_DELIVERY ----
-		if (rest.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
-			const order = await tx.order.create({
-				data: {
-					...rest,
-					totalAmount,
-					items: {
-						create: items,
-					},
-				},
-				include: { items: true },
-			});
-
-			await tx.payment.create({
-				data: {
-					orderId: order.id,
-					amount: totalAmount,
-					method: rest.paymentMethod,
-					status: PaymentStatus.PENDING,
-				},
-			});
-			paymentUrl = null;
-		}
-
-		return { paymentUrl };
+	const user = await prisma.user.findUnique({
+		where: { id: rest.userId },
 	});
+	if (!user) {
+		throw new CustomError(400, "User is not found!");
+	}
+
+	const shippingAddress = await prisma.address.findUnique({
+		where: { id: rest.shippingAddressId },
+	});
+
+	if (!shippingAddress) {
+		throw new CustomError(400, "Shipping address is not found!");
+	}
+	try {
+		return await prisma.$transaction(async (tx) => {
+			let paymentUrl: string | null = null;
+
+			// ---- STRIPE ----
+			if (rest.paymentMethod === PaymentMethod.STRIPE) {
+				const url = await createStripePaymentUrl(
+					rest.userId,
+					rest.shippingAddressId,
+					payload.items
+				);
+				paymentUrl = url;
+			}
+
+			// ---- CASH_ON_DELIVERY ----
+			if (rest.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+				await createCODService(rest, items);
+				paymentUrl = null;
+			}
+
+			return { paymentUrl };
+		});
+	} catch (error) {
+		console.log(error);
+	}
 };
 
 const findAllFromDB = async (query: Record<string, any>) => {
@@ -135,9 +89,7 @@ const markOrderStatus = async (
 		ensureTransitionAllowed(order.orderStatus, nextStatus);
 
 		// 2) Payment guards
-		const isPrepaid =
-			order.paymentMethod === PaymentMethod.STRIPE ||
-			order.paymentMethod === PaymentMethod.SSLCOMMERZ;
+		const isPrepaid = order.paymentMethod === PaymentMethod.STRIPE;
 
 		if (
 			nextStatus === OrderStatus.SHIPPED &&

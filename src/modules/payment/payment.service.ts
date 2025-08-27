@@ -8,17 +8,9 @@ import {
 	PaymentStatus,
 } from "../../../generated/prisma";
 
-const SSLCommerzPayment = require("sslcommerz-lts");
-
-const store_id = envConfig.ssl.storeId;
-const store_passwd = envConfig.ssl.storePass;
-const is_live = false; //true for live, false for sandbox
-
 // stripe initialization
 const stripe = new Stripe(envConfig.stripe_secret_key as string);
 
-// ssl-commerz initialization
-const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
 const createPaymentWithStripeWebhook = async (body: any, sig: any) => {
 	let event;
 
@@ -42,16 +34,55 @@ const createPaymentWithStripeWebhook = async (body: any, sig: any) => {
 					"No items found in session metadata."
 				);
 			}
-			const items = JSON.parse(session.metadata.items) as OrderItem;
+			const items = JSON.parse(session.metadata.items) as OrderItem[];
+
 			const userId = session.metadata?.userId;
 			const shippingAddressId = session.metadata?.shippingAddressId;
 			const paymentIntentId = session.payment_intent as string;
+
 			await prisma.$transaction(async (tx) => {
+				// checking product or variant stock
+				for (const item of items) {
+					if (item.variantId) {
+						const variant = await tx.productVariant.findUnique({
+							where: { id: item.variantId },
+						});
+						if (!variant || variant.stock < item.quantity) {
+							throw new CustomError(
+								400,
+								`Insufficient stock for this variant`
+							);
+						}
+
+						await tx.productVariant.update({
+							where: { id: item.variantId },
+							data: { stock: { decrement: item.quantity } },
+						});
+					} else {
+						const product = await tx.product.findUnique({
+							where: { id: item.productId },
+						});
+						if (!product || product.stockQuantity < item.quantity) {
+							throw new CustomError(
+								400,
+								`Insufficient stock for this product`
+							);
+						}
+
+						await tx.product.update({
+							where: { id: item.productId },
+							data: {
+								stockQuantity: { decrement: item.quantity },
+							},
+						});
+					}
+				}
+
 				const order = await tx.order.create({
 					data: {
 						userId: userId,
 						paymentMethod: PaymentMethod.STRIPE,
-						shippingAddressId,
+						shippingAddressId: shippingAddressId,
 						paymentStatus: PaymentStatus.PAID,
 						totalAmount: Number(session.amount_total) / 100,
 						items: { create: items },
@@ -75,16 +106,7 @@ const createPaymentWithStripeWebhook = async (body: any, sig: any) => {
 		throw new CustomError(500, "Failed to process webhook");
 	}
 };
-const createPaymentWithSSL = async (query: Record<string, any>) => {
-	if (!query || !query.status || !(query.status === "VALID")) {
-		throw new CustomError(400, "Payment is not valid");
-	}
-	const data = {
-		val_id: query.val_id,
-	};
-	const response = await sslcz.validate(data);
-};
+
 export const paymentServices = {
 	createPaymentWithStripeWebhook,
-	createPaymentWithSSL,
 };

@@ -14,7 +14,7 @@ const createPaymentWithStripeWebhook = asyncHandler(
 
 		sendResponse(res, {
 			statusCode: 201,
-			message: "Payment created successfully",
+			message: "Payment created successfully with STRIPE",
 			data: data,
 		});
 	}
@@ -26,7 +26,7 @@ const createPaymentWithSSL = asyncHandler(
 
 		sendResponse(res, {
 			statusCode: 201,
-			message: "Payment created successfully",
+			message: "Payment created successfully with SSL_COMMERZ",
 			data: data,
 		});
 	}

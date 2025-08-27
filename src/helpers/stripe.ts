@@ -24,7 +24,9 @@ export const createStripePaymentUrl = async (
 		line_items: items.map((item) => ({
 			price_data: {
 				currency: "USD",
-				product_data: { name: `Product ${item.productId}` },
+				product_data: {
+					name: item.productName,
+				},
 				unit_amount: Math.round(Number(item.price) * 100),
 			},
 			quantity: item.quantity,

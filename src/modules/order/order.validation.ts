@@ -19,9 +19,9 @@ const createOrderSchema = z.object({
 		.nonempty({ error: "User ID can not be empty" }),
 	paymentMethod: z.enum(["STRIPE", "SSLCOMMERZ", "CASH_ON_DELIVERY"]),
 	shippingAddressId: z
-		.string({ error: "User ID is required" })
-		.nonempty({ error: "User ID can not be empty" }),
-	items: orderItems.min(1, "Order should contain one item").optional(),
+		.string({ error: "Shipping address ID is required" })
+		.nonempty({ error: "Shipping address ID can not be empty" }),
+	items: orderItems.min(1, "Order should contain one item"),
 });
 const updateOrderStatusSchema = z.object({
 	orderStatus: z.enum([
