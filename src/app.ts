@@ -16,6 +16,7 @@ app.use("/api/v1", rootRouter);
 // app.use("/", (req: Request, res: Response) => {
 // 	res.json({ success: true, message: "Trendora is running" });
 // });
+
 app.use(notFoundRoute); // not found-route error
 app.use(globalErrorHandler); // global error handler
 

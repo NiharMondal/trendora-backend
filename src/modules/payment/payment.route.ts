@@ -4,11 +4,9 @@ import { paymentControllers } from "./payment.controller";
 const router = Router();
 
 export const createPaymentWithStripeWebhook = router.post(
-	"/",
+	"/stripe",
 	express.raw({ type: "application/json" }),
 	paymentControllers.createPaymentWithStripeWebhook
 );
-
-router.get("/ssl-validate", paymentControllers.createPaymentWithSSL);
 
 export const paymentRouter = router;

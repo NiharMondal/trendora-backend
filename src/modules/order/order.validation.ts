@@ -5,6 +5,9 @@ const orderItems = z.array(
 		productId: z
 			.string({ error: "User ID is required" })
 			.nonempty({ error: "User ID can not be empty" }),
+		productName: z
+			.string({ error: "Product name is required" })
+			.nonempty({ error: "Product name can not be empty" }),
 		variantId: z
 			.string({ error: "User ID is required" })
 			.nonempty({ error: "User ID can not be empty" })

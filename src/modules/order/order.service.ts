@@ -35,31 +35,56 @@ const createOrder = async (payload: OrderPayloadRequest) => {
 	if (!shippingAddress) {
 		throw new CustomError(400, "Shipping address is not found!");
 	}
-	try {
-		return await prisma.$transaction(async (tx) => {
-			let paymentUrl: string | null = null;
 
-			// ---- STRIPE ----
-			if (rest.paymentMethod === PaymentMethod.STRIPE) {
-				const url = await createStripePaymentUrl(
-					rest.userId,
-					rest.shippingAddressId,
-					payload.items
-				);
-				paymentUrl = url;
+	const result = await prisma.$transaction(async (tx) => {
+		let paymentUrl: string | null = null;
+
+		// checking product and  variant stock
+
+		for (const item of items) {
+			if (item.variantId) {
+				const variant = await tx.productVariant.findUnique({
+					where: { id: item.variantId },
+				});
+				if (!variant || variant.stock < item.quantity) {
+					throw new CustomError(
+						400,
+						`Insufficient stock for this variant`
+					);
+				}
+			} else {
+				const product = await tx.product.findUnique({
+					where: { id: item.productId },
+				});
+				if (!product || product.stockQuantity < item.quantity) {
+					throw new CustomError(
+						400,
+						`Insufficient stock for this product`
+					);
+				}
 			}
+		}
 
-			// ---- CASH_ON_DELIVERY ----
-			if (rest.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
-				await createCODService(rest, items);
-				paymentUrl = null;
-			}
+		// ---- STRIPE ----
+		if (rest.paymentMethod === PaymentMethod.STRIPE) {
+			const url = await createStripePaymentUrl(
+				rest.userId,
+				rest.shippingAddressId,
+				payload.items
+			);
+			paymentUrl = url;
+		}
 
-			return { paymentUrl };
-		});
-	} catch (error) {
-		console.log(error);
-	}
+		// ---- CASH_ON_DELIVERY ----
+		if (rest.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+			await createCODService(rest, items);
+			paymentUrl = null;
+		}
+
+		return { paymentUrl };
+	});
+
+	return result;
 };
 
 const findAllFromDB = async (query: Record<string, any>) => {
@@ -73,6 +98,22 @@ const findAllFromDB = async (query: Record<string, any>) => {
 	return { meta, orders };
 };
 
+const getMyOrder = async (userId: string, query: Record<string, any>) => {
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+
+	const prismaArgs = builder
+		.withDefaultFilter({ userId })
+		.filter()
+		.paginate()
+		.build();
+
+	const myOrders = await prisma.order.findMany(prismaArgs);
+	const meta = await builder.getMeta(prisma.order);
+
+	return { meta, myOrders };
+};
+
+// this is only for CASH_ON_DELIVERY process
 const markOrderStatus = async (
 	orderId: string,
 	payload: { orderStatus: OrderStatus }
@@ -152,4 +193,10 @@ const markOrderStatus = async (
 		return updated;
 	});
 };
-export const orderServices = { createOrder, findAllFromDB, markOrderStatus };
+
+export const orderServices = {
+	createOrder,
+	findAllFromDB,
+	getMyOrder,
+	markOrderStatus,
+};

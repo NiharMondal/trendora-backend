@@ -5,7 +5,6 @@ import { paymentServices } from "./payment.service";
 
 const createPaymentWithStripeWebhook = asyncHandler(
 	async (req: Request, res: Response) => {
-		console.log(req.body);
 		const sig = req.headers["stripe-signature"];
 		const data = await paymentServices.createPaymentWithStripeWebhook(
 			req.body,
@@ -19,20 +18,7 @@ const createPaymentWithStripeWebhook = asyncHandler(
 		});
 	}
 );
-const createPaymentWithSSL = asyncHandler(
-	async (req: Request, res: Response) => {
-		const query = req.query;
-		const data = await paymentServices.createPaymentWithSSL(query);
-
-		sendResponse(res, {
-			statusCode: 201,
-			message: "Payment created successfully with SSL_COMMERZ",
-			data: data,
-		});
-	}
-);
 
 export const paymentControllers = {
 	createPaymentWithStripeWebhook,
-	createPaymentWithSSL,
 };
