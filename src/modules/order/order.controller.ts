@@ -28,8 +28,8 @@ const getMyOrder = asyncHandler(async (req: Request, res: Response) => {
 	sendResponse(res, {
 		statusCode: 200,
 		message: "My Order fetched successfully",
-		meta: data.meta,
-		data: data.myOrders,
+
+		data: data,
 	});
 });
 

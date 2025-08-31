@@ -99,18 +99,9 @@ const findAllFromDB = async (query: Record<string, any>) => {
 };
 
 const getMyOrder = async (userId: string, query: Record<string, any>) => {
-	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+	const myOrders = await prisma.order.findMany({ where: { userId } });
 
-	const prismaArgs = builder
-		.withDefaultFilter({ userId })
-		.filter()
-		.paginate()
-		.build();
-
-	const myOrders = await prisma.order.findMany(prismaArgs);
-	const meta = await builder.getMeta(prisma.order);
-
-	return { meta, myOrders };
+	return myOrders;
 };
 
 // this is only for CASH_ON_DELIVERY process
