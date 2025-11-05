@@ -16,7 +16,12 @@ const createIntoDB = async (payload: Category) => {
 const findAllFromDB = async (query: Record<string, any>) => {
 	const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query);
 
-	const prismaArgs = builder.search(["name"]).filter().paginate().build();
+	const prismaArgs = builder
+		.withDefaultFilter({ isDeleted: false })
+		.search(["name"])
+		.filter()
+		.paginate()
+		.build();
 
 	const category = await prisma.category.findMany(prismaArgs);
 	const meta = await builder.getMeta(prisma.category);

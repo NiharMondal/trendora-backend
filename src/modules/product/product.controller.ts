@@ -14,12 +14,13 @@ const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await productServices.findAllFromDB(req.query);
+	const { product, meta } = await productServices.findAllFromDB(req.query);
 
 	sendResponse(res, {
 		statusCode: 200,
 		message: "Product fetched successfully",
-		data: data,
+		data: product,
+		meta: meta,
 	});
 });
 const findById = asyncHandler(async (req: Request, res: Response) => {
