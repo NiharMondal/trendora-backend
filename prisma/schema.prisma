@@ -48,6 +48,7 @@ model User {
   password  String
   phone     String?    @unique
   role      Role       @default(CUSTOMER)
+  avatar    String?    @default("")
   addresses Address[]
   orders    Order[]
   reviews   Review[]

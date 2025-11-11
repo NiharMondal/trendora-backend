@@ -64,6 +64,11 @@ const findAllFromDB = async (query: Record<string, any>) => {
 		.search(["name"])
 		.filter()
 		.paginate()
+		.include({
+			images: {
+				select: { url: true },
+			},
+		})
 		.build();
 
 	const product = await prisma.product.findMany(prismaArgs);
