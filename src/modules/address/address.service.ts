@@ -11,7 +11,7 @@ const createIntoDB = async (payload: Address) => {
 };
 
 const findAddressByUserId = async (userId: string) => {
-	const user = await prisma.user.findUnique({ where: { id: userId } });
+	const user = await prisma.address.findMany({ where: { userId: userId } });
 
 	if (!user) {
 		throw new CustomError(404, "Sorry, user not found!");

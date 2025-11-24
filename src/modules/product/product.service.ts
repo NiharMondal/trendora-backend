@@ -231,6 +231,19 @@ const deleteData = async (id: string) => {
 	return data;
 };
 
+const newArrivalProducts = async () => {
+	const products = await prisma.product.findMany({
+		where: { isDeleted: false },
+		orderBy: { createdAt: "desc" },
+		take: 10,
+		include: {
+			images: true,
+			variants: true,
+		},
+	});
+
+	return products;
+};
 export const productServices = {
 	createIntoDB,
 	findAllFromDB,
@@ -238,4 +251,6 @@ export const productServices = {
 	findBySlug,
 	updateData,
 	deleteData,
+	//
+	newArrivalProducts,
 };

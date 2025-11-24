@@ -3,6 +3,7 @@ import { productControllers } from "./product.controller";
 
 const router = Router();
 
+router.get("/new-arrival", productControllers.newArrivalProducts);
 router.get("/by-slug/:slug", productControllers.findBySlug);
 
 router

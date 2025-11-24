@@ -64,6 +64,15 @@ const deleteData = asyncHandler(async (req: Request, res: Response) => {
 		data: data,
 	});
 });
+const newArrivalProducts = asyncHandler(async (req: Request, res: Response) => {
+	const data = await productServices.newArrivalProducts();
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Product fetched successfully",
+		data: data,
+	});
+});
 
 export const productControllers = {
 	createIntoDB,
@@ -72,4 +81,7 @@ export const productControllers = {
 	findBySlug,
 	updateData,
 	deleteData,
+	//
+
+	newArrivalProducts,
 };
