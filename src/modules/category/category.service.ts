@@ -2,12 +2,14 @@ import { Category, Prisma } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import { generateSlug } from "../../helpers/slug";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
+import { capitalizeFirstLetter } from "../../utils/utils";
 
 const createIntoDB = async (payload: Category) => {
+    const name = capitalizeFirstLetter(payload.name.trim());
     const slug = generateSlug(payload.name);
 
     const data = await prisma.category.create({
-        data: { ...payload, slug },
+        data: { ...payload, name, slug },
     });
 
     return data;
