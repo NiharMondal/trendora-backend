@@ -73,6 +73,16 @@ model Address {
   order      Order[]
 }
 
+// ----- Brand -------
+model Brand {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  products  Product[]
+  isDeleted Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
 // ---------- PRODUCT & CATEGORIES ----------
 model Category {
   id        String     @id @default(uuid())
@@ -99,6 +109,8 @@ model Product {
   isFeatured    Boolean          @default(false)
   categoryId    String
   category      Category         @relation(fields: [categoryId], references: [id])
+  brandId       String
+  brand         Brand            @relation(fields: [brandId], references: [id])
   variants      ProductVariant[]
   images        ProductImage[]
   reviews       Review[]
