@@ -73,6 +73,17 @@ model Address {
   order      Order[]
 }
 
+model Slide {
+  id        String   @id @default(uuid())
+  title     String   @unique
+  subtitle  String
+  photoUrl  String
+  url       String
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ----- Brand -------
 model Brand {
   id        String    @id @default(uuid())

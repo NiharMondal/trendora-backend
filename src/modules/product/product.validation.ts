@@ -21,6 +21,7 @@ export const productSchema = z.object({
     discountPrice: decimalSchema.optional(),
     stockQuantity: z.number().int().min(0),
     categoryId: uuidSchema,
+    brandId: uuidSchema,
     isPublished: z.boolean().optional(),
     isFeatured: z.boolean().optional(),
     variants: z.array(productVariantSchema).optional(),

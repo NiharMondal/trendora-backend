@@ -20,6 +20,21 @@ type ProductCreatePayload = Omit<
 
 const createIntoDB = async (payload: ProductCreatePayload) => {
     const { variants, images, discountPrice, ...others } = payload;
+    // find category
+    const category = await prisma.category.findUnique({
+        where: { id: payload.categoryId },
+    });
+
+    if (!category) {
+        throw new CustomError(404, "Category not found");
+    }
+    // find brand
+    const brand = await prisma.brand.findUnique({
+        where: { id: payload.brandId },
+    });
+    if (!brand) {
+        throw new CustomError(404, "Brand not found");
+    }
     const slug = generateSlug(payload.name);
     const dis_Price =
         discountPrice !== null &&
@@ -66,9 +81,13 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
         .paginate()
         .include({
             images: {
-                select: { url: true },
+                select: { id: true, url: true, isMain: true },
             },
+            variants: true,
         })
+        // .include({
+        //     variants: true,
+        // })
         .build();
 
     const product = await prisma.product.findMany(prismaArgs);
