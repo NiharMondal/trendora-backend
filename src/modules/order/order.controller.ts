@@ -4,49 +4,50 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
 
 const createOrder = asyncHandler(async (req: Request, res: Response) => {
-	const data = await orderServices.createOrder(req.body);
+    const data = await orderServices.createOrder(req.body);
 
-	sendResponse(res, {
-		statusCode: 201,
-		message: "Order placed successfully",
-		data: data,
-	});
+    sendResponse(res, {
+        statusCode: 201,
+        message: "Order placed successfully",
+        data: data,
+    });
 });
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await orderServices.findAllFromDB(req.query);
+    const data = await orderServices.findAllFromDB(req.query);
 
-	sendResponse(res, {
-		statusCode: 200,
-		message: "Order fetched successfully",
-		data: data,
-	});
+    sendResponse(res, {
+        statusCode: 200,
+        message: "Order fetched successfully",
+        meta: data.meta,
+        data: data.orders,
+    });
 });
 const getMyOrder = asyncHandler(async (req: Request, res: Response) => {
-	const userId = req.user.userId;
-	const data = await orderServices.getMyOrder(userId, req.query);
+    const userId = req.user.userId;
+    const data = await orderServices.getMyOrder(userId);
 
-	sendResponse(res, {
-		statusCode: 200,
-		message: "My Order fetched successfully",
+    sendResponse(res, {
+        statusCode: 200,
+        message: "My Order fetched successfully",
 
-		data: data,
-	});
+        data: data,
+    });
 });
 
 const markOrderStatus = asyncHandler(async (req: Request, res: Response) => {
-	const orderId = req.params.orderId;
-	const data = await orderServices.markOrderStatus(orderId, req.body);
+    const orderId = req.params.orderId;
+    const data = await orderServices.markOrderStatus(orderId, req.body);
 
-	sendResponse(res, {
-		statusCode: 200,
-		message: "Order status updated successfully",
-		data: data,
-	});
+    sendResponse(res, {
+        statusCode: 200,
+        message: "Order status updated successfully",
+        data: data,
+    });
 });
 
 export const orderControllers = {
-	createOrder,
-	findAllFromDB,
-	markOrderStatus,
-	getMyOrder,
+    createOrder,
+    findAllFromDB,
+    markOrderStatus,
+    getMyOrder,
 };

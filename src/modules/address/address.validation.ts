@@ -1,17 +1,15 @@
 import z from "zod";
 
-const createAddress = z.object({
-	userId: z
-		.string({ error: "User ID is required" })
-		.nonempty({ error: "User ID can not be empty" }),
-	fullName: z.string({ error: "Name is required" }),
-	phone: z.string({ error: "Phone number is required" }),
-	street: z.string({ error: "Street is required" }),
-	city: z.string({ error: "City name is required" }),
-	state: z.string({ error: "State name is required" }).optional(),
-	postalCode: z.string({ error: "Postal code is required" }),
-	country: z.string({ error: "Country name is required" }),
+export const addressSchema = z.object({
+    userId: z
+        .string({ error: "User ID is required" })
+        .nonempty({ error: "User ID can not be empty" })
+        .trim(),
+    fullName: z.string({ error: "Name is required" }).trim(),
+    phone: z.string({ error: "Phone number is required" }).trim(),
+    street: z.string({ error: "Street is required" }).trim(),
+    city: z.string({ error: "City name is required" }).trim(),
+    state: z.string().trim().optional(),
+    postalCode: z.string({ error: "Postal code is required" }).trim(),
+    country: z.string({ error: "Country name is required" }).trim(),
 });
-
-export const updateAddress = createAddress.partial();
-export const addressValidation = { createAddress, updateAddress };
