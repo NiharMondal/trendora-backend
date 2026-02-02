@@ -79,20 +79,17 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
         .search(["name"])
         .filter()
         .paginate()
+        .sort()
         .include({
             images: {
                 select: { id: true, url: true, isMain: true },
             },
             variants: true,
         })
-        // .include({
-        //     variants: true,
-        // })
         .build();
 
     const product = await prisma.product.findMany(prismaArgs);
     const meta = await builder.getMeta(prisma.product);
-
     return { meta, product };
 };
 
@@ -121,7 +118,7 @@ const findBySlug = async (slug: string) => {
 
 const updateData = async (
     id: string,
-    payload: Partial<ProductCreatePayload>
+    payload: Partial<ProductCreatePayload>,
 ) => {
     const { variants = [], images = [], ...rest } = payload;
 
@@ -151,10 +148,10 @@ const updateData = async (
 
     // IDs to delete (those that exist in DB but not in request)
     const variantIdsToDelete = existingVariantIds.filter(
-        (id) => !incomingVariantIds.includes(id)
+        (id) => !incomingVariantIds.includes(id),
     );
     const imageIdsToDelete = existingImageIds.filter(
-        (id) => !incomingImageIds.includes(id)
+        (id) => !incomingImageIds.includes(id),
     );
 
     // Begin transaction to ensure atomicity

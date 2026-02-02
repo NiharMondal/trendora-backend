@@ -34,7 +34,7 @@ const createIntoDB = async (payload: Review) => {
                 id: payload.productId,
             },
             data: {
-                rating: ratingStats._avg.rating ?? 0,
+                averageRating: ratingStats._avg.rating ?? 0,
             },
         });
 
@@ -119,7 +119,7 @@ const updateData = async (id: string, payload: Partial<Review>) => {
         await tx.product.update({
             where: { id: existingReview.productId },
             data: {
-                rating: stats._avg.rating ?? 0,
+                averageRating: stats._avg.rating ?? 0,
             },
         });
 
@@ -158,7 +158,7 @@ const deleteData = async (id: string) => {
         await tx.product.update({
             where: { id: review.productId },
             data: {
-                rating: stats._avg.rating ?? 0,
+                averageRating: stats._avg.rating ?? 0,
             },
         });
 

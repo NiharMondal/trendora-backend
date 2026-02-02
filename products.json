@@ -1,0 +1,184 @@
+[
+  {
+    "id": "3295738c-63a6-486a-b1ab-294326058f9f",
+    "name": "Adidas Ultraboost 23 Running Shoes",
+    "slug": "adidas-ultraboost-23-running-shoes",
+    "description": "Energy-returning Boost cushioning. Adaptive Primeknit+ upper. Continental rubber outsole for superior grip. Perfect for runners seeking comfort and performance.",
+    "basePrice": "190",
+    "discountPrice": null,
+    "stockQuantity": 180,
+    "isPublished": true,
+    "isFeatured": false,
+    "categoryId": "ce094700-5b5e-47e8-ab10-07c52260c8bb",
+    "brandId": "9e9fa0f7-4046-4be2-9729-3c3f9a469d77",
+    "averageRating": 0,
+    "isDeleted": false,
+    "createdAt": "2026-02-02T10:23:45.294Z",
+    "updatedAt": "2026-02-02T10:23:45.294Z",
+    "variants": [
+      {
+        "id": "3eac4466-91fa-493a-8133-770566db2dd2",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "8",
+        "color": "Core Black",
+        "stock": 20,
+        "price": "190",
+        "isDeleted": false
+      },
+      {
+        "id": "0d86799b-73bb-4927-9223-71ae25563d11",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "9",
+        "color": "Core Black",
+        "stock": 25,
+        "price": "190",
+        "isDeleted": false
+      },
+      {
+        "id": "bd47cfd8-7842-4ffd-91e6-705252a8402c",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "10",
+        "color": "Core Black",
+        "stock": 20,
+        "price": "190",
+        "isDeleted": false
+      },
+      {
+        "id": "834af44a-a7c8-47ed-bd1a-de1ec5462241",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "8",
+        "color": "Cloud White",
+        "stock": 15,
+        "price": "190",
+        "isDeleted": false
+      },
+      {
+        "id": "abcbecd7-25e6-4a64-ac02-eb958869fa8d",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "9",
+        "color": "Cloud White",
+        "stock": 20,
+        "price": "190",
+        "isDeleted": false
+      },
+      {
+        "id": "3e49c7df-a41c-4234-9758-335a38eb04f6",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "10",
+        "color": "Cloud White",
+        "stock": 15,
+        "price": "190",
+        "isDeleted": false
+      },
+      {
+        "id": "d515f42e-33ee-42ad-9c02-82c7dc20e8ec",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "9",
+        "color": "Solar Red",
+        "stock": 15,
+        "price": "190",
+        "isDeleted": false
+      },
+      {
+        "id": "98769599-10b0-4624-8624-b5e4ff8cb93e",
+        "productId": "3295738c-63a6-486a-b1ab-294326058f9f",
+        "size": "10",
+        "color": "Solar Red",
+        "stock": 10,
+        "price": "190",
+        "isDeleted": false
+      }
+    ]
+  },
+  {
+    "id": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+    "name": "Levi's 501 Original Fit Jeans",
+    "slug": "levi's-501-original-fit-jeans",
+    "description": "The original blue jean since 1873. Crafted with a signature button fly and straight leg. A blank canvas for self-expression that has stayed true for over 140 years.",
+    "basePrice": "89",
+    "discountPrice": "69",
+    "stockQuantity": 300,
+    "isPublished": true,
+    "isFeatured": false,
+    "categoryId": "ce094700-5b5e-47e8-ab10-07c52260c8bb",
+    "brandId": "10518c58-a469-417f-8915-ade680463fc1",
+    "averageRating": 0,
+    "isDeleted": false,
+    "createdAt": "2026-02-02T10:02:34.231Z",
+    "updatedAt": "2026-02-02T10:02:34.231Z",
+    "variants": [
+      {
+        "id": "935f6bfe-3896-4fad-ad9f-bbb7dcc1402d",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "S",
+        "color": "Black",
+        "stock": 30,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "e1c1b96d-f868-44d1-8867-06ec370b6fde",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "M",
+        "color": "Dark Blue",
+        "stock": 25,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "914b39d8-6686-4cd0-8eff-3f06a51dc4c9",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "M",
+        "color": "Light Blue",
+        "stock": 25,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "c3aa52cf-3442-4e53-8334-103b5814eddf",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "XL",
+        "color": "Dark Blue",
+        "stock": 30,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "475ae07b-5352-4202-8fa5-de5ca973d066",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "L",
+        "color": "Light Blue",
+        "stock": 15,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "a9032bb8-1f18-48a9-b4af-4609e499b71e",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "2XL",
+        "color": "Light Blue",
+        "stock": 20,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "6634a60a-eb2a-4cae-a959-f0b928f37d82",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "XS",
+        "color": "Dark Blue",
+        "stock": 20,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "c0597e5e-1653-47d8-aa19-15d1f45fb301",
+        "productId": "e6130aff-d285-44fd-a60d-0d32a04fc4a8",
+        "size": "M",
+        "color": "Black",
+        "stock": 35,
+        "price": "69",
+        "isDeleted": false
+      }
+    ]
+  }
+]
