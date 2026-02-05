@@ -72,11 +72,15 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, {
+        defaultField: "createdAt",
+        defaultOrder: "desc",
+        allowedFields: ["name", "basePrice", "createdAt"],
+    });
 
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
-        .search(["name"])
+        .search(["name", "description"])
         .filter()
         .paginate()
         .sort()
@@ -85,12 +89,17 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
                 select: { id: true, url: true, isMain: true },
             },
             variants: true,
+            category: true,
+            brand: true,
         })
         .build();
 
-    const product = await prisma.product.findMany(prismaArgs);
-    const meta = await builder.getMeta(prisma.product);
-    return { meta, product };
+    const [products, meta] = await Promise.all([
+        prisma.product.findMany(prismaArgs),
+        builder.getMeta(prisma.product),
+    ]);
+
+    return { meta, data: products };
 };
 
 const findById = async (id: string) => {
