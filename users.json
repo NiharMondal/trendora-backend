@@ -1,0 +1,388 @@
+[
+  {
+    "id": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+    "name": "Levi's 501 Original Fit Jeans",
+    "slug": "levi's-501-original-fit-jeans",
+    "description": "The original blue jean since 1873. Crafted with a signature button fly and straight leg. A blank canvas for self-expression that has stayed true for over 140 years.",
+    "basePrice": "89",
+    "discountPrice": "69",
+    "stockQuantity": 300,
+    "isPublished": true,
+    "isFeatured": false,
+    "categoryId": "18f49a98-5579-475a-94ed-5f2c626fe7c7",
+    "brandId": "b8cb39b1-eef7-4b80-a8dc-6f07a0d1faeb",
+    "isDeleted": false,
+    "createdAt": "2026-01-29T12:45:13.455Z",
+    "updatedAt": "2026-01-29T12:45:13.455Z",
+    "images": [
+      {
+        "id": "c7efe86e-9812-4751-bb69-89193d49a87c",
+        "url": "https://images.unsplash.com/photo-1542272604-787c3835535d",
+        "isMain": true
+      },
+      {
+        "id": "c75f4f9e-4ce0-4f15-9030-6981d3120b13",
+        "url": "https://images.unsplash.com/photo-1541099649105-f69ad21f3246",
+        "isMain": false
+      }
+    ],
+    "variants": [
+      {
+        "id": "01b2db37-cc23-4424-b7a6-2a053b15fd9d",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "S",
+        "color": "Black",
+        "stock": 30,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "0be338fd-c5be-40e1-98a6-a5978afa8076",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "M",
+        "color": "Dark Blue",
+        "stock": 25,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "a5e7f276-17fd-40cb-9e37-1f868836b8db",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "M",
+        "color": "Light Blue",
+        "stock": 25,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "b6791d4d-2110-4498-ae7b-dd4e02e17e43",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "XL",
+        "color": "Dark Blue",
+        "stock": 30,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "c5b6a52d-e279-4a45-8474-0243e48255f5",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "L",
+        "color": "Light Blue",
+        "stock": 15,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "d09c0b6f-7065-45ef-ae90-8f5f7054efa3",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "2XL",
+        "color": "Light Blue",
+        "stock": 20,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "e5142db3-b69b-41b4-a409-a9b5f0054658",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "XS",
+        "color": "Dark Blue",
+        "stock": 20,
+        "price": "69",
+        "isDeleted": false
+      },
+      {
+        "id": "e6cdca39-3cf0-4da8-9a0a-10164f540c03",
+        "productId": "51769dc4-a9e5-410d-8c8e-bbef7ebe88f9",
+        "size": "M",
+        "color": "Black",
+        "stock": 35,
+        "price": "69",
+        "isDeleted": false
+      }
+    ]
+  },
+  {
+    "id": "79ec24d2-e52b-4712-aed6-1fadadbc1a76",
+    "name": "Hoyt Wolfe",
+    "slug": "hoyt-wolfe",
+    "description": "Amet doloremque saedsfdsfdsfdsfdsaf",
+    "basePrice": "768",
+    "discountPrice": "590",
+    "stockQuantity": 412,
+    "isPublished": true,
+    "isFeatured": true,
+    "categoryId": "675319bc-cf6e-482c-88c3-29e3a77cfdb3",
+    "brandId": "61fbf893-fa0d-4514-940d-88fff60b5ad6",
+    "isDeleted": false,
+    "createdAt": "2026-01-29T13:11:55.629Z",
+    "updatedAt": "2026-01-29T13:11:55.629Z",
+    "images": [
+      {
+        "id": "46c1cb19-7cbf-41f5-86a6-72b2d7b3b6ce",
+        "url": "https://images.unsplash.com/photo-1507680434567-5739c80be1ac?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8ZmFzaGlvbiUyMG1hbnxlbnwwfDB8MHx8fDA%3D",
+        "isMain": true
+      }
+    ],
+    "variants": [
+      {
+        "id": "3624c6be-6d7f-4fce-b846-8030381118bf",
+        "productId": "79ec24d2-e52b-4712-aed6-1fadadbc1a76",
+        "size": "L",
+        "color": "Black",
+        "stock": 69,
+        "price": "877",
+        "isDeleted": false
+      }
+    ]
+  },
+  {
+    "id": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+    "name": "Nike Air Max 270",
+    "slug": "nike-air-max-270",
+    "description": "The Nike Air Max 270 features a large Max Air unit in the heel for cushioning and comfort. Perfect for everyday wear with a sleek, modern design.",
+    "basePrice": "150",
+    "discountPrice": "120",
+    "stockQuantity": 150,
+    "isPublished": true,
+    "isFeatured": true,
+    "categoryId": "6b76c2f1-6161-4892-be15-039a326acc1c",
+    "brandId": "363a1ac6-cbb6-411a-8b26-bf363b7f5fa0",
+    "isDeleted": false,
+    "createdAt": "2026-01-29T12:41:44.049Z",
+    "updatedAt": "2026-01-29T12:41:44.049Z",
+    "images": [
+      {
+        "id": "62d47ff7-286b-4cce-a8a6-8b77c4c98471",
+        "url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff",
+        "isMain": true
+      },
+      {
+        "id": "cfed8ba2-2e49-4bd1-8abc-0383462a3717",
+        "url": "https://images.unsplash.com/photo-1549298916-b41d501d3772",
+        "isMain": false
+      },
+      {
+        "id": "530cf375-3cf2-4cd1-a119-9d0aa3c9b27d",
+        "url": "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a",
+        "isMain": false
+      }
+    ],
+    "variants": [
+      {
+        "id": "1461ae97-ca44-4d7a-adf1-f070309539ce",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "8",
+        "color": "Black",
+        "stock": 20,
+        "price": "120",
+        "isDeleted": false
+      },
+      {
+        "id": "42d5cd62-3569-475f-b5fd-05dfc17ba121",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "9",
+        "color": "Black",
+        "stock": 25,
+        "price": "120",
+        "isDeleted": false
+      },
+      {
+        "id": "90c44d5e-1a90-4359-a7d9-ea3a4fc641fc",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "10",
+        "color": "Black",
+        "stock": 30,
+        "price": "120",
+        "isDeleted": false
+      },
+      {
+        "id": "bd322fdc-6d27-4c95-97ef-44c2f4603f85",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "8",
+        "color": "White",
+        "stock": 15,
+        "price": "120",
+        "isDeleted": false
+      },
+      {
+        "id": "6b5c7db6-c012-412f-8db6-0d9f9bb5e32a",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "9",
+        "color": "White",
+        "stock": 20,
+        "price": "120",
+        "isDeleted": false
+      },
+      {
+        "id": "9c0fedc4-5a90-44ee-85d7-2452954817e3",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "10",
+        "color": "White",
+        "stock": 20,
+        "price": "120",
+        "isDeleted": false
+      },
+      {
+        "id": "ba1cf394-5d6d-400b-aec9-3ad1897222cf",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "9",
+        "color": "Red",
+        "stock": 10,
+        "price": "125",
+        "isDeleted": false
+      },
+      {
+        "id": "c53c305a-8470-4288-9256-76bce900f0e3",
+        "productId": "ceb3d932-7894-40ea-9fca-dd7b4bb174bd",
+        "size": "10",
+        "color": "Red",
+        "stock": 10,
+        "price": "125",
+        "isDeleted": false
+      }
+    ]
+  },
+  {
+    "name": "Adidas Ultraboost 23 Running Shoes",
+    "slug": "adidas-ultraboost-23-running-shoes",
+    "description": "Energy-returning Boost cushioning. Adaptive Primeknit+ upper. Continental rubber outsole for superior grip. Perfect for runners seeking comfort and performance.",
+    "basePrice": 190,
+    "discountPrice": null,
+    "stockQuantity": 180,
+    "isPublished": true,
+    "isFeatured": false,
+    "categoryId": "6b76c2f1-6161-4892-be15-039a326acc1c",
+    "brandId": "61fbf893-fa0d-4514-940d-88fff60b5ad6",
+    "isDeleted": false,
+    "createdAt": "2026-01-29T12:47:28.038Z",
+    "updatedAt": "2026-01-29T12:47:28.038Z",
+    "images": [
+      {
+        "id": "fd28d028-1095-4498-a45a-64de27459a39",
+        "url": "https://images.unsplash.com/photo-1608231387042-66d1773070a5",
+        "isMain": true
+      },
+      {
+        "id": "3029cb41-1f54-4d7e-bd70-1543cd281e39",
+        "url": "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa",
+        "isMain": false
+      }
+    ],
+    "variants": [
+      {
+
+        "size": "8",
+        "color": "Core Black",
+        "stock": 20,
+        "price": 190,
+        "isDeleted": false
+      },
+      {
+        "size": "9",
+        "color": "Core Black",
+        "stock": 25,
+        "price": 190,
+        "isDeleted": false
+      },
+      {
+        "size": "10",
+        "color": "Core Black",
+        "stock": 20,
+        "price": 190,
+        "isDeleted": false
+      },
+      {
+        "size": "8",
+        "color": "Cloud White",
+        "stock": 15,
+        "price": 190,
+        "isDeleted": false
+      },
+      {
+        "size": "9",
+        "color": "Cloud White",
+        "stock": 20,
+        "price": 190,
+        "isDeleted": false
+      },
+      {
+        "size": "10",
+        "color": "Cloud White",
+        "stock": 15,
+        "price": 190,
+        "isDeleted": false
+      },
+      {
+        "size": "9",
+        "color": "Solar Red",
+        "stock": 15,
+        "price": 190,
+        "isDeleted": false
+      },
+      {
+        "size": "10",
+        "color": "Solar Red",
+        "stock": 10,
+        "price": 190,
+        "isDeleted": false
+      }
+    ]
+  },
+  {
+    "id": "fa22434c-b2ad-494f-a38b-f6a5e6caa7b8",
+    "name": "Clasic T-Shirt",
+    "slug": "clasic-t-shirt",
+    "description": "Lorem ipsum dolor, sit amet consectetur adipisicing elit. Explicabo magni obcaecati recusandae harum fuga quaerat cupiditate itaque dolorem reiciendis, asperiores, eligendi eius illo est mollitia nostrum id necessitatibus dolores. Quae nesciunt aut assumenda, nisi totam explicabo quia maiores. Eaque vero excepturi at ullam beatae a est repellat ducimus placeat temporibus?",
+    "basePrice": "90.99",
+    "discountPrice": "80",
+    "stockQuantity": 118,
+    "isPublished": true,
+    "isFeatured": false,
+    "categoryId": "331de684-de94-406f-a385-4cbd7db5ab90",
+    "brandId": "6fdacdfb-d462-4859-a039-402341ff1618",
+    "isDeleted": false,
+    "createdAt": "2026-01-14T08:58:43.390Z",
+    "updatedAt": "2026-01-23T14:00:07.815Z",
+    "images": [
+      {
+        "id": "28254f40-6c92-4a56-812c-2807ca91c677",
+        "url": "https://images.unsplash.com/photo-1621951753015-740c699ab970?q=80&w=880&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+        "isMain": true
+      },
+      {
+        "id": "89d501a1-dff0-4290-a95b-7043efca9c78",
+        "url": "https://images.unsplash.com/photo-1714070700737-24acfe6b957c?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8dCUyMHNoaXJ0fGVufDB8MnwwfHx8MA%3D%3D",
+        "isMain": false
+      }
+    ],
+    "variants": [
+      {
+        "id": "3475a24b-31b9-40a6-a9b5-d403207616b1",
+        "productId": "fa22434c-b2ad-494f-a38b-f6a5e6caa7b8",
+        "size": "L",
+        "color": "White",
+        "stock": 50,
+        "price": "90.99",
+        "isDeleted": false
+      },
+      {
+        "id": "e187a49c-47e7-4f9c-873d-5be08a033bbf",
+        "productId": "fa22434c-b2ad-494f-a38b-f6a5e6caa7b8",
+        "size": "XL",
+        "color": "Gray",
+        "stock": 20,
+        "price": "110.7",
+        "isDeleted": false
+      },
+      {
+        "id": "98abcd1a-7758-4d84-9005-c71738e06ff3",
+        "productId": "fa22434c-b2ad-494f-a38b-f6a5e6caa7b8",
+        "size": "M",
+        "color": "Red",
+        "stock": 80,
+        "price": "97.5",
+        "isDeleted": false
+      }
+    ]
+  }
+]

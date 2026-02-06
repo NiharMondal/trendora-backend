@@ -19,11 +19,29 @@ const createIntoDB = async (payload: Review) => {
         throw new CustomError(404, "Sorry, Product not found!");
     }
 
-    const review = await prisma.review.create({
-        data: payload,
+    const result = await prisma.$transaction(async (tx) => {
+        const review = await tx.review.create({
+            data: payload,
+        });
+
+        const ratingStats = await tx.review.aggregate({
+            where: { productId: payload.productId },
+            _avg: { rating: true },
+            _count: { rating: true },
+        });
+        await tx.product.update({
+            where: {
+                id: payload.productId,
+            },
+            data: {
+                averageRating: ratingStats._avg.rating ?? 0,
+            },
+        });
+
+        return review;
     });
 
-    return review;
+    return result;
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
@@ -52,6 +70,13 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 const findById = async (id: string) => {
     const review = await prisma.review.findUniqueOrThrow({
         where: { id },
+        include: {
+            user: {
+                select: {
+                    name: true,
+                },
+            },
+        },
     });
 
     return review;
@@ -65,25 +90,80 @@ const findByUserId = async (id: string) => {
 };
 
 const updateData = async (id: string, payload: Partial<Review>) => {
-    const updatedData = await prisma.review.update({
-        where: { id },
-        data: { ...payload },
+    return await prisma.$transaction(async (tx) => {
+        // Fetch existing review
+        const existingReview = await tx.review.findUnique({
+            where: { id, isDeleted: false },
+        });
+
+        if (!existingReview) {
+            throw new CustomError(404, "Review not found");
+        }
+
+        const updatedReview = await tx.review.update({
+            where: { id },
+            data: payload,
+        });
+
+        // Recalculate rating
+        const stats = await tx.review.aggregate({
+            where: {
+                productId: existingReview.productId,
+                isDeleted: false,
+            },
+            _avg: { rating: true },
+            _count: { rating: true },
+        });
+
+        // Update product
+        await tx.product.update({
+            where: { id: existingReview.productId },
+            data: {
+                averageRating: stats._avg.rating ?? 0,
+            },
+        });
+
+        return updatedReview;
     });
-    return updatedData;
 };
 
 const deleteData = async (id: string) => {
-    await prisma.review.findUniqueOrThrow({
-        where: { id },
-    });
-    const data = await prisma.review.update({
-        where: { id },
-        data: {
-            isDeleted: true,
-        },
-    });
+    return await prisma.$transaction(async (tx) => {
+        //  Fetch review
+        const review = await tx.review.findUnique({
+            where: { id, isDeleted: false },
+        });
 
-    return data;
+        if (!review) {
+            throw new CustomError(404, "Review not found");
+        }
+
+        // Soft delete
+        const deletedReview = await tx.review.update({
+            where: { id },
+            data: { isDeleted: true },
+        });
+
+        //  Recalculate product rating
+        const stats = await tx.review.aggregate({
+            where: {
+                productId: review.productId,
+                isDeleted: false,
+            },
+            _avg: { rating: true },
+            _count: { rating: true },
+        });
+
+        // Update product
+        await tx.product.update({
+            where: { id: review.productId },
+            data: {
+                averageRating: stats._avg.rating ?? 0,
+            },
+        });
+
+        return deletedReview;
+    });
 };
 
 export const reviewServices = {

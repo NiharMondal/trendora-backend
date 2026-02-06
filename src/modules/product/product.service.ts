@@ -72,28 +72,34 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, {
+        defaultField: "createdAt",
+        defaultOrder: "desc",
+        allowedFields: ["name", "basePrice", "createdAt"],
+    });
 
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
-        .search(["name"])
+        .search(["name", "description"])
         .filter()
         .paginate()
+        .sort()
         .include({
             images: {
                 select: { id: true, url: true, isMain: true },
             },
             variants: true,
+            category: true,
+            brand: true,
         })
-        // .include({
-        //     variants: true,
-        // })
         .build();
 
-    const product = await prisma.product.findMany(prismaArgs);
-    const meta = await builder.getMeta(prisma.product);
+    const [products, meta] = await Promise.all([
+        prisma.product.findMany(prismaArgs),
+        builder.getMeta(prisma.product),
+    ]);
 
-    return { meta, product };
+    return { meta, data: products };
 };
 
 const findById = async (id: string) => {
@@ -121,7 +127,7 @@ const findBySlug = async (slug: string) => {
 
 const updateData = async (
     id: string,
-    payload: Partial<ProductCreatePayload>
+    payload: Partial<ProductCreatePayload>,
 ) => {
     const { variants = [], images = [], ...rest } = payload;
 
@@ -151,10 +157,10 @@ const updateData = async (
 
     // IDs to delete (those that exist in DB but not in request)
     const variantIdsToDelete = existingVariantIds.filter(
-        (id) => !incomingVariantIds.includes(id)
+        (id) => !incomingVariantIds.includes(id),
     );
     const imageIdsToDelete = existingImageIds.filter(
-        (id) => !incomingImageIds.includes(id)
+        (id) => !incomingImageIds.includes(id),
     );
 
     // Begin transaction to ensure atomicity
