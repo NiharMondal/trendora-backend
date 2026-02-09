@@ -16,19 +16,34 @@ const createIntoDB = async (payload: Category) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query, {
+        defaultField: "createdAt",
+        defaultOrder: "desc",
+        allowedFields: ["name", "createdAt"],
+    });
 
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
         .search(["name"])
         .filter()
         .paginate()
+        .sort()
+        .include({
+            parent: {
+                select: {
+                    id: true,
+                    name: true,
+                },
+            },
+        })
         .build();
 
-    const category = await prisma.category.findMany(prismaArgs);
-    const meta = await builder.getMeta(prisma.category);
+    const [categories, meta] = await Promise.all([
+        prisma.category.findMany(prismaArgs),
+        builder.getMeta(prisma.category),
+    ]);
 
-    return { meta, category };
+    return { meta, categories };
 };
 
 const findById = async (id: string) => {
