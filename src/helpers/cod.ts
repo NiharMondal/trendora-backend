@@ -1,54 +1,123 @@
-import { Order, OrderItem, PaymentStatus } from "../../generated/prisma";
+import { InventoryType, OrderStatus, PaymentMethod, PaymentStatus } from "../../generated/prisma";
 import { prisma } from "../config/db";
-import { generateTransactionId } from "./generateTransactionId";
+import { CreateOrderInput, OrderCalculation } from "../types/common.types";
+import CustomError from "../utils/customError";
+import { logInventoryChange, logStatusChange } from "./order";
 
-export const createCODService = async (rest: Order, items: OrderItem[]) => {
-	// count total price
-	const totalAmount = items.reduce(
-		(acc, item) => acc + Number(item.price) * item.quantity,
-		0
-	);
+export async function createCODOrder(
+    input: CreateOrderInput,
+    calculation: OrderCalculation,
+    orderNumber: string,
+) {
+    return prisma.$transaction(async (tx) => {
+        // 1. Deduct stock atomically
+        for (const item of calculation.items) {
+            if (item.variantId) {
+                // Update variant stock
+                const variant = await tx.productVariant.update({
+                    where: { id: item.variantId },
+                    data: { stock: { decrement: item.quantity } },
+                });
 
-	return await prisma.$transaction(async (tx) => {
-		const transactionId = generateTransactionId();
+                if (variant.stock < 0) {
+                    throw new CustomError(
+                        400,
+                        `Insufficient stock for ${item.productName}`,
+                    );
+                }
 
-		// updating stock when they checkout
-		for (const item of items) {
-			if (item.variantId) {
-				await tx.productVariant.update({
-					where: { id: item.variantId },
-					data: { stock: { decrement: item.quantity } },
-				});
-			} else {
-				await tx.product.update({
-					where: { id: item.productId },
-					data: {
-						stockQuantity: { decrement: item.quantity },
-					},
-				});
-			}
-		}
-		// creating order
-		const order = await tx.order.create({
-			data: {
-				...rest,
-				totalAmount,
-				items: {
-					create: items,
-				},
-			},
-			include: { items: true },
-		});
+                // Log inventory change
+                await logInventoryChange(
+                    tx,
+                    item.productId,
+                    item.variantId,
+                    item.quantity,
+                    InventoryType.SALE,
+                    orderNumber,
+                    "COD order created",
+                );
+            } else {
+                // Update product stock
+                const product = await tx.product.update({
+                    where: { id: item.productId },
+                    data: { stockQuantity: { decrement: item.quantity } },
+                });
 
-		// creating payment
-		await tx.payment.create({
-			data: {
-				orderId: order.id,
-				amount: totalAmount,
-				method: rest.paymentMethod,
-				status: PaymentStatus.PENDING,
-				transactionId: transactionId,
-			},
-		});
-	});
-};
+                if (product.stockQuantity < 0) {
+                    throw new CustomError(
+                        400,
+                        `Insufficient stock for ${item.productName}`,
+                    );
+                }
+
+                // Log inventory change
+                await logInventoryChange(
+                    tx,
+                    item.productId,
+                    undefined,
+                    item.quantity,
+                    InventoryType.SALE,
+                    orderNumber,
+                    "COD order created",
+                );
+            }
+        }
+
+        // 2. Create order
+        const order = await tx.order.create({
+            data: {
+                orderNumber,
+                userId: input.userId,
+                subtotal: calculation.subtotal,
+                tax: calculation.tax,
+                shippingCost: calculation.shippingCost,
+                discount: calculation.discount,
+                totalAmount: calculation.totalAmount,
+                paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
+                paymentStatus: PaymentStatus.PENDING,
+                orderStatus: OrderStatus.PENDING,
+                shippingAddressId: input.shippingAddressId,
+                ipAddress: input.ipAddress,
+                userAgent: input.userAgent,
+                notes: input.notes,
+                items: {
+                    create: calculation.items,
+                },
+            },
+            include: {
+                items: true,
+                shippingAddress: true,
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+
+        // 3. Create payment record
+        await tx.payment.create({
+            data: {
+                orderId: order.id,
+                amount: calculation.totalAmount,
+                method: PaymentMethod.CASH_ON_DELIVERY,
+                status: PaymentStatus.PENDING,
+            },
+        });
+
+        // 4. Log status history
+        await logStatusChange(
+            tx,
+            order.id,
+            OrderStatus.PENDING,
+            OrderStatus.PENDING,
+            input.userId,
+            "Order created",
+            input.ipAddress,
+        );
+
+        return order;
+    });
+}

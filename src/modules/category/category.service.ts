@@ -49,6 +49,14 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 const findById = async (id: string) => {
     const category = await prisma.category.findUniqueOrThrow({
         where: { id },
+        include: {
+            parent: {
+                select: {
+                    id: true,
+                    name: true,
+                },
+            },
+        },
     });
 
     return category;
