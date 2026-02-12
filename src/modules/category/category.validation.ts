@@ -6,6 +6,5 @@ export const categorySchema = z.object({
         .string()
         .min(2, "Category must be at least 2 characters long")
         .trim(),
-    // slug: z.string({error:""}).trim(), // slug will be generated automatically
-    parentId: uuidSchema.optional(),
+    parentId: uuidSchema.nullish().nullable(),
 });

@@ -76,6 +76,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
         defaultField: "createdAt",
         defaultOrder: "desc",
         allowedFields: ["name", "basePrice", "createdAt"],
+        
     });
 
     const prismaArgs = builder
