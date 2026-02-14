@@ -1,9 +1,8 @@
 import {
-    OrderStatus,
-    PaymentMethod,
-    PaymentStatus,
-    Prisma,
-    InventoryType,
+	OrderStatus,
+	PaymentMethod,
+	PaymentStatus,
+	Prisma,
 } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import { ensureTransitionAllowed } from "../../helpers/allowedTransition";
@@ -12,10 +11,10 @@ import CustomError from "../../utils/customError";
 import { createStripePaymentUrl } from "../../helpers/stripe";
 import { CreateOrderInput } from "../../types/common.types";
 import {
-    generateOrderNumber,
-    logInventoryChange,
-    logStatusChange,
-    validateAndCalculateOrder,
+	generateOrderNumber,
+	logInventoryChange,
+	logStatusChange,
+	validateAndCalculateOrder,
 } from "../../helpers/order";
 import { createCODOrder } from "../../helpers/cod";
 
@@ -23,432 +22,413 @@ import { createCODOrder } from "../../helpers/cod";
  * Create order - handles both Stripe and COD
  */
 const createOrder = async (input: CreateOrderInput) => {
-    // 1. Validate user exists
-    const user = await prisma.user.findUnique({
-        where: { id: input.userId },
-    });
-    if (!user) {
-        throw new CustomError(404, "User not found");
-    }
+	// 1. Validate user exists
+	const user = await prisma.user.findUnique({
+		where: { id: input.userId },
+	});
+	if (!user) {
+		throw new CustomError(404, "User not found");
+	}
 
-    // 2. Validate shipping address belongs to user
-    const shippingAddress = await prisma.address.findFirst({
-        where: {
-            id: input.shippingAddressId,
-            userId: input.userId,
-            isDeleted: false,
-        },
-    });
-    if (!shippingAddress) {
-        throw new CustomError(
-            404,
-            "Shipping address not found or does not belong to user",
-        );
-    }
+	// 2. Validate shipping address belongs to user
+	const shippingAddress = await prisma.address.findFirst({
+		where: {
+			id: input.shippingAddressId,
+			userId: input.userId,
+			isDeleted: false,
+		},
+	});
+	if (!shippingAddress) {
+		throw new CustomError(
+			404,
+			"Shipping address not found or does not belong to user",
+		);
+	}
 
-    // 3. Validate items and calculate totals (SECURE - fetches prices from DB)
-    const calculation = await validateAndCalculateOrder(input.items);
+	// 3. Validate items and calculate totals (SECURE - fetches prices from DB)
+	const calculation = await validateAndCalculateOrder(input.items);
 
-    // 4. Generate unique order number
-    const orderNumber = await generateOrderNumber();
+	// 4. Generate unique order number
+	const orderNumber = await generateOrderNumber();
 
-    // 5. Handle payment method specific logic
-    if (input.paymentMethod === PaymentMethod.STRIPE) {
-        // For Stripe, create session and return URL
-        // Order will be created in webhook after successful payment
-        const paymentUrl = await createStripePaymentUrl(
-            input.userId,
-            input.shippingAddressId,
-            calculation,
-            orderNumber,
-            input.ipAddress,
-            input.userAgent,
-            input.notes,
-        );
+	// 5. Handle payment method specific logic
+	if (input.paymentMethod === PaymentMethod.STRIPE) {
+		// For Stripe, create session and return URL
+		// Order will be created in webhook after successful payment
+		const paymentUrl = await createStripePaymentUrl(
+			input.userId,
+			input.shippingAddressId,
+			calculation,
+			orderNumber,
+			input.ipAddress,
+			input.userAgent,
+			input.notes,
+		);
 
-        return { paymentUrl, orderNumber };
-    } else if (input.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
-        // For COD, create order immediately
-        const order = await createCODOrder(input, calculation, orderNumber);
+		return { paymentUrl, orderNumber };
+	} else if (input.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+		// For COD, create order immediately
+		const order = await createCODOrder(input, calculation, orderNumber);
 
-        return { order, paymentUrl: null };
-    } else {
-        throw new CustomError(400, "Invalid payment method");
-    }
+		return { order, paymentUrl: null };
+	} else {
+		throw new CustomError(400, "Invalid payment method");
+	}
 };
 
 /**
  * Find all orders with filtering and pagination
  */
 const findAllFromDB = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
 
-    const prismaArgs = builder
-        .filter()
-        .paginate()
-        .include({
-            user: { select: { name: true, avatar: true, email: true } },
-            items: {
-                include: {
-                    product: {
-                        select: {
-                            name: true,
-                            slug: true,
-                            images: {
-                                where: { isMain: true },
-                                select: { url: true },
-                            },
-                        },
-                    },
-                },
-            },
-            shippingAddress: true,
-            payment: true,
-        })
-        .build();
+	const prismaArgs = builder
+		.filter()
+		.paginate()
+		.include({
+			user: { select: { name: true, avatar: true, email: true } },
+			items: {
+				include: {
+					product: {
+						select: {
+							name: true,
+							slug: true,
+							images: {
+								where: { isMain: true },
+								select: { url: true },
+							},
+						},
+					},
+				},
+			},
+			shippingAddress: true,
+			payment: true,
+		})
+		.build();
 
-    const orders = await prisma.order.findMany(prismaArgs);
-    const meta = await builder.getMeta(prisma.order);
+	const orders = await prisma.order.findMany(prismaArgs);
+	const meta = await builder.getMeta(prisma.order);
 
-    return { meta, orders };
+	return { meta, orders };
 };
 
 /**
  * Get user's orders
  */
 const getMyOrders = async (userId: string) => {
-    const orders = await prisma.order.findMany({
-        where: { userId },
-        include: {
-            items: {
-                include: {
-                    product: {
-                        select: {
-                            name: true,
-                            slug: true,
-                            images: {
-                                where: { isMain: true },
-                                select: { url: true },
-                            },
-                        },
-                    },
-                },
-            },
-            shippingAddress: true,
-            payment: true,
-        },
-        orderBy: { createdAt: "desc" },
-    });
+	const orders = await prisma.order.findMany({
+		where: { userId },
+		include: {
+			items: {
+				include: {
+					product: {
+						select: {
+							name: true,
+							slug: true,
+							images: {
+								where: { isMain: true },
+								select: { url: true },
+							},
+						},
+					},
+				},
+			},
+			shippingAddress: true,
+			payment: true,
+		},
+		orderBy: { createdAt: "desc" },
+	});
 
-    return orders;
+	return orders;
 };
 
 /**
  * Get single order by ID
  */
 const getOrderById = async (orderId: string, userId?: string) => {
-    const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-            items: {
-                include: {
-                    product: {
-                        select: {
-                            name: true,
-                            slug: true,
-                            images: {
-                                where: { isMain: true },
-                                select: { url: true },
-                            },
-                        },
-                    },
-                },
-            },
-            shippingAddress: true,
-            payment: true,
-            statusHistory: {
-                orderBy: { createdAt: "desc" },
-            },
-            user: {
-                select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                },
-            },
-        },
-    });
+	const order = await prisma.order.findUnique({
+		where: { id: orderId },
+		include: {
+			items: {
+				include: {
+					product: {
+						select: {
+							name: true,
+							slug: true,
+							images: {
+								where: { isMain: true },
+								select: { url: true },
+							},
+						},
+					},
+				},
+			},
+			shippingAddress: true,
+			payment: true,
+			statusHistory: {
+				orderBy: { createdAt: "desc" },
+			},
+			user: {
+				select: {
+					id: true,
+					name: true,
+					email: true,
+				},
+			},
+		},
+	});
 
-    if (!order) {
-        throw new CustomError(404, "Order not found");
-    }
+	if (!order) {
+		throw new CustomError(404, "Order not found");
+	}
 
-    // Authorization check (if userId provided)
-    if (userId && order.userId !== userId) {
-        throw new CustomError(403, "Not authorized to view this order");
-    }
+	// Authorization check (if userId provided)
+	if (userId && order.userId !== userId) {
+		throw new CustomError(403, "Not authorized to view this order");
+	}
 
-    return order;
+	return order;
 };
 
 /**
  * Update order status with validation
  */
 const updateOrderStatus = async (
-    orderId: string,
-    newStatus: OrderStatus,
-    changedBy: string,
-    reason?: string,
-    ipAddress?: string,
+	orderId: string,
+	newStatus: OrderStatus,
+	ipAddress?: string,
 ) => {
-    return prisma.$transaction(async (tx) => {
-        // 1. Get current order
-        const order = await tx.order.findUnique({
-            where: { id: orderId },
-            include: { items: true },
-        });
+	return prisma.$transaction(async (tx) => {
+		// 1. Get current order
+		const order = await tx.order.findUnique({
+			where: { id: orderId },
+			include: { items: true },
+		});
 
-        if (!order) {
-            throw new CustomError(404, "Order not found");
-        }
+		if (!order) {
+			throw new CustomError(404, "Order not found");
+		}
 
-        // 2. Validate status transition
-        ensureTransitionAllowed(order.orderStatus, newStatus);
+		// 2. Validate status transition
+		ensureTransitionAllowed(order.orderStatus, newStatus);
 
-        // 3. Payment validation for Stripe orders
-        const isStripe = order.paymentMethod === PaymentMethod.STRIPE;
+		// 3. Payment validation for Stripe orders
+		const isStripe = order.paymentMethod === PaymentMethod.STRIPE;
 
-        if (
-            newStatus === OrderStatus.SHIPPED &&
-            isStripe &&
-            order.paymentStatus !== PaymentStatus.PAID
-        ) {
-            throw new CustomError(
-                400,
-                "Cannot ship order until payment is completed",
-            );
-        }
+		if (
+			newStatus === OrderStatus.SHIPPED &&
+			isStripe &&
+			order.paymentStatus !== PaymentStatus.PAID
+		) {
+			throw new CustomError(
+				400,
+				"Cannot ship order until payment is completed",
+			);
+		}
 
-        if (
-            newStatus === OrderStatus.DELIVERED &&
-            isStripe &&
-            order.paymentStatus !== PaymentStatus.PAID
-        ) {
-            throw new CustomError(
-                400,
-                "Cannot deliver order until payment is completed",
-            );
-        }
+		if (
+			newStatus === OrderStatus.DELIVERED &&
+			isStripe &&
+			order.paymentStatus !== PaymentStatus.PAID
+		) {
+			throw new CustomError(
+				400,
+				"Cannot deliver order until payment is completed",
+			);
+		}
 
-        // 4. Calculate payment status updates
-        let newPaymentStatus: PaymentStatus | undefined;
-        let deliveredAt: Date | undefined;
-        let canceledAt: Date | undefined;
+		// 4. Calculate payment status updates
+		let newPaymentStatus: PaymentStatus | undefined;
+		let deliveredAt: Date | undefined;
+		let canceledAt: Date | undefined;
 
-        if (newStatus === OrderStatus.DELIVERED) {
-            deliveredAt = new Date();
-            // COD becomes PAID at delivery
-            if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
-                newPaymentStatus = PaymentStatus.PAID;
-            }
-        }
+		if (newStatus === OrderStatus.DELIVERED) {
+			deliveredAt = new Date();
+			// COD becomes PAID at delivery
+			if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+				newPaymentStatus = PaymentStatus.PAID;
+			}
+		}
 
-        if (newStatus === OrderStatus.CANCELED) {
-            canceledAt = new Date();
-            // Refund logic
-            newPaymentStatus =
-                order.paymentStatus === PaymentStatus.PAID
-                    ? PaymentStatus.REFUNDED
-                    : PaymentStatus.FAILED;
+		if (newStatus === OrderStatus.CANCELED) {
+			canceledAt = new Date();
+			// Refund logic
+			newPaymentStatus =
+				order.paymentStatus === PaymentStatus.PAID
+					? PaymentStatus.REFUNDED
+					: PaymentStatus.FAILED;
 
-            // Restore stock on cancellation
-            for (const item of order.items) {
-                if (item.variantId) {
-                    await tx.productVariant.update({
-                        where: { id: item.variantId },
-                        data: { stock: { increment: item.quantity } },
-                    });
+			// Restore stock on cancellation
+			for (const item of order.items) {
+				if (item.variantId) {
+					await tx.productVariant.update({
+						where: { id: item.variantId },
+						data: { stock: { increment: item.quantity } },
+					});
 
-                    await logInventoryChange(
-                        tx,
-                        item.productId,
-                        item.variantId,
-                        item.quantity,
-                        InventoryType.RETURN,
-                        orderId,
-                        "Order canceled - stock restored",
-                    );
-                } else {
-                    await tx.product.update({
-                        where: { id: item.productId },
-                        data: { stockQuantity: { increment: item.quantity } },
-                    });
+					await logInventoryChange(
+						tx,
+						item.productId,
+						item.variantId,
+						item.quantity,
+						orderId,
+						"Order canceled - stock restored",
+					);
+				} else {
+					await tx.product.update({
+						where: { id: item.productId },
+						data: { stockQuantity: { increment: item.quantity } },
+					});
 
-                    await logInventoryChange(
-                        tx,
-                        item.productId,
-                        undefined,
-                        item.quantity,
-                        InventoryType.RETURN,
-                        orderId,
-                        "Order canceled - stock restored",
-                    );
-                }
-            }
-        }
+					await logInventoryChange(
+						tx,
+						item.productId,
+						undefined,
+						item.quantity,
+						orderId,
+						"Order canceled - stock restored",
+					);
+				}
+			}
+		}
 
-        // 5. Update payment if needed
-        if (newPaymentStatus) {
-            await tx.payment.update({
-                where: { orderId },
-                data: {
-                    status: newPaymentStatus,
-                    refundedAt:
-                        newPaymentStatus === PaymentStatus.REFUNDED
-                            ? new Date()
-                            : undefined,
-                },
-            });
-        }
+		// 5. Update payment if needed
+		if (newPaymentStatus) {
+			await tx.payment.update({
+				where: { orderId },
+				data: {
+					status: newPaymentStatus,
+					refundedAt:
+						newPaymentStatus === PaymentStatus.REFUNDED
+							? new Date()
+							: undefined,
+				},
+			});
+		}
 
-        // 6. Update order
-        const updatedOrder = await tx.order.update({
-            where: { id: orderId },
-            data: {
-                orderStatus: newStatus,
-                paymentStatus: newPaymentStatus ?? order.paymentStatus,
-                deliveredAt,
-                canceledAt,
-                cancelReason:
-                    newStatus === OrderStatus.CANCELED ? reason : undefined,
-            },
-            include: {
-                items: true,
-                payment: true,
-                shippingAddress: true,
-            },
-        });
+		// 6. Update order
+		const updatedOrder = await tx.order.update({
+			where: { id: orderId },
+			data: {
+				orderStatus: newStatus,
+				paymentStatus: newPaymentStatus ?? order.paymentStatus,
+			},
+			include: {
+				items: true,
+				payment: true,
+				shippingAddress: true,
+			},
+		});
 
-        // 7. Log status change
-        await logStatusChange(
-            tx,
-            orderId,
-            order.orderStatus,
-            newStatus,
-            changedBy,
-            reason,
-            ipAddress,
-        );
-
-        return updatedOrder;
-    });
+		return updatedOrder;
+	});
 };
 
 /**
  * Get dashboard analytics
  */
 const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
-    const dateFilter =
-        startDate && endDate
-            ? {
-                  createdAt: {
-                      gte: startDate,
-                      lte: endDate,
-                  },
-              }
-            : {};
+	const dateFilter =
+		startDate && endDate
+			? {
+					createdAt: {
+						gte: startDate,
+						lte: endDate,
+					},
+				}
+			: {};
 
-    const [
-        totalOrders,
-        totalRevenue,
-        ordersByStatus,
-        topProducts,
-        recentOrders,
-    ] = await Promise.all([
-        // Total orders
-        prisma.order.count({ where: dateFilter }),
+	const [
+		totalOrders,
+		totalRevenue,
+		ordersByStatus,
+		topProducts,
+		recentOrders,
+	] = await Promise.all([
+		// Total orders
+		prisma.order.count({ where: dateFilter }),
 
-        // Total revenue (only paid orders)
-        prisma.order.aggregate({
-            where: {
-                ...dateFilter,
-                paymentStatus: PaymentStatus.PAID,
-            },
-            _sum: { totalAmount: true },
-        }),
+		// Total revenue (only paid orders)
+		prisma.order.aggregate({
+			where: {
+				...dateFilter,
+				paymentStatus: PaymentStatus.PAID,
+			},
+			_sum: { totalAmount: true },
+		}),
 
-        // Orders by status
-        prisma.order.groupBy({
-            by: ["orderStatus"],
-            where: dateFilter,
-            _count: { id: true },
-        }),
+		// Orders by status
+		prisma.order.groupBy({
+			by: ["orderStatus"],
+			where: dateFilter,
+			_count: { id: true },
+		}),
 
-        // Top products
-        prisma.orderItem.groupBy({
-            by: ["productId", "productName"],
-            where: {
-                order: dateFilter,
-            },
-            _sum: {
-                quantity: true,
-                subtotal: true,
-            },
-            orderBy: {
-                _sum: {
-                    quantity: "desc",
-                },
-            },
-            take: 10,
-        }),
+		// Top products
+		prisma.orderItem.groupBy({
+			by: ["productId", "productName"],
+			where: {
+				order: dateFilter,
+			},
+			_sum: {
+				quantity: true,
+			},
+			orderBy: {
+				_sum: {
+					quantity: "desc",
+				},
+			},
+			take: 10,
+		}),
 
-        // Recent orders
-        prisma.order.findMany({
-            where: dateFilter,
-            include: {
-                user: {
-                    select: { name: true, email: true },
-                },
-                items: true,
-            },
-            orderBy: { createdAt: "desc" },
-            take: 10,
-        }),
-    ]);
+		// Recent orders
+		prisma.order.findMany({
+			where: dateFilter,
+			include: {
+				user: {
+					select: { name: true, email: true },
+				},
+				items: true,
+			},
+			orderBy: { createdAt: "desc" },
+			take: 10,
+		}),
+	]);
 
-    const totalRevenueAmount = totalRevenue._sum.totalAmount
-        ? totalRevenue._sum.totalAmount.toNumber()
-        : 0;
-    return {
-        overview: {
-            totalOrders,
-            totalRevenue: totalRevenueAmount,
-            averageOrderValue:
-                totalOrders > 0
-                    ? parseFloat(
-                          ((totalRevenueAmount || 0) / totalOrders).toString(),
-                      )
-                    : 0,
-        },
-        ordersByStatus: ordersByStatus.map((item) => ({
-            status: item.orderStatus,
-            count: item._count.id,
-        })),
-        topProducts: topProducts.map((item) => ({
-            productId: item.productId,
-            productName: item.productName,
-            quantitySold: item._sum.quantity || 0,
-            revenue: item._sum.subtotal || 0,
-        })),
-        recentOrders,
-    };
+	const totalRevenueAmount = totalRevenue._sum.totalAmount
+		? totalRevenue._sum.totalAmount.toNumber()
+		: 0;
+	return {
+		overview: {
+			totalOrders,
+			totalRevenue: totalRevenueAmount,
+			averageOrderValue:
+				totalOrders > 0
+					? parseFloat(
+							(
+								(totalRevenueAmount || 0) / totalOrders
+							).toString(),
+						)
+					: 0,
+		},
+		ordersByStatus: ordersByStatus.map((item) => ({
+			status: item.orderStatus,
+			count: item._count.id,
+		})),
+		topProducts: topProducts.map((item) => ({
+			productId: item.productId,
+			productName: item.productName,
+			quantitySold: item._sum.quantity || 0,
+		})),
+		recentOrders,
+	};
 };
 
 export const orderServices = {
-    createOrder,
-    findAllFromDB,
-    getMyOrders,
-    getOrderById,
-    updateOrderStatus,
-    getDashboardAnalytics,
+	createOrder,
+	findAllFromDB,
+	getMyOrders,
+	getOrderById,
+	updateOrderStatus,
+	getDashboardAnalytics,
 };

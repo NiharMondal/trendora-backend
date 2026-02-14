@@ -10,16 +10,20 @@ const router = Router();
 router.patch(
 	"/:orderId/status",
 	validateRequest(orderValidation.updateOrderStatusSchema),
-	orderControllers.markOrderStatus
+	orderControllers.markOrderStatus,
 );
 
-router.get("/my-orders", authGuard(Role.CUSTOMER), orderControllers.getMyOrder);
+router.get(
+	"/my-orders",
+	authGuard(Role.CUSTOMER),
+	orderControllers.getMyOrders,
+);
 
 router
 	.route("/")
 	.post(
 		validateRequest(orderValidation.createOrderSchema),
-		orderControllers.createOrder
+		orderControllers.createOrder,
 	)
 	.get(orderControllers.findAllFromDB);
 
