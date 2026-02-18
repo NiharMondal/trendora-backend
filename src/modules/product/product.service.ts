@@ -72,11 +72,7 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, {
-		defaultField: "createdAt",
-		defaultOrder: "desc",
-		allowedFields: ["name", "basePrice", "createdAt"],
-	});
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
@@ -183,7 +179,7 @@ const updateData = async (
 				await tx.productVariant.update({
 					where: { id: variant.id },
 					data: {
-						size: variant.size,
+						sizeId: variant.size,
 						color: variant.color,
 						stock: variant.stock,
 						price: variant.price,
@@ -193,7 +189,7 @@ const updateData = async (
 				await tx.productVariant.create({
 					data: {
 						productId: id,
-						size: variant.size,
+						sizeId: variant.size,
 						color: variant.color,
 						stock: variant.stock,
 						price: variant.price,

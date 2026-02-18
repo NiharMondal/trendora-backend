@@ -1,60 +1,60 @@
 import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
-import { slideServices } from "./slide.service";
+import { sizeGroupServices } from "./size-group.service";
 
 const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
-    const data = await slideServices.createIntoDB(req.body);
+    const data = await sizeGroupServices.createIntoDB(req.body);
 
     sendResponse(res, {
         statusCode: 201,
-        message: "Slide created successfully",
+        message: "Size group created successfully",
         data: data,
     });
 });
 
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-    const slide = await slideServices.findAllFromDB();
+    const slide = await sizeGroupServices.findAllFromDB();
 
     sendResponse(res, {
         statusCode: 200,
-        message: "Slide fetched successfully",
+        message: "Size group fetched successfully",
         data: slide,
     });
 });
 const findById = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
-    const data = await slideServices.findById(id);
+    const data = await sizeGroupServices.findById(id);
 
     sendResponse(res, {
         statusCode: 200,
-        message: "Slide fetched successfully",
+        message: "Size group fetched successfully",
         data: data,
     });
 });
 
 const updateData = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
-    const data = await slideServices.updateData(id, req.body);
+    const data = await sizeGroupServices.updateData(id, req.body);
 
     sendResponse(res, {
         statusCode: 200,
-        message: "Slide updated successfully",
+        message: "Size group updated successfully",
         data: data,
     });
 });
 const deleteData = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
-    const data = await slideServices.deleteData(id);
+    const data = await sizeGroupServices.deleteData(id);
 
     sendResponse(res, {
         statusCode: 200,
-        message: "Slide deleted successfully",
+        message: "Size group deleted successfully",
         data: data,
     });
 });
 
-export const slideControllers = {
+export const sizeGroupControllers = {
     createIntoDB,
     findAllFromDB,
     findById,

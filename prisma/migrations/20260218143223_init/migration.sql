@@ -11,7 +11,7 @@ CREATE TYPE "public"."PaymentStatus" AS ENUM ('PENDING', 'PAID', 'FAILED', 'REFU
 CREATE TYPE "public"."PaymentMethod" AS ENUM ('STRIPE', 'CASH_ON_DELIVERY');
 
 -- CreateEnum
-CREATE TYPE "public"."InventoryType" AS ENUM ('SALE', 'RESTOCK', 'RETURN', 'ADJUSTMENT', 'DAMAGED');
+CREATE TYPE "public"."Gender" AS ENUM ('MEN', 'WOMEN', 'KIDS', 'UNISEX');
 
 -- CreateTable
 CREATE TABLE "public"."User" (
@@ -21,7 +21,7 @@ CREATE TABLE "public"."User" (
     "password" TEXT NOT NULL,
     "phone" TEXT,
     "role" "public"."Role" NOT NULL DEFAULT 'CUSTOMER',
-    "avatar" TEXT DEFAULT '',
+    "avatar" TEXT,
     "isDeleted" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -52,7 +52,6 @@ CREATE TABLE "public"."Address" (
 CREATE TABLE "public"."Brand" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "slug" TEXT NOT NULL,
     "logo" TEXT,
     "isDeleted" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -62,11 +61,35 @@ CREATE TABLE "public"."Brand" (
 );
 
 -- CreateTable
+CREATE TABLE "public"."SizeGroup" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SizeGroup_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."Size" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "sizeGroupId" TEXT NOT NULL,
+    "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Size_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "public"."Category" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "parentId" TEXT,
+    "sizeGroupId" TEXT,
     "isDeleted" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -85,6 +108,7 @@ CREATE TABLE "public"."Product" (
     "stockQuantity" INTEGER NOT NULL DEFAULT 0,
     "isPublished" BOOLEAN NOT NULL DEFAULT true,
     "isFeatured" BOOLEAN NOT NULL DEFAULT false,
+    "gender" "public"."Gender" NOT NULL,
     "categoryId" TEXT NOT NULL,
     "brandId" TEXT NOT NULL,
     "averageRating" DECIMAL(3,2),
@@ -100,11 +124,10 @@ CREATE TABLE "public"."Product" (
 CREATE TABLE "public"."ProductVariant" (
     "id" TEXT NOT NULL,
     "productId" TEXT NOT NULL,
-    "sku" TEXT NOT NULL,
-    "size" TEXT,
-    "color" TEXT,
+    "sizeId" TEXT,
+    "color" TEXT NOT NULL,
     "stock" INTEGER NOT NULL DEFAULT 0,
-    "priceModifier" DECIMAL(10,2) NOT NULL DEFAULT 0,
+    "price" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "isDeleted" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -119,7 +142,6 @@ CREATE TABLE "public"."ProductImage" (
     "url" TEXT NOT NULL,
     "altText" TEXT,
     "isMain" BOOLEAN NOT NULL DEFAULT false,
-    "sortOrder" INTEGER NOT NULL DEFAULT 0,
     "isDeleted" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "ProductImage_pkey" PRIMARY KEY ("id")
@@ -154,23 +176,13 @@ CREATE TABLE "public"."Order" (
     "id" TEXT NOT NULL,
     "orderNumber" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "subtotal" DECIMAL(10,2) NOT NULL,
-    "tax" DECIMAL(10,2) NOT NULL,
-    "shippingCost" DECIMAL(10,2) NOT NULL,
-    "discount" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "totalAmount" DECIMAL(10,2) NOT NULL,
     "paymentStatus" "public"."PaymentStatus" NOT NULL DEFAULT 'PENDING',
     "paymentMethod" "public"."PaymentMethod" NOT NULL,
     "orderStatus" "public"."OrderStatus" NOT NULL DEFAULT 'PENDING',
     "shippingAddressId" TEXT NOT NULL,
     "ipAddress" TEXT,
-    "userAgent" TEXT,
     "notes" TEXT,
-    "trackingNumber" TEXT,
-    "estimatedDelivery" TIMESTAMP(3),
-    "deliveredAt" TIMESTAMP(3),
-    "canceledAt" TIMESTAMP(3),
-    "cancelReason" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -184,12 +196,8 @@ CREATE TABLE "public"."OrderItem" (
     "productId" TEXT NOT NULL,
     "productName" TEXT NOT NULL,
     "variantId" TEXT,
-    "variantDetails" TEXT,
     "quantity" SMALLINT NOT NULL,
-    "priceAtPurchase" DECIMAL(10,2) NOT NULL,
-    "originalPrice" DECIMAL(10,2) NOT NULL,
-    "discount" DECIMAL(10,2) NOT NULL DEFAULT 0,
-    "subtotal" DECIMAL(10,2) NOT NULL,
+    "price" DECIMAL(10,2) NOT NULL,
 
     CONSTRAINT "OrderItem_pkey" PRIMARY KEY ("id")
 );
@@ -220,27 +228,9 @@ CREATE TABLE "public"."OrderStatusHistory" (
     "orderId" TEXT NOT NULL,
     "oldStatus" "public"."OrderStatus" NOT NULL,
     "newStatus" "public"."OrderStatus" NOT NULL,
-    "changedBy" TEXT NOT NULL,
-    "reason" TEXT,
-    "ipAddress" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "OrderStatusHistory_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "public"."InventoryLog" (
-    "id" TEXT NOT NULL,
-    "productId" TEXT NOT NULL,
-    "variantId" TEXT,
-    "quantity" INTEGER NOT NULL,
-    "type" "public"."InventoryType" NOT NULL,
-    "reason" TEXT,
-    "referenceId" TEXT,
-    "createdBy" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "InventoryLog_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -278,10 +268,16 @@ CREATE INDEX "Address_userId_idx" ON "public"."Address"("userId");
 CREATE UNIQUE INDEX "Brand_name_key" ON "public"."Brand"("name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Brand_slug_key" ON "public"."Brand"("slug");
+CREATE UNIQUE INDEX "SizeGroup_name_key" ON "public"."SizeGroup"("name");
 
 -- CreateIndex
-CREATE INDEX "Brand_slug_idx" ON "public"."Brand"("slug");
+CREATE UNIQUE INDEX "Size_name_key" ON "public"."Size"("name");
+
+-- CreateIndex
+CREATE INDEX "Size_sizeGroupId_idx" ON "public"."Size"("sizeGroupId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Size_name_sizeGroupId_key" ON "public"."Size"("name", "sizeGroupId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Category_slug_key" ON "public"."Category"("slug");
@@ -291,6 +287,9 @@ CREATE INDEX "Category_parentId_idx" ON "public"."Category"("parentId");
 
 -- CreateIndex
 CREATE INDEX "Category_slug_idx" ON "public"."Category"("slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Product_name_key" ON "public"."Product"("name");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Product_slug_key" ON "public"."Product"("slug");
@@ -311,13 +310,7 @@ CREATE INDEX "Product_isPublished_idx" ON "public"."Product"("isPublished");
 CREATE INDEX "Product_isFeatured_idx" ON "public"."Product"("isFeatured");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ProductVariant_sku_key" ON "public"."ProductVariant"("sku");
-
--- CreateIndex
 CREATE INDEX "ProductVariant_productId_idx" ON "public"."ProductVariant"("productId");
-
--- CreateIndex
-CREATE INDEX "ProductVariant_sku_idx" ON "public"."ProductVariant"("sku");
 
 -- CreateIndex
 CREATE INDEX "ProductImage_productId_idx" ON "public"."ProductImage"("productId");
@@ -383,18 +376,6 @@ CREATE INDEX "OrderStatusHistory_orderId_idx" ON "public"."OrderStatusHistory"("
 CREATE INDEX "OrderStatusHistory_createdAt_idx" ON "public"."OrderStatusHistory"("createdAt");
 
 -- CreateIndex
-CREATE INDEX "InventoryLog_productId_idx" ON "public"."InventoryLog"("productId");
-
--- CreateIndex
-CREATE INDEX "InventoryLog_variantId_idx" ON "public"."InventoryLog"("variantId");
-
--- CreateIndex
-CREATE INDEX "InventoryLog_createdAt_idx" ON "public"."InventoryLog"("createdAt");
-
--- CreateIndex
-CREATE INDEX "InventoryLog_type_idx" ON "public"."InventoryLog"("type");
-
--- CreateIndex
 CREATE UNIQUE INDEX "Slide_title_key" ON "public"."Slide"("title");
 
 -- CreateIndex
@@ -407,7 +388,13 @@ CREATE INDEX "Slide_sortOrder_idx" ON "public"."Slide"("sortOrder");
 ALTER TABLE "public"."Address" ADD CONSTRAINT "Address_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "public"."Size" ADD CONSTRAINT "Size_sizeGroupId_fkey" FOREIGN KEY ("sizeGroupId") REFERENCES "public"."SizeGroup"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "public"."Category" ADD CONSTRAINT "Category_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "public"."Category"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."Category" ADD CONSTRAINT "Category_sizeGroupId_fkey" FOREIGN KEY ("sizeGroupId") REFERENCES "public"."SizeGroup"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."Product" ADD CONSTRAINT "Product_brandId_fkey" FOREIGN KEY ("brandId") REFERENCES "public"."Brand"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -417,6 +404,9 @@ ALTER TABLE "public"."Product" ADD CONSTRAINT "Product_categoryId_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "public"."ProductVariant" ADD CONSTRAINT "ProductVariant_productId_fkey" FOREIGN KEY ("productId") REFERENCES "public"."Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."ProductVariant" ADD CONSTRAINT "ProductVariant_sizeId_fkey" FOREIGN KEY ("sizeId") REFERENCES "public"."Size"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."ProductImage" ADD CONSTRAINT "ProductImage_productId_fkey" FOREIGN KEY ("productId") REFERENCES "public"."Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -453,12 +443,3 @@ ALTER TABLE "public"."Payment" ADD CONSTRAINT "Payment_orderId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "public"."OrderStatusHistory" ADD CONSTRAINT "OrderStatusHistory_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "public"."Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."OrderStatusHistory" ADD CONSTRAINT "OrderStatusHistory_changedBy_fkey" FOREIGN KEY ("changedBy") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."InventoryLog" ADD CONSTRAINT "InventoryLog_productId_fkey" FOREIGN KEY ("productId") REFERENCES "public"."Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."InventoryLog" ADD CONSTRAINT "InventoryLog_variantId_fkey" FOREIGN KEY ("variantId") REFERENCES "public"."ProductVariant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
