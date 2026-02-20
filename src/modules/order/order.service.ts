@@ -3,7 +3,6 @@ import {
     PaymentMethod,
     PaymentStatus,
     Prisma,
-    InventoryType,
 } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import { ensureTransitionAllowed } from "../../helpers/allowedTransition";
@@ -13,8 +12,6 @@ import { createStripePaymentUrl } from "../../helpers/stripe";
 import { CreateOrderInput } from "../../types/common.types";
 import {
     generateOrderNumber,
-    logInventoryChange,
-    logStatusChange,
     validateAndCalculateOrder,
 } from "../../helpers/order";
 import { createCODOrder } from "../../helpers/cod";
@@ -54,7 +51,6 @@ const createOrder = async (input: CreateOrderInput) => {
 
     // 5. Handle payment method specific logic
     if (input.paymentMethod === PaymentMethod.STRIPE) {
-        // For Stripe, create session and return URL
         // Order will be created in webhook after successful payment
         const paymentUrl = await createStripePaymentUrl(
             input.userId,
@@ -197,9 +193,7 @@ const getOrderById = async (orderId: string, userId?: string) => {
 const updateOrderStatus = async (
     orderId: string,
     newStatus: OrderStatus,
-    changedBy: string,
-    reason?: string,
-    ipAddress?: string,
+
 ) => {
     return prisma.$transaction(async (tx) => {
         // 1. Get current order
@@ -242,11 +236,8 @@ const updateOrderStatus = async (
 
         // 4. Calculate payment status updates
         let newPaymentStatus: PaymentStatus | undefined;
-        let deliveredAt: Date | undefined;
-        let canceledAt: Date | undefined;
 
         if (newStatus === OrderStatus.DELIVERED) {
-            deliveredAt = new Date();
             // COD becomes PAID at delivery
             if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
                 newPaymentStatus = PaymentStatus.PAID;
@@ -254,7 +245,6 @@ const updateOrderStatus = async (
         }
 
         if (newStatus === OrderStatus.CANCELED) {
-            canceledAt = new Date();
             // Refund logic
             newPaymentStatus =
                 order.paymentStatus === PaymentStatus.PAID
@@ -269,30 +259,11 @@ const updateOrderStatus = async (
                         data: { stock: { increment: item.quantity } },
                     });
 
-                    await logInventoryChange(
-                        tx,
-                        item.productId,
-                        item.variantId,
-                        item.quantity,
-                        InventoryType.RETURN,
-                        orderId,
-                        "Order canceled - stock restored",
-                    );
                 } else {
                     await tx.product.update({
                         where: { id: item.productId },
                         data: { stockQuantity: { increment: item.quantity } },
                     });
-
-                    await logInventoryChange(
-                        tx,
-                        item.productId,
-                        undefined,
-                        item.quantity,
-                        InventoryType.RETURN,
-                        orderId,
-                        "Order canceled - stock restored",
-                    );
                 }
             }
         }
@@ -317,10 +288,6 @@ const updateOrderStatus = async (
             data: {
                 orderStatus: newStatus,
                 paymentStatus: newPaymentStatus ?? order.paymentStatus,
-                deliveredAt,
-                canceledAt,
-                cancelReason:
-                    newStatus === OrderStatus.CANCELED ? reason : undefined,
             },
             include: {
                 items: true,
@@ -329,16 +296,6 @@ const updateOrderStatus = async (
             },
         });
 
-        // 7. Log status change
-        await logStatusChange(
-            tx,
-            orderId,
-            order.orderStatus,
-            newStatus,
-            changedBy,
-            reason,
-            ipAddress,
-        );
 
         return updatedOrder;
     });
@@ -392,7 +349,6 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
             },
             _sum: {
                 quantity: true,
-                subtotal: true,
             },
             orderBy: {
                 _sum: {
@@ -438,7 +394,6 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
             productId: item.productId,
             productName: item.productName,
             quantitySold: item._sum.quantity || 0,
-            revenue: item._sum.subtotal || 0,
         })),
         recentOrders,
     };

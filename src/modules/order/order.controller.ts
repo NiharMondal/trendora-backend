@@ -22,9 +22,9 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
         data: data.orders,
     });
 });
-const getMyOrder = asyncHandler(async (req: Request, res: Response) => {
+const getMyOrders = asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user.userId;
-    const data = await orderServices.getMyOrder(userId);
+    const data = await orderServices.getMyOrders(userId);
 
     sendResponse(res, {
         statusCode: 200,
@@ -34,20 +34,20 @@ const getMyOrder = asyncHandler(async (req: Request, res: Response) => {
     });
 });
 
-const markOrderStatus = asyncHandler(async (req: Request, res: Response) => {
-    const orderId = req.params.orderId;
-    const data = await orderServices.markOrderStatus(orderId, req.body);
+const updateOrderStatus = asyncHandler(async (req: Request, res: Response) => {
+	const orderId = req.params.orderId;
+	const data = await orderServices.updateOrderStatus(orderId, req.body);
 
-    sendResponse(res, {
-        statusCode: 200,
-        message: "Order status updated successfully",
-        data: data,
-    });
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Order status updated successfully",
+		data: data,
+	});
 });
 
 export const orderControllers = {
-    createOrder,
-    findAllFromDB,
-    markOrderStatus,
-    getMyOrder,
+	createOrder,
+	findAllFromDB,
+	updateOrderStatus,
+	getMyOrders,
 };

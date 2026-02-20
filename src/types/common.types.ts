@@ -1,10 +1,9 @@
-import { PaymentMethod } from "../../generated/prisma";
+import { Address, PaymentMethod } from "../../generated/prisma";
 
 export interface CartItemInput {
     productId: string;
     variantId?: string;
     quantity: number;
-    // NOTE: NO PRICE - we fetch from database!
 }
 
 export interface CreateOrderInput {
@@ -12,6 +11,7 @@ export interface CreateOrderInput {
     items: CartItemInput[];
     shippingAddressId: string;
     paymentMethod: PaymentMethod;
+    address?: Address
     notes?: string;
     ipAddress?: string;
     userAgent?: string;

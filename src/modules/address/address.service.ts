@@ -9,8 +9,12 @@ const createIntoDB = async (payload: Address) => {
 
 	return address;
 };
+const findAllFromDB = async () => {
+	const addresses = await prisma.address.findMany();
 
-const findAddressByUserId = async (userId: string) => {
+	return addresses;
+}
+const findMyAddress = async (userId: string) => {
 	const user = await prisma.address.findMany({ where: { userId: userId } });
 
 	if (!user) {
@@ -59,7 +63,8 @@ const deleteData = async (id: string) => {
 
 export const addressServices = {
 	createIntoDB,
-	findAddressByUserId,
+	findAllFromDB,
+	findMyAddress,
 	findById,
 	updateData,
 	deleteData,

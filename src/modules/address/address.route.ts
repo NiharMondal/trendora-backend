@@ -10,7 +10,7 @@ const router = Router();
 router.get(
     "/my-address",
     authGuard(Role.CUSTOMER),
-    addressControllers.findAddressByUserId
+    addressControllers.findMyAddress
 );
 
 router
@@ -21,6 +21,7 @@ router
 
 router
     .route("/")
+    .get(addressControllers.findAllFromDB)
     .post(validateRequest(addressSchema), addressControllers.createIntoDB);
 
 export const addressRouter = router;

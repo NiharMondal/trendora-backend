@@ -50,8 +50,6 @@ model Address {
   @@index([userId])
 }
 
-
-
 model SizeGroup {
   id        String  @id @default(uuid())
   name      String  @unique
@@ -62,6 +60,7 @@ model SizeGroup {
   sizes      Size[]
   categories Category[]
 }
+
 model Brand {
   id        String   @id @default(uuid())
   name      String   @unique
@@ -72,6 +71,7 @@ model Brand {
 
   products Product[]
 }
+
 model Size {
   id          String           @id @default(uuid())
   name        String           @unique
@@ -161,7 +161,7 @@ model ProductImage {
   id        String  @id @default(uuid())
   productId String
   url       String
-  publicId  String 
+  publicId  String
   altText   String?
   isMain    Boolean @default(false)
   isDeleted Boolean @default(false)
@@ -213,6 +213,7 @@ model Order {
   shippingAddressId String
   ipAddress         String?
   notes             String?
+  shippingSnapshot  Json? // Store full address snapshot at time of order
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 

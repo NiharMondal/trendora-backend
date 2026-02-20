@@ -5,7 +5,7 @@ import {
     OrderCalculation,
     ValidatedOrderItem,
 } from "../types/common.types";
-import { InventoryType, OrderStatus } from "../../generated/prisma";
+import {  OrderStatus } from "../../generated/prisma";
 import { Prisma } from "@prisma/client";
 
 const TAX_RATE = parseFloat(process.env.TAX_RATE || "0.08"); // 8%
@@ -123,14 +123,14 @@ export async function validateAndCalculateOrder(
             const basePrice = product.discountPrice || product.basePrice;
             actualPrice =
                 parseFloat(basePrice.toString()) +
-                parseFloat(variant.priceModifier.toString());
+                parseFloat(variant.price.toString());
             originalPrice = parseFloat(product.basePrice.toString());
             availableStock = variant.stock;
 
             // Build variant details string
             const details = [];
             if (variant.color) details.push(variant.color);
-            if (variant.size) details.push(`Size ${variant.size}`);
+            if (variant.sizeId) details.push(`Size ${variant.sizeId}`);
             variantDetails = details.join(", ");
         } else {
             // Use product price
@@ -188,30 +188,6 @@ export async function validateAndCalculateOrder(
     };
 }
 
-/**
- * Log inventory changes for audit trail
- */
-export async function logInventoryChange(
-    tx: Prisma.TransactionClient,
-    productId: string,
-    variantId: string | undefined,
-    quantity: number,
-    type: InventoryType,
-    referenceId: string,
-    reason?: string,
-) {
-    await tx.inventoryLog.create({
-        data: {
-            productId,
-            variantId,
-            quantity: -quantity, // Negative for sales
-            type,
-            reason,
-            referenceId,
-            createdBy: "SYSTEM",
-        },
-    });
-}
 
 /**
  * Log order status changes

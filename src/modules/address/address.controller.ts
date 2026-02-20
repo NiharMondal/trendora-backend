@@ -13,11 +13,20 @@ const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
 		data: data,
 	});
 });
+const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
+	const data = await addressServices.findAllFromDB();
 
-const findAddressByUserId = asyncHandler(
+	sendResponse(res, {
+		statusCode: 201,
+		message: "Address fetched successfully",
+		data: data,
+	});
+});
+
+const findMyAddress = asyncHandler(
 	async (req: Request, res: Response) => {
 		const userId = req.user.id;
-		const data = await addressServices.findAddressByUserId(userId);
+		const data = await addressServices.findMyAddress(userId);
 
 		sendResponse(res, {
 			statusCode: 200,
@@ -60,7 +69,8 @@ const deleteData = asyncHandler(async (req: Request, res: Response) => {
 
 export const addressControllers = {
 	createIntoDB,
-	findAddressByUserId,
+	findAllFromDB,
+	findMyAddress,
 	findById,
 	updateData,
 	deleteData,
