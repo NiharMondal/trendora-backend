@@ -12,12 +12,20 @@ const router = Router();
 router
 	.route("/:id")
 	.get(sizeControllers.findById)
-	.patch(authGuard(Role.ADMIN), sizeControllers.updateData)
-	.delete(sizeControllers.deleteData);
+	.patch(
+		// authGuard(Role.ADMIN),
+		validateRequest(sizeSchema),
+		sizeControllers.updateData,
+	)
+	.delete(authGuard(Role.ADMIN), sizeControllers.deleteData);
 
 router
 	.route("/")
-	.post(validateRequest(sizeSchema), sizeControllers.createIntoDB)
+	.post(
+		authGuard(Role.ADMIN),
+		validateRequest(sizeSchema),
+		sizeControllers.createIntoDB,
+	)
 	.get(sizeControllers.findAllFromDB);
 
-export const sizeGroupRouter = router;
+export const sizeRouter = router;

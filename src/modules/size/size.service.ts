@@ -19,10 +19,18 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 		.filter()
 		.paginate()
 		.sort()
+		.include({
+			sizeGroup: {
+				select: {
+					id: true,
+					name: true,
+				},
+			},
+		})
 		.build();
-	const size = await prisma.size.findMany(prismaArgs);
+	const sizes = await prisma.size.findMany(prismaArgs);
 	const meta = await builder.getMeta(prisma.size);
-	return { meta, size };
+	return { meta, sizes };
 };
 
 const findById = async (id: string) => {

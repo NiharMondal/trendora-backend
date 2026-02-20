@@ -1,5 +1,6 @@
-import { SizeGroup } from "../../../generated/prisma";
+import { Prisma, SizeGroup } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
+import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
 
 const createIntoDB = async (payload: SizeGroup) => {
@@ -10,15 +11,23 @@ const createIntoDB = async (payload: SizeGroup) => {
 	return data;
 };
 
-const findAllFromDB = async () => {
-	const sizeGroup = await prisma.sizeGroup.findMany({
-		take: 4,
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
+const findAllFromDB = async (query: Record<string, unknown>) => {
+	const builder = new PrismaQueryBuilder<Prisma.SizeGroupWhereInput>(query);
 
-	return sizeGroup;
+	const prismaArgs = builder
+		.withDefaultFilter({ isDeleted: false })
+		.search(["name"])
+		.filter()
+		.paginate()
+		.sort()
+		.build();
+
+	const [sizeGroups, meta] = await Promise.all([
+		prisma.sizeGroup.findMany(prismaArgs),
+		builder.getMeta(prisma.sizeGroup),
+	]);
+
+	return { meta, sizeGroups };
 };
 
 const findById = async (id: string) => {

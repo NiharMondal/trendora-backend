@@ -50,6 +50,18 @@ model Address {
   @@index([userId])
 }
 
+
+
+model SizeGroup {
+  id        String  @id @default(uuid())
+  name      String  @unique
+  isDeleted Boolean @default(false)
+
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  sizes      Size[]
+  categories Category[]
+}
 model Brand {
   id        String   @id @default(uuid())
   name      String   @unique
@@ -60,20 +72,8 @@ model Brand {
 
   products Product[]
 }
-
-model SizeGroup {
-  id        String  @id @default(ulid())
-  name      String  @unique
-  isDeleted Boolean @default(false)
-
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  sizes      Size[]
-  categories Category[]
-}
-
 model Size {
-  id          String           @id @default(ulid())
+  id          String           @id @default(uuid())
   name        String           @unique
   sizeGroupId String
   sizeGroup   SizeGroup        @relation(fields: [sizeGroupId], references: [id], onDelete: Cascade)
@@ -161,6 +161,7 @@ model ProductImage {
   id        String  @id @default(uuid())
   productId String
   url       String
+  publicId  String 
   altText   String?
   isMain    Boolean @default(false)
   isDeleted Boolean @default(false)
