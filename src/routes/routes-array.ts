@@ -8,24 +8,28 @@ import { productImageRouter } from "../modules/product-image/image.route";
 import { variantRouter } from "../modules/product-variant/variant.route";
 import { productRouter } from "../modules/product/product.route";
 import { reviewRouter } from "../modules/review/review.route";
+import { sizeGroupRouter } from "../modules/size-group/size-group.route";
+import { sizeRouter } from "../modules/size/size.route";
 import { slideRouter } from "../modules/slide/slide.route";
 import { userRouter } from "../modules/user/user.route";
 import { wishlistRouter } from "../modules/wishlist/wishlist.route";
 
 export const routesArray = [
-    { path: "/auth", element: authRouter },
-    { path: "/users", element: userRouter },
-    { path: "/categories", element: categoryRouter },
-    { path: "/brands", element: brandRouter },
-    { path: "/products", element: productRouter },
-    { path: "/products", element: variantRouter },
-    { path: "/products", element: productImageRouter },
-    { path: "/wishlists", element: wishlistRouter },
-    { path: "/reviews", element: reviewRouter },
-    { path: "/address", element: addressRouter },
-    { path: "/orders", element: orderRouter },
-    { path: "/payments", element: paymentRouter },
+	{ path: "/auth", element: authRouter },
+	{ path: "/users", element: userRouter },
+	{ path: "/categories", element: categoryRouter },
+	{ path: "/brands", element: brandRouter },
+	{ path: "/products", element: productRouter },
+	{ path: "/products", element: variantRouter },
+	{ path: "/products", element: productImageRouter },
+	{ path: "/wishlists", element: wishlistRouter },
+	{ path: "/reviews", element: reviewRouter },
+	{ path: "/address", element: addressRouter },
+	{ path: "/orders", element: orderRouter },
+	{ path: "/payments", element: paymentRouter },
+	{ path: "/size-groups", element: sizeGroupRouter },
+	{ path: "/sizes", element: sizeRouter },
 
-    // slide -> for showing slider data in frontend
-    { path: "/slides", element: slideRouter },
+	// slide -> for showing slider data in frontend
+	{ path: "/slides", element: slideRouter },
 ];
