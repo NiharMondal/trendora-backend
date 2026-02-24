@@ -17,7 +17,7 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
 	const data = await addressServices.findAllFromDB();
 
 	sendResponse(res, {
-		statusCode: 201,
+		statusCode: 200,
 		message: "Address fetched successfully",
 		data: data,
 	});

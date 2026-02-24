@@ -38,6 +38,7 @@ export const globalErrorHandler = (
         const result = match ? match[0] : null;
 
         errorResponse.errorDetails = result;
+        console.log(error)
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === "P2002") {

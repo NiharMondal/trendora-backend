@@ -7,15 +7,13 @@ import {
 } from "../types/common.types";
 import {  OrderStatus } from "../../generated/prisma";
 import { Prisma } from "@prisma/client";
+import { envConfig } from "../config/env-config";
 
-const TAX_RATE = parseFloat(process.env.TAX_RATE || "0.08"); // 8%
-const SHIPPING_COST = parseFloat(process.env.SHIPPING_COST || "10.00");
-const FREE_SHIPPING_THRESHOLD = parseFloat(
-    process.env.FREE_SHIPPING_THRESHOLD || "100.00",
-);
-
+const TAX_RATE = envConfig.tax_rate;
+const SHIPPING_COST = envConfig.shipping_cost;
+const FREE_SHIPPING_THRESHOLD = envConfig.free_shipping_threshold;
 /**
- * Generate unique order number
+ * Generate unique order number\
  * Format: ORD-YYYYMM-XXXXXX
  */
 export async function generateOrderNumber(): Promise<string> {
@@ -197,8 +195,7 @@ export async function logStatusChange(
     orderId: string,
     oldStatus: OrderStatus,
     newStatus: OrderStatus,
-    changedBy: string,
-    reason?: string,
+    userId?: string,
     ipAddress?: string,
 ) {
     await tx.orderStatusHistory.create({
@@ -206,8 +203,7 @@ export async function logStatusChange(
             orderId,
             oldStatus,
             newStatus,
-            changedBy,
-            reason,
+            userId,
             ipAddress,
         },
     });
