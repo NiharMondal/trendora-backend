@@ -83,23 +83,14 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
         .filter()
         .paginate()
         .include({
-            user: { select: { name: true, avatar: true, email: true } },
-            items: {
-                include: {
-                    product: {
-                        select: {
-                            name: true,
-                            slug: true,
-                            images: {
-                                where: { isMain: true },
-                                select: { url: true },
-                            },
-                        },
-                    },
-                },
-            },
-            shippingAddress: true,
-            payment: true,
+            user:{
+                select:{
+                    id:true,
+                    name:true,
+                    email:true,
+                    avatar:true,
+                }
+            }
         })
         .build();
 

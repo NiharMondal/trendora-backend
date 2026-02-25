@@ -14,6 +14,15 @@ export async function createCODOrder(
 	orderNumber: string,
 ) {
 	return prisma.$transaction(async (tx) => {
+		// 0. Fetch shipping address for snapshot
+		const shippingAddress = await tx.address.findUnique({
+			where: { id: input.shippingAddressId },
+		});
+
+		if (!shippingAddress) {
+			throw new CustomError(404, "Shipping address not found");
+		}
+
 		// 1. Deduct stock atomically
 		for (const item of calculation.items) {
 			if (item.variantId) {
@@ -59,6 +68,7 @@ export async function createCODOrder(
 				paymentStatus: PaymentStatus.PENDING,
 				orderStatus: OrderStatus.PENDING,
 				shippingAddressId: input.shippingAddressId,
+				shippingSnapshot: shippingAddress,
 				ipAddress: input.ipAddress,
 				userAgent: input.userAgent,
 				notes: input.notes,
