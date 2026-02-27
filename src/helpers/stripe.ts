@@ -10,7 +10,6 @@ interface OrderCalculation {
     subtotal: number;
     tax: number;
     shippingCost: number;
-    discount: number;
     totalAmount: number;
 }
 

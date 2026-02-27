@@ -80,6 +80,11 @@ export async function validateAndCalculateOrder(
         include: {
             variants: {
                 where: { isDeleted: false },
+                include:{
+                    size:{
+                        select:{name:true,}
+                    }
+                }
             },
         },
     });
@@ -128,7 +133,7 @@ export async function validateAndCalculateOrder(
             // Build variant details string
             const details = [];
             if (variant.color) details.push(variant.color);
-            if (variant.sizeId) details.push(`Size ${variant.sizeId}`);
+            if (variant.size) details.push(variant.size.name);
             variantDetails = details.join(", ");
         } else {
             // Use product price
@@ -147,8 +152,6 @@ export async function validateAndCalculateOrder(
             );
         }
 
-        // Calculate discount
-        const discount = originalPrice - actualPrice;
         const itemSubtotal = actualPrice * item.quantity;
 
         validatedItems.push({
@@ -159,7 +162,6 @@ export async function validateAndCalculateOrder(
             quantity: item.quantity,
             priceAtPurchase: actualPrice,
             originalPrice: originalPrice,
-            discount: discount * item.quantity,
             subtotal: itemSubtotal,
         });
 
@@ -170,10 +172,6 @@ export async function validateAndCalculateOrder(
     const tax = subtotal * TAX_RATE;
     const shippingCost =
         subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
-    const discount = validatedItems.reduce(
-        (sum, item) => sum + item.discount,
-        0,
-    );
     const totalAmount = subtotal + tax + shippingCost;
 
     return {
@@ -181,7 +179,6 @@ export async function validateAndCalculateOrder(
         subtotal,
         tax,
         shippingCost,
-        discount,
         totalAmount,
     };
 }

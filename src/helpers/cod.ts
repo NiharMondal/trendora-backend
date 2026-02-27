@@ -62,7 +62,6 @@ export async function createCODOrder(
 				subtotal: calculation.subtotal,
 				tax: calculation.tax,
 				shippingCost: calculation.shippingCost,
-				discount: calculation.discount,
 				totalAmount: calculation.totalAmount,
 				paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
 				paymentStatus: PaymentStatus.PENDING,
