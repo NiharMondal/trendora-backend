@@ -25,7 +25,6 @@ export interface ValidatedOrderItem {
     quantity: number;
     priceAtPurchase: number;
     originalPrice: number;
-    discount: number;
     subtotal: number;
 }
 
@@ -34,6 +33,5 @@ export interface OrderCalculation {
     subtotal: number;
     tax: number;
     shippingCost: number;
-    discount: number;
     totalAmount: number;
 }

@@ -25,10 +25,10 @@ export const envConfig = {
 		email: process.env.EMAIL,
 		password: process.env.PASSWORD,
 	},
-	// order
+	// order related
 	tax_rate: parseFloat(process.env.TAX_RATE || "0.08"),
-	shipping_cost: parseFloat(process.env.SHIPPING_COST || "10.00"),
+	shipping_cost: parseFloat(process.env.SHIPPING_COST || "100.00"),
 	free_shipping_threshold: parseFloat(
-		process.env.FREE_SHIPPING_THRESHOLD || "100.00",
+		process.env.FREE_SHIPPING_THRESHOLD || "1000.00",
 	),
 };
