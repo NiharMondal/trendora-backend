@@ -94,8 +94,10 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 		})
 		.build();
 
-	const orders = await prisma.order.findMany(prismaArgs);
-	const meta = await builder.getMeta(prisma.order);
+		const [orders, meta] = await Promise.all([
+			prisma.order.findMany(prismaArgs),
+			builder.getMeta(prisma.order),
+		]);	
 
 	return { meta, orders };
 };
