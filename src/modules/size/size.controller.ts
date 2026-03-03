@@ -1,76 +1,63 @@
 import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
-
-import { addressServices } from "./address.service";
+import { sizeServices } from "./size.service";
 
 const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await addressServices.createIntoDB(req.body);
+	const data = await sizeServices.createIntoDB(req.body);
 
 	sendResponse(res, {
 		statusCode: 201,
-		message: "Address created successfully",
+		message: "Size created successfully",
 		data: data,
 	});
 });
+
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await addressServices.findAllFromDB();
+	const { meta, sizes } = await sizeServices.findAllFromDB(req.query);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Address fetched successfully",
-		data: data,
+		message: "Size fetched successfully",
+		meta: meta,
+		data: sizes,
 	});
 });
-
-const findMyAddress = asyncHandler(
-	async (req: Request, res: Response) => {
-		const userId = req.user.id;
-		const data = await addressServices.findMyAddress(userId);
-
-		sendResponse(res, {
-			statusCode: 200,
-			message: "Address fetched successfully",
-			data: data,
-		});
-	}
-);
 const findById = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await addressServices.findById(id);
+	const data = await sizeServices.findById(id);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Address fetched successfully",
+		message: "Size fetched successfully",
 		data: data,
 	});
 });
 
 const updateData = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await addressServices.updateData(id, req.body);
+	const data = await sizeServices.updateData(id, req.body);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Address updated successfully",
+		message: "Size updated successfully",
 		data: data,
 	});
 });
 const deleteData = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await addressServices.deleteData(id);
+	const data = await sizeServices.deleteData(id);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Address deleted successfully",
+		message: "Size deleted successfully",
 		data: data,
 	});
 });
 
-export const addressControllers = {
+export const sizeControllers = {
 	createIntoDB,
 	findAllFromDB,
-	findMyAddress,
 	findById,
 	updateData,
 	deleteData,

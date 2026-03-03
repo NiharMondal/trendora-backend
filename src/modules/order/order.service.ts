@@ -12,8 +12,6 @@ import { createStripePaymentUrl } from "../../helpers/stripe";
 import { CreateOrderInput } from "../../types/common.types";
 import {
 	generateOrderNumber,
-	logInventoryChange,
-	logStatusChange,
 	validateAndCalculateOrder,
 } from "../../helpers/order";
 import { createCODOrder } from "../../helpers/cod";
@@ -21,10 +19,10 @@ import { createCODOrder } from "../../helpers/cod";
 /**
  * Create order - handles both Stripe and COD
  */
-const createOrder = async (input: CreateOrderInput) => {
+const createOrder = async (payload: CreateOrderInput) => {
 	// 1. Validate user exists
 	const user = await prisma.user.findUnique({
-		where: { id: input.userId },
+		where: { id: payload.userId },
 	});
 	if (!user) {
 		throw new CustomError(404, "User not found");
@@ -33,8 +31,8 @@ const createOrder = async (input: CreateOrderInput) => {
 	// 2. Validate shipping address belongs to user
 	const shippingAddress = await prisma.address.findFirst({
 		where: {
-			id: input.shippingAddressId,
-			userId: input.userId,
+			id: payload.shippingAddressId,
+			userId: payload.userId,
 			isDeleted: false,
 		},
 	});
@@ -46,29 +44,28 @@ const createOrder = async (input: CreateOrderInput) => {
 	}
 
 	// 3. Validate items and calculate totals (SECURE - fetches prices from DB)
-	const calculation = await validateAndCalculateOrder(input.items);
+	const calculation = await validateAndCalculateOrder(payload.items);
 
 	// 4. Generate unique order number
 	const orderNumber = await generateOrderNumber();
 
 	// 5. Handle payment method specific logic
-	if (input.paymentMethod === PaymentMethod.STRIPE) {
-		// For Stripe, create session and return URL
+	if (payload.paymentMethod === PaymentMethod.STRIPE) {
 		// Order will be created in webhook after successful payment
 		const paymentUrl = await createStripePaymentUrl(
-			input.userId,
-			input.shippingAddressId,
+			payload.userId,
+			payload.shippingAddressId,
 			calculation,
 			orderNumber,
-			input.ipAddress,
-			input.userAgent,
-			input.notes,
+			payload.ipAddress,
+			payload.userAgent,
+			payload.notes,
 		);
 
 		return { paymentUrl, orderNumber };
-	} else if (input.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+	} else if (payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
 		// For COD, create order immediately
-		const order = await createCODOrder(input, calculation, orderNumber);
+		const order = await createCODOrder(payload, calculation, orderNumber);
 
 		return { order, paymentUrl: null };
 	} else {
@@ -86,23 +83,14 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 		.filter()
 		.paginate()
 		.include({
-			user: { select: { name: true, avatar: true, email: true } },
-			items: {
-				include: {
-					product: {
-						select: {
-							name: true,
-							slug: true,
-							images: {
-								where: { isMain: true },
-								select: { url: true },
-							},
-						},
-					},
+			user: {
+				select: {
+					id: true,
+					name: true,
+					email: true,
+					avatar: true,
 				},
 			},
-			shippingAddress: true,
-			payment: true,
 		})
 		.build();
 
@@ -148,6 +136,7 @@ const getMyOrders = async (userId: string) => {
 const getOrderById = async (orderId: string, userId?: string) => {
 	const order = await prisma.order.findUnique({
 		where: { id: orderId },
+
 		include: {
 			items: {
 				include: {
@@ -163,11 +152,7 @@ const getOrderById = async (orderId: string, userId?: string) => {
 					},
 				},
 			},
-			shippingAddress: true,
 			payment: true,
-			statusHistory: {
-				orderBy: { createdAt: "desc" },
-			},
 			user: {
 				select: {
 					id: true,
@@ -193,11 +178,7 @@ const getOrderById = async (orderId: string, userId?: string) => {
 /**
  * Update order status with validation
  */
-const updateOrderStatus = async (
-	orderId: string,
-	newStatus: OrderStatus,
-	ipAddress?: string,
-) => {
+const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
 	return prisma.$transaction(async (tx) => {
 		// 1. Get current order
 		const order = await tx.order.findUnique({
@@ -239,11 +220,8 @@ const updateOrderStatus = async (
 
 		// 4. Calculate payment status updates
 		let newPaymentStatus: PaymentStatus | undefined;
-		let deliveredAt: Date | undefined;
-		let canceledAt: Date | undefined;
 
 		if (newStatus === OrderStatus.DELIVERED) {
-			deliveredAt = new Date();
 			// COD becomes PAID at delivery
 			if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
 				newPaymentStatus = PaymentStatus.PAID;
@@ -251,7 +229,6 @@ const updateOrderStatus = async (
 		}
 
 		if (newStatus === OrderStatus.CANCELED) {
-			canceledAt = new Date();
 			// Refund logic
 			newPaymentStatus =
 				order.paymentStatus === PaymentStatus.PAID
@@ -265,29 +242,11 @@ const updateOrderStatus = async (
 						where: { id: item.variantId },
 						data: { stock: { increment: item.quantity } },
 					});
-
-					await logInventoryChange(
-						tx,
-						item.productId,
-						item.variantId,
-						item.quantity,
-						orderId,
-						"Order canceled - stock restored",
-					);
 				} else {
 					await tx.product.update({
 						where: { id: item.productId },
 						data: { stockQuantity: { increment: item.quantity } },
 					});
-
-					await logInventoryChange(
-						tx,
-						item.productId,
-						undefined,
-						item.quantity,
-						orderId,
-						"Order canceled - stock restored",
-					);
 				}
 			}
 		}

@@ -5,17 +5,15 @@ import {
     OrderCalculation,
     ValidatedOrderItem,
 } from "../types/common.types";
-import { InventoryType, OrderStatus } from "../../generated/prisma";
+import {  OrderStatus } from "../../generated/prisma";
 import { Prisma } from "@prisma/client";
+import { envConfig } from "../config/env-config";
 
-const TAX_RATE = parseFloat(process.env.TAX_RATE || "0.08"); // 8%
-const SHIPPING_COST = parseFloat(process.env.SHIPPING_COST || "10.00");
-const FREE_SHIPPING_THRESHOLD = parseFloat(
-    process.env.FREE_SHIPPING_THRESHOLD || "100.00",
-);
-
+const TAX_RATE = envConfig.tax_rate;
+const SHIPPING_COST = envConfig.shipping_cost;
+const FREE_SHIPPING_THRESHOLD = envConfig.free_shipping_threshold;
 /**
- * Generate unique order number
+ * Generate unique order number\
  * Format: ORD-YYYYMM-XXXXXX
  */
 export async function generateOrderNumber(): Promise<string> {
@@ -82,6 +80,11 @@ export async function validateAndCalculateOrder(
         include: {
             variants: {
                 where: { isDeleted: false },
+                include:{
+                    size:{
+                        select:{name:true,}
+                    }
+                }
             },
         },
     });
@@ -123,14 +126,14 @@ export async function validateAndCalculateOrder(
             const basePrice = product.discountPrice || product.basePrice;
             actualPrice =
                 parseFloat(basePrice.toString()) +
-                parseFloat(variant.priceModifier.toString());
+                parseFloat(variant.price.toString());
             originalPrice = parseFloat(product.basePrice.toString());
             availableStock = variant.stock;
 
             // Build variant details string
             const details = [];
             if (variant.color) details.push(variant.color);
-            if (variant.size) details.push(`Size ${variant.size}`);
+            if (variant.size) details.push(variant.size.name);
             variantDetails = details.join(", ");
         } else {
             // Use product price
@@ -149,8 +152,6 @@ export async function validateAndCalculateOrder(
             );
         }
 
-        // Calculate discount
-        const discount = originalPrice - actualPrice;
         const itemSubtotal = actualPrice * item.quantity;
 
         validatedItems.push({
@@ -161,7 +162,6 @@ export async function validateAndCalculateOrder(
             quantity: item.quantity,
             priceAtPurchase: actualPrice,
             originalPrice: originalPrice,
-            discount: discount * item.quantity,
             subtotal: itemSubtotal,
         });
 
@@ -172,10 +172,6 @@ export async function validateAndCalculateOrder(
     const tax = subtotal * TAX_RATE;
     const shippingCost =
         subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
-    const discount = validatedItems.reduce(
-        (sum, item) => sum + item.discount,
-        0,
-    );
     const totalAmount = subtotal + tax + shippingCost;
 
     return {
@@ -183,35 +179,10 @@ export async function validateAndCalculateOrder(
         subtotal,
         tax,
         shippingCost,
-        discount,
         totalAmount,
     };
 }
 
-/**
- * Log inventory changes for audit trail
- */
-export async function logInventoryChange(
-    tx: Prisma.TransactionClient,
-    productId: string,
-    variantId: string | undefined,
-    quantity: number,
-    type: InventoryType,
-    referenceId: string,
-    reason?: string,
-) {
-    await tx.inventoryLog.create({
-        data: {
-            productId,
-            variantId,
-            quantity: -quantity, // Negative for sales
-            type,
-            reason,
-            referenceId,
-            createdBy: "SYSTEM",
-        },
-    });
-}
 
 /**
  * Log order status changes
@@ -221,8 +192,7 @@ export async function logStatusChange(
     orderId: string,
     oldStatus: OrderStatus,
     newStatus: OrderStatus,
-    changedBy: string,
-    reason?: string,
+    userId?: string,
     ipAddress?: string,
 ) {
     await tx.orderStatusHistory.create({
@@ -230,8 +200,7 @@ export async function logStatusChange(
             orderId,
             oldStatus,
             newStatus,
-            changedBy,
-            reason,
+            userId,
             ipAddress,
         },
     });

@@ -10,7 +10,11 @@ const router = Router();
 router.patch(
 	"/:orderId/status",
 	validateRequest(orderValidation.updateOrderStatusSchema),
+<<<<<<< HEAD
 	orderControllers.markOrderStatus,
+=======
+	orderControllers.updateOrderStatus,
+>>>>>>> 700117cbff09cc7708b0fc0ce371162fab75ca3d
 );
 
 router.get(
@@ -18,7 +22,11 @@ router.get(
 	authGuard(Role.CUSTOMER),
 	orderControllers.getMyOrders,
 );
+<<<<<<< HEAD
 
+=======
+router.route("/:orderId").get(orderControllers.getOrderById);
+>>>>>>> 700117cbff09cc7708b0fc0ce371162fab75ca3d
 router
 	.route("/")
 	.post(

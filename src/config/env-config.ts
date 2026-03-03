@@ -5,7 +5,7 @@ dotenv.config({ path: path.join(process.cwd(), ".env") });
 
 export const envConfig = {
 	node_env: process.env.NODE_ENV,
-	port: 5000,
+	port: parseInt(process.env.PORT || "5000"),
 	db_url: process.env.DATABASE_URL,
 	access_token_secret: process.env.ACCESS_TOKEN_SECRET,
 	front_end_url: process.env.FRONTEND_URL,
@@ -25,4 +25,10 @@ export const envConfig = {
 		email: process.env.EMAIL,
 		password: process.env.PASSWORD,
 	},
+	// order related
+	tax_rate: parseFloat(process.env.TAX_RATE || "0.08"),
+	shipping_cost: parseFloat(process.env.SHIPPING_COST || "100.00"),
+	free_shipping_threshold: parseFloat(
+		process.env.FREE_SHIPPING_THRESHOLD || "1000.00",
+	),
 };
