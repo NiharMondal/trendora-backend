@@ -20,7 +20,7 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
         statusCode: 200,
         message: "Review fetched successfully",
         meta: data.meta,
-        data: data.review,
+        data: data.reviews,
     });
 });
 const findByUserId = asyncHandler(async (req: Request, res: Response) => {

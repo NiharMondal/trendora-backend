@@ -61,10 +61,12 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
         })
         .build();
 
-    const review = await prisma.review.findMany(prismaArgs);
-    const meta = await builder.getMeta(prisma.review);
+    	const [reviews, meta] = await Promise.all([
+			prisma.review.findMany(prismaArgs),
+			builder.getMeta(prisma.review),
+		]);
 
-    return { meta, review };
+    return {reviews, meta,  };
 };
 
 const findById = async (id: string) => {

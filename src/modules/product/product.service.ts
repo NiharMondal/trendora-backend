@@ -8,10 +8,10 @@ type ProductCreatePayload = Omit<
 	Product,
 	"id" | "slug" | "createdAt" | "updatedAt" | "images" | "variants"
 > & {
-	images: { id?: string; url: string; isMain: boolean }[];
+	images: { id?: string; url: string; isMain: boolean, publicId: string, altText?: string }[];
 	variants?: {
 		id?: string;
-		size: string;
+		sizeId: string;
 		color: string;
 		stock: number;
 		price: number;
@@ -49,7 +49,7 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 			discountPrice: dis_Price,
 			variants: {
 				create: variants?.map((v) => ({
-					size: v.size,
+					sizeId: v.sizeId,
 					color: v.color,
 					stock: v.stock,
 					price: v.price,
@@ -58,6 +58,8 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 			images: {
 				create: images?.map((img) => ({
 					url: img.url,
+					publicId: img.publicId,
+					altText: img.altText,
 					isMain: img.isMain,
 				})),
 			},
@@ -72,11 +74,7 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, {
-		defaultField: "createdAt",
-		defaultOrder: "desc",
-		allowedFields: ["name", "basePrice", "createdAt"],
-	});
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
@@ -117,8 +115,18 @@ const findBySlug = async (slug: string) => {
 	const product = await prisma.product.findUniqueOrThrow({
 		where: { slug },
 		include: {
-			variants: true,
+			variants: {
+				include:{
+					size:{
+						select:{
+							id: true,
+							name: true,
+						}
+					}
+				}
+			},
 			images: true,
+			brand:true
 		},
 	});
 
@@ -183,7 +191,7 @@ const updateData = async (
 				await tx.productVariant.update({
 					where: { id: variant.id },
 					data: {
-						size: variant.size,
+						sizeId: variant.sizeId,
 						color: variant.color,
 						stock: variant.stock,
 						price: variant.price,
@@ -193,7 +201,7 @@ const updateData = async (
 				await tx.productVariant.create({
 					data: {
 						productId: id,
-						size: variant.size,
+						sizeId: variant.sizeId,
 						color: variant.color,
 						stock: variant.stock,
 						price: variant.price,
@@ -217,6 +225,8 @@ const updateData = async (
 					data: {
 						productId: id,
 						url: image.url,
+						publicId: image.publicId,
+						altText: image.altText,
 						isMain: image.isMain,
 					},
 				});
