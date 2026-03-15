@@ -1,29 +1,22 @@
 installation:
   version: 6.1.0
   installDate: 2026-03-14T12:24:26.396Z
-  lastUpdated: 2026-03-14T12:24:26.396Z
+  lastUpdated: 2026-03-15T11:22:17.281Z
 modules:
   - name: core
     version: 6.1.0
     installDate: 2026-03-14T12:24:24.744Z
-    lastUpdated: 2026-03-14T12:24:24.744Z
+    lastUpdated: 2026-03-15T11:22:17.281Z
     source: built-in
     npmPackage: null
     repoUrl: null
   - name: bmm
     version: 6.1.0
     installDate: 2026-03-14T12:24:06.826Z
-    lastUpdated: 2026-03-14T12:24:24.744Z
+    lastUpdated: 2026-03-15T11:22:17.281Z
     source: built-in
     npmPackage: null
     repoUrl: null
-  - name: wds
-    version: 0.3.0
-    installDate: 2026-03-14T12:24:18.119Z
-    lastUpdated: 2026-03-14T12:24:26.396Z
-    source: external
-    npmPackage: bmad-method-wds-expansion
-    repoUrl: https://github.com/bmad-code-org/bmad-method-wds-expansion
 ides:
   - gemini
   - antigravity
