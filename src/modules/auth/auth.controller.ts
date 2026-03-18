@@ -23,4 +23,14 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 
-export const authControllers = { registerUser, loginUser };
+const oauthLogin = asyncHandler(async (req: Request, res: Response) => {
+	const data = await authServices.oauthLogin(req.body);
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "OAuth Logged in Successfully",
+		data: data,
+	});
+});
+
+export const authControllers = { registerUser, loginUser, oauthLogin };

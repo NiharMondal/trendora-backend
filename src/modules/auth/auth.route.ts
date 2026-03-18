@@ -17,4 +17,10 @@ router.post(
     authControllers.loginUser
 );
 
+router.post(
+    "/oauth-login",
+    validateRequest(authSchema.oauthLogin),
+    authControllers.oauthLogin
+);
+
 export const authRouter = router;

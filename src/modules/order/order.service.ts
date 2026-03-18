@@ -87,8 +87,12 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 				select: {
 					id: true,
 					name: true,
-					email: true,
 					avatar: true,
+					auth: {
+						select: {
+							email: true,
+						},
+					},
 				},
 			},
 		})
@@ -159,7 +163,11 @@ const getOrderById = async (orderId: string, userId?: string) => {
 				select: {
 					id: true,
 					name: true,
-					email: true,
+					auth: {
+						select: {
+							email: true,
+						},
+					},
 				},
 			},
 		},
@@ -347,7 +355,7 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 			where: dateFilter,
 			include: {
 				user: {
-					select: { name: true, email: true },
+					select: { name: true, auth: { select: { email: true } } },
 				},
 				items: true,
 			},

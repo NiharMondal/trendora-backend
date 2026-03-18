@@ -38,4 +38,12 @@ const login = z.object({
         .min(6, "Password must be at least 6 characters long"),
 });
 
-export const authSchema = { registerUser, login };
+const oauthLogin = z.object({
+    name: z.string({ error: "Name is required" }).nonempty("Name is required").trim(),
+    email: z.email({ error: "Provide valid email" }).nonempty("Email is required"),
+    provider: z.enum(["GOOGLE", "FACEBOOK"], { error: "Provider must be GOOGLE or FACEBOOK" }),
+    providerId: z.string({ error: "Provider ID is required" }).nonempty("Provider ID is required"),
+    avatar: z.url().optional(),
+});
+
+export const authSchema = { registerUser, login, oauthLogin };

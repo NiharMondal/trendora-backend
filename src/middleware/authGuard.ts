@@ -29,6 +29,9 @@ export const authGuard = (...roles: string[]) => {
                 where: {
                     id: id,
                 },
+                include: {
+                    auth: true,
+                },
             });
 
             if (!user || user.isDeleted) {

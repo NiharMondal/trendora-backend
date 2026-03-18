@@ -11,20 +11,31 @@ datasource db {
 model User {
   id        String   @id @default(uuid())
   name      String
-  email     String   @unique
-  password  String
   phone     String?  @unique
-  role      Role     @default(CUSTOMER)
   avatar    String?
   isDeleted Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  auth                 Auth?
   addresses            Address[]
   orders               Order[]
   reviews              Review[]
   wishlist             Wishlist[]
   orderStatusHistories OrderStatusHistory[]
+}
+
+model Auth {
+  id         String       @id @default(uuid())
+  email      String       @unique
+  password   String?
+  provider   AuthProvider @default(EMAIL)
+  providerId String?      @unique
+  role       Role         @default(CUSTOMER)
+  userId     String       @unique
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
 
   @@index([email])
   @@index([role])
@@ -340,4 +351,10 @@ enum Gender {
   WOMEN
   KIDS
   UNISEX
+}
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+  FACEBOOK
 }
