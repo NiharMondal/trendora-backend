@@ -80,7 +80,7 @@ export async function createCODOrder(
 						quantity: item.quantity,
 						priceAtPurchase: item.priceAtPurchase,
 						originalPrice: item.originalPrice,
-						discount: item.discount,
+						// discount: item.discount,
 						subtotal: item.subtotal,
 					})),
 				},

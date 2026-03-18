@@ -7,10 +7,9 @@ import {
     PaymentMethod,
     PaymentStatus,
     OrderStatus,
-    InventoryType,
 } from "../../../generated/prisma";
 import { ValidatedOrderItem } from "../../types/common.types";
-import { logInventoryChange, logStatusChange } from "../../helpers/order";
+import {  logStatusChange } from "../../helpers/order";
 
 // Initialize Stripe
 const stripe = new Stripe(envConfig.stripe_secret_key as string, {
@@ -165,8 +164,7 @@ async function handleCheckoutSessionCompleted(
 
                 const basePrice = product.discountPrice || product.basePrice;
                 currentPrice =
-                    parseFloat(basePrice.toString()) +
-                    parseFloat(variant.priceModifier.toString());
+                    parseFloat(basePrice.toString())
                 availableStock = variant.stock;
             } else {
                 currentPrice = parseFloat(
@@ -199,30 +197,11 @@ async function handleCheckoutSessionCompleted(
                     data: { stock: { decrement: item.quantity } },
                 });
 
-                await logInventoryChange(
-                    tx,
-                    item.productId,
-                    item.variantId,
-                    item.quantity,
-                    InventoryType.SALE,
-                    orderNumber,
-                    "Stripe order completed",
-                );
             } else {
                 await tx.product.update({
                     where: { id: item.productId },
                     data: { stockQuantity: { decrement: item.quantity } },
                 });
-
-                await logInventoryChange(
-                    tx,
-                    item.productId,
-                    undefined,
-                    item.quantity,
-                    InventoryType.SALE,
-                    orderNumber,
-                    "Stripe order completed",
-                );
             }
         }
 
@@ -252,7 +231,6 @@ async function handleCheckoutSessionCompleted(
                         quantity: item.quantity,
                         priceAtPurchase: item.priceAtPurchase,
                         originalPrice: item.originalPrice,
-                        discount: item.discount,
                         subtotal: item.subtotal,
                     })),
                 },
@@ -281,7 +259,6 @@ async function handleCheckoutSessionCompleted(
             OrderStatus.PENDING,
             "SYSTEM",
             "Order created via Stripe",
-            ipAddress,
         );
 
         // Log automatic transition to PROCESSING
@@ -292,7 +269,6 @@ async function handleCheckoutSessionCompleted(
             OrderStatus.PROCESSING,
             "SYSTEM",
             "Payment confirmed - moved to processing",
-            ipAddress,
         );
 
         console.log(`Order ${orderNumber} created successfully`);
