@@ -23,8 +23,8 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 
-const oauthLogin = asyncHandler(async (req: Request, res: Response) => {
-	const data = await authServices.oauthLogin(req.body);
+const oAuthLogin = asyncHandler(async (req: Request, res: Response) => {
+	const data = await authServices.oAuthLogin(req.body);
 
 	sendResponse(res, {
 		statusCode: 200,
@@ -33,4 +33,4 @@ const oauthLogin = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 
-export const authControllers = { registerUser, loginUser, oauthLogin };
+export const authControllers = { registerUser, loginUser, oAuthLogin };

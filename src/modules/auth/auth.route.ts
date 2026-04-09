@@ -20,7 +20,7 @@ router.post(
 router.post(
     "/oauth-login",
     validateRequest(authSchema.oauthLogin),
-    authControllers.oauthLogin
+    authControllers.oAuthLogin
 );
 
 export const authRouter = router;

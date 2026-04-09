@@ -7,7 +7,7 @@ export interface IAuth {
 export interface IOAuth {
 	name: string;
 	email: string;
-	provider: "GOOGLE" | "FACEBOOK";
+	provider: string;
 	providerId: string;
 	avatar?: string;
 }

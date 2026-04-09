@@ -18,6 +18,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   auth                 Auth?
+  oauthAccounts        OAuthAccount[]
   addresses            Address[]
   orders               Order[]
   reviews              Review[]
@@ -25,20 +26,28 @@ model User {
   orderStatusHistories OrderStatusHistory[]
 }
 
-model Auth {
-  id         String       @id @default(uuid())
-  email      String       @unique
-  password   String?
-  provider   AuthProvider @default(EMAIL)
-  providerId String?      @unique
-  role       Role         @default(CUSTOMER)
-  userId     String       @unique
-  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+model OAuthAccount {
+  id         String   @id @default(uuid())
+  provider   AuthProvider
+  providerId String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([email])
-  @@index([role])
+  createdAt  DateTime @default(now())
+
+  @@unique([provider, providerId])
+}
+
+model Auth {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String?
+  role       Role     @default(CUSTOMER)
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Address {
