@@ -22,6 +22,10 @@ router
 router
     .route("/")
     .get(addressControllers.findAllFromDB)
-    .post(validateRequest(addressSchema), addressControllers.createIntoDB);
+    .post(
+        authGuard(Role.CUSTOMER),
+        validateRequest(addressSchema),
+        addressControllers.createIntoDB
+    );
 
 export const addressRouter = router;

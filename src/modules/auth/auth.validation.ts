@@ -59,4 +59,24 @@ const oauthLogin = z.object({
     avatar: z.url().optional(),
 });
 
-export const authSchema = { registerUser, login, oauthLogin };
+const changePassword = z.object({
+    oldPassword: z.string("Old password is required").min(6, "Old password is required"),
+    newPassword: z
+    .string({
+        error: "New password is required",
+    })
+    .min(6, {
+        error: "Password must be at least 6 characters long",
+    })
+    .max(30, {
+        error: "Password must not exceed 30 characters",
+    })
+    .regex(/[A-Za-z]/, {
+        error: "Password must contain at least one letter",
+    })
+    .regex(/[0-9]/, {
+        error: "Password must contain at least one number",
+    })
+    .trim(),
+})
+export const authSchema = { registerUser, login, oauthLogin, changePassword };

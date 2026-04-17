@@ -1,10 +1,20 @@
 import { Address } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import CustomError from "../../utils/customError";
+import { TAddressValues } from "./address.validation";
 
-const createIntoDB = async (payload: Address) => {
+const createIntoDB = async (payload: TAddressValues, userId:string) => {
+	const user = await prisma.user.findUnique({where:{
+		id: userId
+	}});
+	if(!user){
+		throw new CustomError(404, "User does not exist!")
+	}
 	const address = await prisma.address.create({
-		data: payload,
+		data: {
+			...payload,
+			userId
+		},
 	});
 
 	return address;

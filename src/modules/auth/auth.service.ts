@@ -2,7 +2,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { prisma } from "../../config/db";
 import { comparePassword, makePasswordHash } from "../../helpers/password";
 import CustomError from "../../utils/customError";
-import { IAuth, IOAuth } from "./auth.interface";
+import { IAuth, IChangePassword, IOAuth } from "./auth.interface";
 import { generateAccessToken } from "../../helpers/jwt";
 import { envConfig } from "../../config/env-config";
 import { TRegisterUserType } from "./auth.validation";
@@ -203,4 +203,47 @@ const generateTokenResponse = (auth: Auth) => {
     };
 };
 
-export const authServices = { registerUser, loginUser, oAuthLogin };
+
+const changePassword = async (payload: IChangePassword, userId: string) => {
+
+    const auth = await prisma.auth.findUnique({
+        where: {
+            userId:userId
+        },
+        include: {
+            user: true,
+        },
+    });
+
+    if (!auth) {
+        throw new CustomError(404, "Invalid credentials");
+    }
+
+    if (auth.user && auth.user.isDeleted) {
+        throw new CustomError(400, "User has been deleted");
+    }
+
+    if (!auth.password) {
+        throw new CustomError(400, "Please login with your social account");
+    }
+
+    const isValidPassword = await comparePassword(
+        payload.oldPassword,
+        auth.password,
+    );
+
+    if (!isValidPassword) {
+        throw new CustomError(400, "Old password does not match");
+    }
+
+    const hashPassword = await makePasswordHash(payload.newPassword);
+
+    await prisma.auth.update({
+        where: { userId }, data: {
+            password: hashPassword
+        }
+    })
+
+}
+
+export const authServices = { registerUser, loginUser, oAuthLogin, changePassword };

@@ -11,3 +11,8 @@ export interface IOAuth {
 	providerId: string;
 	avatar?: string;
 }
+
+export interface IChangePassword  {
+	oldPassword: string;
+	newPassword: string;
+}
