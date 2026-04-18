@@ -5,7 +5,8 @@ import { sendResponse } from "../../utils/sendResponse";
 import { addressServices } from "./address.service";
 
 const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await addressServices.createIntoDB(req.body);
+	const user = req.user;
+	const data = await addressServices.createIntoDB(req.body, user.id);
 
 	sendResponse(res, {
 		statusCode: 201,

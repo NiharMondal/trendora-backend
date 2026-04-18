@@ -11,36 +11,58 @@ datasource db {
 model User {
   id        String   @id @default(uuid())
   name      String
-  email     String   @unique
-  password  String
   phone     String?  @unique
-  role      Role     @default(CUSTOMER)
   avatar    String?
+  avatarPublicId String?
   isDeleted Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  auth                 Auth?
+  oauthAccounts        OAuthAccount[]
   addresses            Address[]
   orders               Order[]
   reviews              Review[]
   wishlist             Wishlist[]
   orderStatusHistories OrderStatusHistory[]
+}
 
-  @@index([email])
-  @@index([role])
+model OAuthAccount {
+  id         String   @id @default(uuid())
+  provider   AuthProvider
+  providerId String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+
+  @@unique([provider, providerId])
+}
+
+model Auth {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String?
+  role       Role     @default(CUSTOMER)
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Address {
   id         String   @id @default(uuid())
   userId     String
   fullName   String
+  email      String
   phone      String
   street     String
   city       String
   state      String?
   postalCode String
   country    String
-  isDefault  Boolean  @default(false)
+  isDefault  Boolean @default(false)  
   isDeleted  Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -340,4 +362,10 @@ enum Gender {
   WOMEN
   KIDS
   UNISEX
+}
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+  FACEBOOK
 }
