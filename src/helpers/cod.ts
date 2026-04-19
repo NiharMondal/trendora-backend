@@ -92,7 +92,11 @@ export async function createCODOrder(
 					select: {
 						id: true,
 						name: true,
-						email: true,
+						auth: {
+							select: {
+								email: true,
+							},
+						},
 					},
 				},
 			},

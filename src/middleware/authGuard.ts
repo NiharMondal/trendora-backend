@@ -17,7 +17,6 @@ export const authGuard = (...roles: string[]) => {
                 token,
                 envConfig.access_token_secret as string
             ) as JwtPayload;
-
             const { id, role, exp } = decodeToken;
 
             // Correct expiration check (exp is in seconds)
@@ -28,6 +27,9 @@ export const authGuard = (...roles: string[]) => {
             const user = await prisma.user.findUniqueOrThrow({
                 where: {
                     id: id,
+                },
+                include: {
+                    auth: true,
                 },
             });
 

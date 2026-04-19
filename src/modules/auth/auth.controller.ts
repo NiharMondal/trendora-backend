@@ -23,4 +23,25 @@ const loginUser = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 
-export const authControllers = { registerUser, loginUser };
+const oAuthLogin = asyncHandler(async (req: Request, res: Response) => {
+	const data = await authServices.oAuthLogin(req.body);
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "OAuth Logged in Successfully",
+		data: data,
+	});
+});
+
+const changePassword = asyncHandler(async (req: Request, res: Response) => {
+	const user = req.user;
+	const data = await authServices.changePassword(req.body,  user?.id);
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Password changed Successfully",
+		data: data,
+	});
+});
+
+export const authControllers = { registerUser, loginUser, oAuthLogin, changePassword};

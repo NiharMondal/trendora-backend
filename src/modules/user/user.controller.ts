@@ -12,5 +12,22 @@ const getAllFromDB = asyncHandler(async (req: Request, res: Response) => {
 		data: data,
 	});
 });
+const myProfile = asyncHandler(async (req: Request, res: Response) => {
+	const data = await userServices.myProfile(req.user.id);
 
-export const userControllers = { getAllFromDB };
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Users fetched successfully",
+		data: data,
+	});
+});
+const updateData = asyncHandler(async (req: Request, res: Response) => {
+	const data = await userServices.updateData(req.body, req.user.id);
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Information updated successfully",
+		data: data,
+	});
+});
+export const userControllers = { getAllFromDB , myProfile, updateData };
