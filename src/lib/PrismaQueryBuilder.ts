@@ -26,7 +26,7 @@ interface QueryBuilderResult {
     where: any;
     skip: number;
     take: number;
-    orderBy: any;
+    orderBy?: any;
     include?: Record<string, any>;
     select?: Record<string, any>;
 }
@@ -153,7 +153,15 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
      * @example filter() // Converts ?status=ACTIVE,PENDING to { status: { in: ['ACTIVE', 'PENDING'] } }
      */
     filter(): this {
-        const RESERVED_KEYS = ["search", "page", "limit", "sortBy", "sort"];
+        const RESERVED_KEYS = [
+            "search",
+            "page",
+            "limit",
+            "sortBy",
+            "sort",
+            "orderBy",
+            "order",
+        ];
 
         const filterParams = Object.entries(this.query)
             .filter(([key]) => !RESERVED_KEYS.includes(key))
@@ -325,8 +333,11 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
             where: this.buildWhereClause(),
             skip,
             take: this.paginationConfig.limit,
-            orderBy: this.orderByCondition,
         };
+
+        if (Object.keys(this.orderByCondition).length > 0) {
+            args.orderBy = this.orderByCondition;
+        }
 
         if (Object.keys(this.includeFields).length > 0) {
             args.include = this.includeFields;
