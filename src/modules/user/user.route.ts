@@ -5,8 +5,8 @@ import { Role } from "../../../generated/prisma";
 
 const router = Router();
 
+router.patch("/my-profile-update", authGuard(Role.ADMIN, Role.CUSTOMER), userControllers.updateData)
 router.get("/my-profile", authGuard(Role.ADMIN, Role.CUSTOMER), userControllers.myProfile)
-router.get("/update-information", userControllers.updateData)
 router.get("/", userControllers.getAllFromDB);
 
 export const userRouter = router;
