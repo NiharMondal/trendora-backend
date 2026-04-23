@@ -22,6 +22,7 @@ router.route("/:orderId").get(orderControllers.getOrderById);
 router
 	.route("/")
 	.post(
+		authGuard(Role.CUSTOMER),
 		validateRequest(orderValidation.createOrderSchema),
 		orderControllers.createOrder,
 	)

@@ -6,7 +6,8 @@ import { sendResponse } from "../../utils/sendResponse";
 const createOrder = asyncHandler(async (req: Request, res: Response) => {
     const userAgent = req.headers['user-agent'] || 'Unknown';
     const ipAddress = req.ip || 'Unknown';
-	const data = await orderServices.createOrder({...req.body, userAgent, ipAddress});
+	const userId = req?.user?.id;
+	const data = await orderServices.createOrder({...req.body, userAgent, ipAddress, userId});
 
 	sendResponse(res, {
 		statusCode: 201,

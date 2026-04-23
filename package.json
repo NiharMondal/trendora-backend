@@ -11,7 +11,8 @@
         "lint:fix": "eslint ./src --fix",
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
-        "dev": "ts-node-dev --respawn --transpile-only src/server.ts"
+        "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+        "studio": "npx prisma studio"
     },
     "keywords": [],
     "author": "",
@@ -22,6 +23,7 @@
         "@prisma/extension-accelerate": "^2.0.2",
         "axios": "^1.11.0",
         "bcrypt": "^6.0.0",
+        "cloudinary": "^2.9.0",
         "cors": "^2.8.5",
         "dotenv": "^17.2.1",
         "express": "^5.1.0",
