@@ -2,6 +2,7 @@ import { addressRouter } from "../modules/address/address.route";
 import { authRouter } from "../modules/auth/auth.route";
 import { brandRouter } from "../modules/brand/brand.route";
 import { categoryRouter } from "../modules/category/category.route";
+import { cloudinaryRouter } from "../modules/cloudinary/cloudinary.route";
 import { orderRouter } from "../modules/order/order.route";
 import { paymentRouter } from "../modules/payment/payment.route";
 import { productImageRouter } from "../modules/product-image/image.route";
@@ -29,6 +30,7 @@ export const routesArray = [
 	{ path: "/payments", element: paymentRouter },
 	{ path: "/size-groups", element: sizeGroupRouter },
 	{ path: "/sizes", element: sizeRouter },
+	{ path: "/cloudinary", element: cloudinaryRouter },
 
 	// slide -> for showing slider data in frontend
 	{ path: "/slides", element: slideRouter },

@@ -82,6 +82,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 	const prismaArgs = builder
 		.filter()
 		.paginate()
+		.sort("createdAt", "desc")
 		.include({
 			user: {
 				select: {
