@@ -32,7 +32,7 @@ model OAuthAccount {
   provider   AuthProvider
   providerId String
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
 
   createdAt  DateTime @default(now())
 
@@ -45,7 +45,7 @@ model Auth {
   password   String?
   role       Role     @default(CUSTOMER)
   userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -67,7 +67,7 @@ model Address {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  user  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User    @relation(fields: [userId], references: [id])
   order Order[]
 
   @@index([userId])
@@ -99,7 +99,7 @@ model Size {
   id          String           @id @default(uuid())
   name        String           @unique
   sizeGroupId String?
-  sizeGroup   SizeGroup?       @relation(fields: [sizeGroupId], references: [id], onDelete: Cascade)
+  sizeGroup   SizeGroup?       @relation(fields: [sizeGroupId], references: [id], onDelete: SetNull)
   isDeleted   Boolean          @default(false)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
@@ -245,7 +245,7 @@ model Order {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  shippingAddress Address              @relation(fields: [shippingAddressId], references: [id])
+  shippingAddress Address              @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull)
   user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   items           OrderItem[]
   payment         Payment?
