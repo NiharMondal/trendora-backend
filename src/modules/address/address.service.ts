@@ -25,7 +25,7 @@ const findAllFromDB = async () => {
 	return addresses;
 }
 const findMyAddress = async (userId: string) => {
-	const user = await prisma.address.findMany({ where: { userId: userId } });
+	const user = await prisma.address.findMany({ where: { userId: userId , isDeleted: false} });
 
 	if (!user) {
 		throw new CustomError(404, "Sorry, user not found!");
@@ -33,6 +33,7 @@ const findMyAddress = async (userId: string) => {
 	const addresses = await prisma.address.findMany({
 		where: {
 			userId: userId,
+			isDeleted:false
 		},
 	});
 

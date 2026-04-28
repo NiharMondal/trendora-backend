@@ -4,19 +4,22 @@ import {
 	PaymentStatus,
 } from "../../generated/prisma";
 import { prisma } from "../config/db";
-import { CreateOrderInput, OrderCalculation } from "../types/common.types";
+import { TBasicInfo } from "../modules/order/order.service";
+import { TCreateOrderSchema } from "../modules/order/order.validation";
+import {  OrderCalculation } from "../types/common.types";
 import CustomError from "../utils/customError";
 import { logStatusChange } from "./order";
 
 export async function createCODOrder(
-	input: CreateOrderInput,
+	input: TCreateOrderSchema & TBasicInfo,
+	shippingAddressId:string,
 	calculation: OrderCalculation,
 	orderNumber: string,
 ) {
 	return prisma.$transaction(async (tx) => {
 		// 0. Fetch shipping address for snapshot
 		const shippingAddress = await tx.address.findUnique({
-			where: { id: input.shippingAddressId },
+			where: { id: shippingAddressId },
 		});
 
 		if (!shippingAddress) {
@@ -66,7 +69,7 @@ export async function createCODOrder(
 				paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
 				paymentStatus: PaymentStatus.PENDING,
 				orderStatus: OrderStatus.PENDING,
-				shippingAddressId: input.shippingAddressId,
+				shippingAddressId: shippingAddressId,
 				shippingSnapshot: shippingAddress,
 				ipAddress: input.ipAddress,
 				userAgent: input.userAgent,

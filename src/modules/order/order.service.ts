@@ -9,17 +9,20 @@ import { ensureTransitionAllowed } from "../../helpers/allowedTransition";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
 import { createStripePaymentUrl } from "../../helpers/stripe";
-import { CreateOrderInput } from "../../types/common.types";
 import {
 	generateOrderNumber,
 	validateAndCalculateOrder,
 } from "../../helpers/order";
 import { createCODOrder } from "../../helpers/cod";
+import { TCreateOrderSchema } from "./order.validation";
 
-/**
- * Create order - handles both Stripe and COD
- */
-const createOrder = async (payload: CreateOrderInput) => {
+export type TBasicInfo = {
+	userId: string;
+	ipAddress: string;
+	userAgent: string;
+}
+
+const createOrder = async (payload: TCreateOrderSchema & TBasicInfo) => {
 	// 1. Validate user exists
 	const user = await prisma.user.findUnique({
 		where: { id: payload.userId },
@@ -28,20 +31,46 @@ const createOrder = async (payload: CreateOrderInput) => {
 		throw new CustomError(404, "User not found");
 	}
 
-	// 2. Validate shipping address belongs to user
-	const shippingAddress = await prisma.address.findFirst({
-		where: {
-			id: payload.shippingAddressId,
-			userId: payload.userId,
-			isDeleted: false,
-		},
-	});
-	if (!shippingAddress) {
-		throw new CustomError(
-			404,
-			"Shipping address not found or does not belong to user",
-		);
-	}
+	    // 2. Resolve shipping address
+		let shippingAddress;
+
+		if (payload.shippingAddressId) {
+			// Use existing address — validate it belongs to the user
+			shippingAddress = await prisma.address.findFirst({
+				where: {
+					id: payload.shippingAddressId,
+					userId: payload.userId,
+					isDeleted: false,
+				},
+			});
+	
+			if (!shippingAddress) {
+				throw new CustomError(
+					404,
+					"Shipping address not found or does not belong to user",
+				);
+			}
+		} else if (payload.address) {
+			// Create a new address on the fly
+			shippingAddress = await prisma.address.create({
+				data: {
+					userId: payload.userId,
+					fullName: payload.address.fullName,
+					email: payload.address.email,
+					phone: payload.address.phone,
+					street: payload.address.street,
+					city: payload.address.city,
+					state: payload.address.state,
+					postalCode: payload.address.postalCode,
+					country: payload.address.country,
+				},
+			});
+		} else {
+			throw new CustomError(
+				400,
+				"Either shippingAddressId or address fields are required",
+			);
+		}
 
 	// 3. Validate items and calculate totals (SECURE - fetches prices from DB)
 	const calculation = await validateAndCalculateOrder(payload.items);
@@ -54,7 +83,7 @@ const createOrder = async (payload: CreateOrderInput) => {
 		// Order will be created in webhook after successful payment
 		const paymentUrl = await createStripePaymentUrl(
 			payload.userId,
-			payload.shippingAddressId,
+			shippingAddress?.id,
 			calculation,
 			orderNumber,
 			payload.ipAddress,
@@ -65,7 +94,7 @@ const createOrder = async (payload: CreateOrderInput) => {
 		return { paymentUrl, orderNumber };
 	} else if (payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
 		// For COD, create order immediately
-		const order = await createCODOrder(payload, calculation, orderNumber);
+		const order = await createCODOrder(payload, shippingAddress?.id, calculation, orderNumber);
 
 		return { order, paymentUrl: null };
 	} else {
@@ -82,6 +111,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 	const prismaArgs = builder
 		.filter()
 		.paginate()
+		.sort("createdAt", "desc")
 		.include({
 			user: {
 				select: {
@@ -98,10 +128,10 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 		})
 		.build();
 
-		const [orders, meta] = await Promise.all([
-			prisma.order.findMany(prismaArgs),
-			builder.getMeta(prisma.order),
-		]);	
+	const [orders, meta] = await Promise.all([
+		prisma.order.findMany(prismaArgs),
+		builder.getMeta(prisma.order),
+	]);
 
 	return { meta, orders };
 };
@@ -109,31 +139,24 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 /**
  * Get user's orders
  */
-const getMyOrders = async (userId: string) => {
-	const orders = await prisma.order.findMany({
-		where: { userId },
-		include: {
-			items: {
-				include: {
-					product: {
-						select: {
-							name: true,
-							slug: true,
-							images: {
-								where: { isMain: true },
-								select: { url: true },
-							},
-						},
-					},
-				},
-			},
-			shippingAddress: true,
-			payment: true,
-		},
-		orderBy: { createdAt: "desc" },
-	});
+const getMyOrders = async (userId: string, query: Record<string, unknown>) => {
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
 
-	return orders;
+	const prismaArgs = builder
+		.addWhere({userId})
+		.filter()
+		.paginate()
+		.sort()
+		.include({user:{
+			select:{name:true, id:true, avatar: true}
+		}})
+		.include({items:true})
+		.build()
+		
+
+	const [orders, meta] = await Promise.all([prisma.order.findMany(prismaArgs), builder.getMeta(prisma.order)])
+
+	return { orders, meta };
 };
 
 /**
@@ -300,11 +323,11 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 	const dateFilter =
 		startDate && endDate
 			? {
-					createdAt: {
-						gte: startDate,
-						lte: endDate,
-					},
-				}
+				createdAt: {
+					gte: startDate,
+					lte: endDate,
+				},
+			}
 			: {};
 
 	const [
@@ -374,10 +397,10 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 			averageOrderValue:
 				totalOrders > 0
 					? parseFloat(
-							(
-								(totalRevenueAmount || 0) / totalOrders
-							).toString(),
-						)
+						(
+							(totalRevenueAmount || 0) / totalOrders
+						).toString(),
+					)
 					: 0,
 		},
 		ordersByStatus: ordersByStatus.map((item) => ({

@@ -2,6 +2,7 @@ import { Prisma, Product } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import { generateSlug } from "../../helpers/slug";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
+import { deleteFromCloudinary, moveFromTemp } from "../../utils/cloudinary";
 import CustomError from "../../utils/customError";
 
 type ProductCreatePayload = Omit<
@@ -35,11 +36,20 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 	if (!brand) {
 		throw new CustomError(404, "Brand not found");
 	}
+
+	const movedImages = await Promise.all(images.map(async (img) => {
+		if (img.publicId.includes("/temp/")) {
+			const { publicId, url } = await moveFromTemp(img.publicId);
+			return { ...img, publicId, url }
+		}
+		return img;
+	}));
+
 	const slug = generateSlug(payload.name);
 	const dis_Price =
 		discountPrice !== null &&
-		discountPrice !== undefined &&
-		Number(discountPrice) <= 1
+			discountPrice !== undefined &&
+			Number(discountPrice) <= 1
 			? null
 			: discountPrice;
 	const data = await prisma.product.create({
@@ -56,7 +66,7 @@ const createIntoDB = async (payload: ProductCreatePayload) => {
 				})),
 			},
 			images: {
-				create: images?.map((img) => ({
+				create: movedImages?.map((img) => ({
 					url: img.url,
 					publicId: img.publicId,
 					altText: img.altText,
@@ -116,9 +126,9 @@ const findBySlug = async (slug: string) => {
 		where: { slug },
 		include: {
 			variants: {
-				include:{
-					size:{
-						select:{
+				include: {
+					size: {
+						select: {
 							id: true,
 							name: true,
 						}
@@ -126,7 +136,7 @@ const findBySlug = async (slug: string) => {
 				}
 			},
 			images: true,
-			brand:true
+			brand: true
 		},
 	});
 
@@ -171,6 +181,24 @@ const updateData = async (
 		(id) => !incomingImageIds.includes(id),
 	);
 
+	// 1. Delete removed images from cloudinary
+	const imagesToDelete  = product.images.filter(img=> imageIdsToDelete.includes(img.id))
+
+	await Promise.all(imagesToDelete.map(img=> deleteFromCloudinary(img.publicId)));
+
+	// 2. Move new temp images to final folder
+	const processedImages = await Promise.all(
+		images.map(async (img) => {
+			// New image (no id) and still in temp → move to final
+			if (!img.id && img.publicId?.includes("/temp/")) {
+				const { publicId, url } = await moveFromTemp(img.publicId);
+				return { ...img, publicId, url };
+			}
+			return img; // existing image, no change needed
+		}),
+	);
+
+
 	// Begin transaction to ensure atomicity
 	const updatedProduct = await prisma.$transaction(async (tx) => {
 		// Delete removed variants/images
@@ -211,7 +239,7 @@ const updateData = async (
 		}
 
 		// Upsert images
-		for (const image of images) {
+		for (const image of processedImages) {
 			if (image.id) {
 				await tx.productImage.update({
 					where: { id: image.id },

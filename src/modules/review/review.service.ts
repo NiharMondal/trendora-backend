@@ -51,6 +51,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
         .search(["comment"])
         .filter()
         .paginate()
+        .sort("createdAt", "desc")
         .include({
             user: {
                 select: {

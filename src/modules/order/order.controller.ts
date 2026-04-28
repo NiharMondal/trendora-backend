@@ -4,10 +4,16 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
 
 const createOrder = asyncHandler(async (req: Request, res: Response) => {
-    const userAgent = req.headers['user-agent'] || 'Unknown';
-    const ipAddress = req.ip || 'Unknown';
-	const data = await orderServices.createOrder({...req.body, userAgent, ipAddress});
-
+	const userAgent = req.headers['user-agent'] || 'Unknown';
+	const ipAddress = req.ip || 'Unknown';
+	const userId = req?.user?.id;
+	const payload = {
+		...req.body,
+		userAgent,
+		ipAddress,
+		userId,
+	}
+	const data = await orderServices.createOrder(payload);
 	sendResponse(res, {
 		statusCode: 201,
 		message: "Order placed successfully",
@@ -35,13 +41,13 @@ const getOrderById = asyncHandler(async (req: Request, res: Response) => {
 });
 const getMyOrders = asyncHandler(async (req: Request, res: Response) => {
 	const userId = req.user.userId;
-	const data = await orderServices.getMyOrders(userId);
+	const {orders,meta} = await orderServices.getMyOrders(userId, req.query);
 
 	sendResponse(res, {
 		statusCode: 200,
 		message: "My Order fetched successfully",
-
-		data: data,
+		meta: meta,
+		data: orders,
 	});
 });
 
