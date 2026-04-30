@@ -3,11 +3,11 @@ import { prisma } from "../../config/db";
 import { comparePassword, makePasswordHash } from "../../helpers/password";
 import CustomError from "../../utils/customError";
 import { IAuth, IChangePassword, IOAuth } from "./auth.interface";
-import { generateAccessToken } from "../../helpers/jwt";
+import { generateAccessToken, generateRefreshToken } from "../../helpers/jwt";
 import { envConfig } from "../../config/env-config";
 import { TRegisterUserType } from "./auth.validation";
 import { Auth, AuthProvider } from "../../../generated/prisma";
-
+import jwt from 'jsonwebtoken'
 const registerUser = async (payload: TRegisterUserType) => {
     const existed = await prisma.auth.findUnique({
         where: { email: payload.email },
@@ -82,6 +82,10 @@ const loginUser = async (payload: Omit<IAuth, "name">) => {
         token,
         envConfig.access_token_secret as string,
     );
+    const refreshToken = generateRefreshToken(
+        token,
+        envConfig.refresh_token_secret as string,
+    );
     return {
         user: {
             id: auth.userId,
@@ -90,6 +94,7 @@ const loginUser = async (payload: Omit<IAuth, "name">) => {
             role: auth.role,
         },
         accessToken,
+        refreshToken
     };
 };
 
@@ -193,6 +198,11 @@ const generateTokenResponse = (auth: Auth) => {
         envConfig.access_token_secret as string
     );
 
+    const refreshToken = generateRefreshToken(
+        tokenPayload,
+        envConfig.refresh_token_secret as string
+    );
+
     return {
         user: {
             id: auth.userId,
@@ -200,6 +210,7 @@ const generateTokenResponse = (auth: Auth) => {
             role: auth.role,
         },
         accessToken,
+        refreshToken,
     };
 };
 
@@ -246,4 +257,28 @@ const changePassword = async (payload: IChangePassword, userId: string) => {
 
 }
 
-export const authServices = { registerUser, loginUser, oAuthLogin, changePassword };
+const refreshToken = async(refreshToken:string)=> {
+    if(!refreshToken){
+        throw new CustomError(400, "Token is not provided")
+    }
+
+    const data = jwt.verify(refreshToken, envConfig.refresh_token_secret as string) as JwtPayload
+
+    const auth =  await prisma.auth.findUniqueOrThrow({where:{userId: data.id}});
+
+    const token = {
+        id: auth.userId,
+        role: auth.role,
+        email: auth.email,
+    } as JwtPayload;
+
+    const accessToken = generateAccessToken(
+        token,
+        envConfig.access_token_secret as string,
+    );
+    return {
+        accessToken
+    }
+
+}
+export const authServices = { registerUser, loginUser, oAuthLogin, changePassword , refreshToken };
