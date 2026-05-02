@@ -8,6 +8,7 @@ export const envConfig = {
 	port: parseInt(process.env.PORT || "5000"),
 	db_url: process.env.DATABASE_URL,
 	access_token_secret: process.env.ACCESS_TOKEN_SECRET,
+	refresh_token_secret: process.env.REFRESH_TOKEN_SECRET,
 	front_end_url: process.env.FRONTEND_URL,
 	stripe_secret_key: process.env.STRIPE_SECRET_KEY,
 	stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
