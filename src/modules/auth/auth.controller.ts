@@ -45,9 +45,8 @@ const changePassword = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const refreshToken = asyncHandler(async (req: Request, res: Response) => {
-	const token = req.body.refreshToken;
+	const token = req.body?.refreshToken;
 	const data = await authServices.refreshToken(token);
-
 	sendResponse(res, {
 		statusCode: 200,
 		message: "Refresh token generated Successfully",
