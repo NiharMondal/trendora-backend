@@ -70,6 +70,27 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
     return {reviews, meta,  };
 };
 
+const findAllReviewsByProductId = async (productId: string) => {
+    const reviews = await prisma.review.findMany({
+        where: { productId, isDeleted: false },
+        include: {
+            user: {
+                select: {
+                    name: true,
+                    avatar: true,
+                },
+            },
+        },
+        orderBy: {
+            createdAt: "desc",
+        },
+        take: 10,
+        skip: 0,
+    });
+
+    return reviews;
+};
+
 const findById = async (id: string) => {
     const review = await prisma.review.findUniqueOrThrow({
         where: { id },
@@ -176,4 +197,6 @@ export const reviewServices = {
     findById,
     updateData,
     deleteData,
+
+    findAllReviewsByProductId
 };

@@ -209,7 +209,7 @@ model Wishlist {
 
 model Review {
   id        String   @id @default(uuid())
-  rating    Int // 1-5
+  rating    Decimal  @db.Decimal(10, 2) // 1-5
   comment   String?
   userId    String
   productId String

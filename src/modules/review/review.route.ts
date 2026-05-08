@@ -12,7 +12,10 @@ router.get(
 	authGuard(Role.CUSTOMER),
 	reviewControllers.findByUserId
 );
-
+router.get(
+	"/product/:productId",
+	reviewControllers.findAllReviewsByProductId
+);
 router
 	.route("/:id")
 	.get(reviewControllers.findById)
@@ -26,6 +29,7 @@ router
 	.route("/")
 	.post(
 		validateRequest(reviewValidation.createReview),
+		authGuard(Role.CUSTOMER, Role.ADMIN),
 		reviewControllers.createIntoDB
 	)
 	.get(reviewControllers.findAllFromDB);
