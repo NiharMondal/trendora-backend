@@ -7,6 +7,7 @@ const router = Router();
 
 router.get("/new-arrival", productControllers.newArrivalProducts);
 router.get("/by-slug/:slug", productControllers.findBySlug);
+router.get("/related-products/:id", productControllers.relatedProducts);
 
 router
     .route("/:id")

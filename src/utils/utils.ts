@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Common reusable validators */
-export const uuidSchema = z.uuid({ version: "v4" });
+export const uuidSchema = z.uuid({ version: "v4" }).nullish();
 
 export const decimalSchema = z
     .number()

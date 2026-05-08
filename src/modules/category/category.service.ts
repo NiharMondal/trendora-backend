@@ -6,6 +6,7 @@ import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import { capitalizeFirstLetter } from "../../utils/utils";
 
 const createIntoDB = async (payload: Category) => {
+
 	const name = capitalizeFirstLetter(payload.name.trim());
 	const slug = generateSlug(payload.name);
 
