@@ -97,16 +97,15 @@ model Brand {
 
 model Size {
   id          String           @id @default(uuid())
-  name        String           @unique
-  sizeGroupId String?
+  name        String           
+  sizeGroupId String           
   sizeGroup   SizeGroup?       @relation(fields: [sizeGroupId], references: [id], onDelete: SetNull)
   isDeleted   Boolean          @default(false)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   variants    ProductVariant[]
 
-  @@unique([name, sizeGroupId])
-  @@index([sizeGroupId])
+  @@index([name])
 }
 
 model Category {
@@ -124,7 +123,6 @@ model Category {
   sizeGroup SizeGroup? @relation(fields: [sizeGroupId], references: [id])
   products  Product[]
 
-  @@index([parentId])
   @@index([slug])
 }
 
@@ -209,7 +207,7 @@ model Wishlist {
 
 model Review {
   id        String   @id @default(uuid())
-  rating    Int // 1-5
+  rating    Decimal  @db.Decimal(10, 2) // 1-5
   comment   String?
   userId    String
   productId String

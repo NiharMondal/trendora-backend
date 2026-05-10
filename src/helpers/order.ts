@@ -122,11 +122,13 @@ export async function validateAndCalculateOrder(
                 );
             }
 
-            // Calculate variant price (base + modifier)
-            const basePrice = product.discountPrice || product.basePrice;
+            const variantPrice = parseFloat(variant.price.toString());
             actualPrice =
-                parseFloat(basePrice.toString()) +
-                parseFloat(variant.price.toString());
+                variantPrice > 0
+                    ? variantPrice
+                    : parseFloat(
+                        (product.discountPrice || product.basePrice).toString(),
+                    );
             originalPrice = parseFloat(product.basePrice.toString());
             availableStock = variant.stock;
 

@@ -257,23 +257,30 @@ const changePassword = async (payload: IChangePassword, userId: string) => {
 
 }
 
-const refreshToken = async(refreshToken:string)=> {
-    if(!refreshToken){
+const refreshToken = async(token:string)=> {
+    if(!token){
         throw new CustomError(400, "Token is not provided")
     }
 
-    const data = jwt.verify(refreshToken, envConfig.refresh_token_secret as string) as JwtPayload
+    let data: JwtPayload;
+    try {
+        
+        data = jwt.verify(token, envConfig.refresh_token_secret as string) as JwtPayload
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+    } catch (error) {
+        throw new CustomError(401, "Invalid or expired refresh token")
+    }
 
     const auth =  await prisma.auth.findUniqueOrThrow({where:{userId: data.id}});
 
-    const token = {
+    const tokenPayload = {
         id: auth.userId,
         role: auth.role,
         email: auth.email,
     } as JwtPayload;
 
     const accessToken = generateAccessToken(
-        token,
+        tokenPayload,
         envConfig.access_token_secret as string,
     );
     return {
