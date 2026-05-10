@@ -64,12 +64,25 @@ const deleteData = asyncHandler(async (req: Request, res: Response) => {
         data: data,
     });
 });
+
+
 const newArrivalProducts = asyncHandler(async (req: Request, res: Response) => {
     const data = await productServices.newArrivalProducts();
 
     sendResponse(res, {
         statusCode: 200,
         message: "Product fetched successfully",
+        data: data,
+    });
+});
+
+const relatedProducts = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    const data = await productServices.relatedProducts(id);
+
+    sendResponse(res, {
+        statusCode: 200,
+        message: "Related products fetched successfully",
         data: data,
     });
 });
@@ -84,4 +97,5 @@ export const productControllers = {
     //
 
     newArrivalProducts,
+    relatedProducts,
 };

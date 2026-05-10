@@ -182,9 +182,9 @@ const updateData = async (
 	);
 
 	// 1. Delete removed images from cloudinary
-	const imagesToDelete  = product.images.filter(img=> imageIdsToDelete.includes(img.id))
+	const imagesToDelete = product.images.filter(img => imageIdsToDelete.includes(img.id))
 
-	await Promise.all(imagesToDelete.map(img=> deleteFromCloudinary(img.publicId)));
+	await Promise.all(imagesToDelete.map(img => deleteFromCloudinary(img.publicId)));
 
 	// 2. Move new temp images to final folder
 	const processedImages = await Promise.all(
@@ -307,6 +307,43 @@ const newArrivalProducts = async () => {
 
 	return products;
 };
+
+
+const relatedProducts = async (id: string) => {
+
+	const product = await prisma.product.findUniqueOrThrow({
+		where: { id },
+		include: {
+			category: true,
+			brand: true,
+		},
+	});
+
+	const referencePrice = Number(product.discountPrice ?? product.basePrice);
+
+	const minPrice = referencePrice * 0.8;
+	const maxPrice = referencePrice * 1.2;
+
+	const products = await prisma.product.findMany({
+		where: {
+			id: { not: id },
+			isDeleted: false,
+			AND: [
+				{
+					OR: [{ discountPrice: { not: null, gte: minPrice, lte: maxPrice } }, { discountPrice: null, basePrice: { gte: minPrice, lte: maxPrice } }],
+				},
+			],
+		},
+		take: 10,
+		include: {
+			images: {
+				select: { id: true, url: true, isMain: true },
+			},
+		},
+	});
+	return products;
+};
+
 export const productServices = {
 	createIntoDB,
 	findAllFromDB,
@@ -316,4 +353,5 @@ export const productServices = {
 	deleteData,
 	//
 	newArrivalProducts,
+	relatedProducts,
 };

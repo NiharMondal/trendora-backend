@@ -4,7 +4,8 @@ import { sendResponse } from "../../utils/sendResponse";
 import { reviewServices } from "./review.service";
 
 const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
-    const data = await reviewServices.createIntoDB(req.body);
+    const userId = req.user.id;
+    const data = await reviewServices.createIntoDB({...req.body, userId});
 
     sendResponse(res, {
         statusCode: 201,
@@ -18,11 +19,23 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
 
     sendResponse(res, {
         statusCode: 200,
-        message: "Review fetched successfully",
+        message: "Reviews fetched successfully",
         meta: data.meta,
         data: data.reviews,
     });
 });
+
+const findAllReviewsByProductId = asyncHandler(async (req: Request, res: Response) => {
+    const productId = req.params.productId;
+    const data = await reviewServices.findAllReviewsByProductId(productId);
+
+    sendResponse(res, {
+        statusCode: 200,
+        message: "Reviews fetched successfully",
+        data: data,
+    });
+});
+
 const findByUserId = asyncHandler(async (req: Request, res: Response) => {
     const id = req.user.id;
     const data = await reviewServices.findByUserId(id);
@@ -73,4 +86,5 @@ export const reviewControllers = {
     updateData,
     findAllFromDB,
     deleteData,
+    findAllReviewsByProductId
 };
