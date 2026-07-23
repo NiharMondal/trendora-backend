@@ -41,10 +41,12 @@ const findByUserId = async (id: string) => {
 		include: {
 			product: {
 				select: {
-					images: true,
 					name: true,
+					id: true,
+					slug: true,
 					basePrice: true,
 					discountPrice: true,
+					images: true,
 				},
 			},
 		},
