@@ -4,11 +4,12 @@ import { authGuard } from "../../middleware/authGuard";
 import { Role } from "../../../generated/prisma";
 
 const router = Router();
-
-router
-	.route("/my-wishlists")
-	.post(authGuard(Role.CUSTOMER), wishlistControllers.createIntoDB)
-	.get(authGuard(Role.CUSTOMER), wishlistControllers.findByUserId);
+router.post("/", authGuard(Role.CUSTOMER), wishlistControllers.createIntoDB);
+router.get(
+	"/my-wishlist",
+	authGuard(Role.CUSTOMER),
+	wishlistControllers.findByUserId,
+);
 
 router
 	.route("/:id")
