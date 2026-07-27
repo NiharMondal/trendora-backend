@@ -1,8 +1,9 @@
 import { Wishlist } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import CustomError from "../../utils/customError";
+import { TCreateWishListType } from "./wishlist.validation";
 
-const createIntoDB = async (payload: Wishlist) => {
+const createIntoDB = async (payload: TCreateWishListType) => {
 	const user = await prisma.user.findUnique({
 		where: { id: payload.userId },
 	});
@@ -36,6 +37,18 @@ const findByUserId = async (id: string) => {
 	const myWishLists = await prisma.wishlist.findMany({
 		where: {
 			userId: id,
+		},
+		include: {
+			product: {
+				select: {
+					name: true,
+					id: true,
+					slug: true,
+					basePrice: true,
+					discountPrice: true,
+					images: true,
+				},
+			},
 		},
 	});
 
