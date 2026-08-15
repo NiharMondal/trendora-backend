@@ -4,7 +4,12 @@ import { sendResponse } from "../../utils/sendResponse";
 import { wishlistServices } from "./wishlist.service";
 
 const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await wishlistServices.createIntoDB(req.body);
+	const userId = req.user.id;
+	const payload = {
+		userId,
+		productId: req.body.productId,
+	};
+	const data = await wishlistServices.createIntoDB(payload);
 
 	sendResponse(res, {
 		statusCode: 201,

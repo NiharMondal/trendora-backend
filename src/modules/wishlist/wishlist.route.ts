@@ -5,14 +5,16 @@ import { Role } from "../../../generated/prisma";
 
 const router = Router();
 
-router
-	.route("/my-wishlists")
-	.post(authGuard(Role.CUSTOMER), wishlistControllers.createIntoDB)
-	.get(authGuard(Role.CUSTOMER), wishlistControllers.findByUserId);
+router.get(
+	"/my-wishlist",
+	authGuard(Role.CUSTOMER),
+	wishlistControllers.findByUserId,
+);
 
 router
 	.route("/:id")
-	.get(wishlistControllers.findById)
-	.delete(wishlistControllers.deleteData);
+	.get(authGuard(Role.CUSTOMER), wishlistControllers.findById)
+	.delete(authGuard(Role.CUSTOMER), wishlistControllers.deleteData);
 
+router.post("/", authGuard(Role.CUSTOMER), wishlistControllers.createIntoDB);
 export const wishlistRouter = router;

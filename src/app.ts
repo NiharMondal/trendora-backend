@@ -10,7 +10,12 @@ const app: Application = express();
 app.use("/webhook", createPaymentWithStripeWebhook);
 
 app.use(express.json());
-app.use(cors({ credentials: true, origin: ["http://localhost:3000"] }));
+app.use(
+	cors({
+		credentials: true,
+		origin: ["http://localhost:3000"],
+	}),
+);
 app.use("/api/v1", rootRouter);
 
 // app.use("/", (req: Request, res: Response) => {
