@@ -412,6 +412,7 @@ model Order {
   vendorOrders    VendorOrder[]
   items           OrderItem[]
   payment         Payment?
+  refunds         Refund[]
   statusHistory   OrderStatusHistory[]
 
   @@index([userId])
@@ -463,6 +464,7 @@ model VendorOrder {
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
   reviews       VendorReview[]
+  refund        Refund?
 
   @@unique([orderId, vendorId])
   @@index([vendorId])
@@ -517,11 +519,64 @@ model Payment {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds Refund[]
 
   @@index([orderId])
   @@index([transactionId])
   @@index([status])
+}
+
+/// One attempt to move money back to the buyer.
+///
+/// The mirror of Payout: Payout settles what the platform owes a vendor,
+/// Refund settles what it owes a buyer. Both are ledgers — a row per money
+/// movement, never mutated into a different meaning.
+///
+/// Why a table rather than a column on Payment: an order has N independently
+/// cancellable parcels, so a single charge can be refunded several times, each
+/// for a different amount, each succeeding or failing on its own.
+///
+/// Idempotency has two layers:
+///   * `vendorOrderId` is unique — a parcel can only ever have one refund, so
+///     a replayed cancel cannot create a second one.
+///   * `idempotencyKey` is sent to Stripe, so even a retried HTTP call for the
+///     same attempt cannot move money twice.
+/// A genuine retry after a FAILED attempt bumps `attempts` and derives a fresh
+/// key, which is what makes it a new request rather than a replay.
+model Refund {
+  id            String  @id @default(uuid())
+  orderId       String
+  paymentId     String
+  /// The parcel being refunded. NULL for an order-level manual refund.
+  vendorOrderId String? @unique
+
+  amount   Decimal      @db.Decimal(10, 2)
+  currency String       @default("usd")
+  status   RefundStatus @default(PENDING)
+  reason   String?
+
+  /// "stripe" for a gateway refund; NULL when an admin records cash returned
+  /// out-of-band (cash on delivery has no gateway to call).
+  gateway         String?
+  gatewayRefundId String?   @unique
+  idempotencyKey  String    @unique
+  attempts        Int       @default(0)
+  failureReason   String?
+  gatewayResponse Json?
+  processedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment     Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  vendorOrder VendorOrder? @relation(fields: [vendorOrderId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 /// Audit trail for status changes. `vendorOrderId` is set for fulfilment
@@ -641,6 +696,10 @@ enum PaymentStatus {
   PENDING
   PAID
   FAILED
+  /// Some parcels of a multi-vendor order were refunded, others were not.
+  /// Without this, refunding one parcel of three would have to be reported as
+  /// either PAID (hiding it) or REFUNDED (overstating it).
+  PARTIALLY_REFUNDED
   REFUNDED
 }
 
@@ -654,6 +713,18 @@ enum PayoutStatus {
   PROCESSING
   PAID
   FAILED
+}
+
+enum RefundStatus {
+  /// Recorded as owed, not yet sent to the gateway.
+  PENDING
+  /// Handed to the gateway, awaiting confirmation.
+  PROCESSING
+  SUCCEEDED
+  /// Gateway rejected it. Retryable — see Refund.attempts.
+  FAILED
+  /// Abandoned by an operator; no money moved.
+  CANCELED
 }
 
 enum CheckoutSessionStatus {

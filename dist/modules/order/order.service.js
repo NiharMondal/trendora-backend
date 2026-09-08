@@ -14,6 +14,7 @@ const order_1 = require("../../helpers/order");
 const cod_1 = require("../../helpers/cod");
 const checkout_1 = require("../../helpers/checkout");
 const money_1 = require("../../helpers/money");
+const refund_1 = require("../../helpers/refund");
 const vendor_1 = require("../../helpers/vendor");
 /** Store identity shown next to each slice of an order. */
 const vendorCardSelect = {
@@ -191,6 +192,16 @@ const getMyOrders = async (userId, query) => {
         vendorOrders: {
             include: {
                 vendor: { select: vendorCardSelect },
+                // So the buyer can see "cancelled — refunded" versus
+                // "cancelled — refund pending".
+                refund: {
+                    select: {
+                        id: true,
+                        amount: true,
+                        status: true,
+                        processedAt: true,
+                    },
+                },
                 items: {
                     include: {
                         product: {
@@ -208,7 +219,15 @@ const getMyOrders = async (userId, query) => {
                 },
             },
         },
-        payment: { select: { status: true, method: true, paidAt: true } },
+        payment: {
+            select: {
+                status: true,
+                method: true,
+                paidAt: true,
+                refundAmount: true,
+                refundedAt: true,
+            },
+        },
     })
         .build();
     const [orders, meta] = await Promise.all([
@@ -247,9 +266,14 @@ const getOrderById = async (orderId, actor) => {
                         },
                     },
                     statusHistory: { orderBy: { createdAt: "asc" } },
+                    // Whether the money for a cancelled parcel actually went
+                    // back — a cancelled parcel with a FAILED refund is a
+                    // buyer who has not been paid.
+                    refund: true,
                 },
             },
             payment: true,
+            refunds: { orderBy: { createdAt: "desc" } },
             shippingAddress: true,
             user: {
                 select: {
@@ -386,7 +410,12 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
         const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
         await (0, vendor_1.assertVendorOwnsVendorOrder)(vendor.id, vendorOrderId);
     }
-    return db_1.prisma.$transaction(async (tx) => {
+    // The gateway call must NOT happen inside the transaction — it would hold
+    // the transaction open across a network round trip, and a rollback after
+    // Stripe had already moved money would leave a refund with no record of
+    // it. So the transaction records the intent and returns its id, and the
+    // refund is sent once the cancellation has actually committed.
+    const { result, refundId } = await db_1.prisma.$transaction(async (tx) => {
         const vendorOrder = await tx.vendorOrder.findUnique({
             where: { id: vendorOrderId },
             include: {
@@ -459,7 +488,22 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
         await (0, order_1.recalculateOrderRollup)(tx, order.id);
         // 6. Reconcile the single payment row against the new slice states.
         await reconcilePayment(tx, order.id);
-        return tx.vendorOrder.findUniqueOrThrow({
+        // 7. A cancelled parcel of a paid order owes the buyer money. Record
+        //    that in the same transaction as the cancellation — either both
+        //    happen or neither does — and send it to the gateway after commit.
+        //    Returns null for the cases with nothing to refund (unpaid order,
+        //    cash on delivery, parcel already refunded).
+        let pendingRefundId = null;
+        if (newStatus === prisma_1.OrderStatus.CANCELED) {
+            pendingRefundId = await (0, refund_1.recordRefundIntent)(tx, {
+                orderId: order.id,
+                vendorOrderId,
+                amount: (0, money_1.toNumber)(vendorOrder.totalAmount),
+                reason: payload.cancelReason ??
+                    `Parcel ${vendorOrder.vendorOrderNumber} cancelled`,
+            });
+        }
+        const updated = await tx.vendorOrder.findUniqueOrThrow({
             where: { id: vendorOrderId },
             include: {
                 vendor: { select: vendorCardSelect },
@@ -474,19 +518,51 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
                 },
             },
         });
+        return { result: updated, refundId: pendingRefundId };
     });
+    // Outside the transaction: move the money.
+    //
+    // `throwOnError: false` on purpose — the cancellation has already
+    // committed and is not undone by a gateway hiccup. A failure is recorded
+    // on the Refund row, surfaced in the admin refunds queue, and retried by
+    // `processPendingRefunds()`. Reporting the whole request as failed here
+    // would tell the caller the cancel did not happen, which is false.
+    if (refundId) {
+        await (0, refund_1.processRefund)(refundId);
+    }
+    // Re-read so the caller sees the payment status the refund produced
+    // (PARTIALLY_REFUNDED / REFUNDED) rather than the pre-refund value.
+    if (refundId) {
+        return db_1.prisma.vendorOrder.findUniqueOrThrow({
+            where: { id: vendorOrderId },
+            include: {
+                vendor: { select: vendorCardSelect },
+                items: true,
+                refund: true,
+                order: {
+                    select: {
+                        id: true,
+                        orderNumber: true,
+                        orderStatus: true,
+                        paymentStatus: true,
+                    },
+                },
+            },
+        });
+    }
+    return result;
 };
 /**
  * Keep the order's single Payment row consistent with its vendor orders.
  *
- * There is one charge per order but N independently-cancellable slices, so:
- *   - COD becomes PAID once every live slice is delivered.
- *   - Cancelling a slice of a paid order accrues a refund; when nothing is
- *     left alive the payment is REFUNDED.
+ * There is one charge per order but N independently-cancellable slices, so
+ * COD becomes PAID once every live slice is delivered.
  *
- * NOTE: this is bookkeeping only. Moving money back to the buyer still needs a
- * gateway call (`stripe.refunds.create` against Payment.transactionId) — wire
- * that in here when refunds go live, using the accrued `refundAmount`.
+ * Refund state is NOT computed here. `Payment.refundAmount` and the
+ * REFUNDED / PARTIALLY_REFUNDED statuses are owned exclusively by
+ * `recomputePaymentRefundState` in src/helpers/refund.ts, driven by the Refund
+ * ledger — so the summary can never claim money went back when no refund
+ * actually succeeded. This function must leave those fields alone.
  */
 const reconcilePayment = async (tx, orderId) => {
     const order = await tx.order.findUniqueOrThrow({
@@ -496,20 +572,21 @@ const reconcilePayment = async (tx, orderId) => {
     if (!order.payment)
         return;
     const slices = order.vendorOrders;
-    const canceled = slices.filter((slice) => slice.orderStatus === prisma_1.OrderStatus.CANCELED);
     const live = slices.filter((slice) => slice.orderStatus !== prisma_1.OrderStatus.CANCELED);
-    // What the buyer is owed back for slices that will never ship.
-    const refundAmount = (0, money_1.round2)(canceled.reduce((total, slice) => total + (0, money_1.toNumber)(slice.totalAmount), 0));
     const wasPaid = order.paymentStatus === prisma_1.PaymentStatus.PAID ||
-        order.payment.status === prisma_1.PaymentStatus.PAID;
+        order.paymentStatus === prisma_1.PaymentStatus.PARTIALLY_REFUNDED ||
+        order.payment.status === prisma_1.PaymentStatus.PAID ||
+        order.payment.status === prisma_1.PaymentStatus.PARTIALLY_REFUNDED;
     let paymentStatus = order.paymentStatus;
-    if (live.length === 0) {
-        // Everything canceled.
-        paymentStatus = wasPaid
-            ? prisma_1.PaymentStatus.REFUNDED
-            : prisma_1.PaymentStatus.FAILED;
+    if (live.length === 0 && !wasPaid) {
+        // Everything cancelled on an order that was never paid: the charge
+        // will never land. A PAID order that is fully cancelled is left to
+        // the refund ledger, which flips it to REFUNDED once the money is
+        // actually back with the buyer.
+        paymentStatus = prisma_1.PaymentStatus.FAILED;
     }
     else if (order.paymentMethod === prisma_1.PaymentMethod.CASH_ON_DELIVERY &&
+        live.length > 0 &&
         live.every((slice) => slice.orderStatus === prisma_1.OrderStatus.DELIVERED)) {
         // Cash collected on the doorstep for every parcel that shipped.
         paymentStatus = prisma_1.PaymentStatus.PAID;
@@ -519,14 +596,7 @@ const reconcilePayment = async (tx, orderId) => {
         : order.payment.paidAt;
     await tx.payment.update({
         where: { orderId },
-        data: {
-            status: paymentStatus,
-            refundAmount: refundAmount > 0 ? refundAmount : null,
-            refundedAt: refundAmount > 0
-                ? (order.payment.refundedAt ?? new Date())
-                : null,
-            paidAt,
-        },
+        data: { status: paymentStatus, paidAt },
     });
     if (paymentStatus !== order.paymentStatus) {
         await tx.order.update({

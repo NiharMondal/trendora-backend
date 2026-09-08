@@ -9,6 +9,7 @@ import { payoutRouter } from "../modules/payout/payout.route";
 import { productImageRouter } from "../modules/product-image/image.route";
 import { variantRouter } from "../modules/product-variant/variant.route";
 import { productRouter } from "../modules/product/product.route";
+import { refundRouter } from "../modules/refund/refund.route";
 import { reviewRouter } from "../modules/review/review.route";
 import { sizeGroupRouter } from "../modules/size-group/size-group.route";
 import { sizeRouter } from "../modules/size/size.route";
@@ -39,6 +40,7 @@ export const routesArray = [
 	{ path: "/vendors", element: vendorRouter },
 	{ path: "/vendor-reviews", element: vendorReviewRouter },
 	{ path: "/payouts", element: payoutRouter },
+	{ path: "/refunds", element: refundRouter },
 
 	// slide -> for showing slider data in frontend
 	{ path: "/slides", element: slideRouter },

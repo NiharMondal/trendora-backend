@@ -218,10 +218,66 @@ what makes a run idempotent — an earning can only ever belong to one payout.
 
 `reconcilePayment` keeps the single `Payment` row consistent with N
 independently-cancellable slices: COD becomes `PAID` once every live slice is
-delivered; cancelling a slice of a paid order accrues `refundAmount`, and
-`REFUNDED` once nothing is left alive. **This is bookkeeping only — no gateway
-refund call is wired up yet** (`stripe.refunds.create` against
-`Payment.transactionId` is the hook; see the note in `order.service.ts`).
+delivered, and a fully-cancelled unpaid order becomes `FAILED`. It deliberately
+does **not** touch refund state — see below.
+
+### Refunds: a ledger, and a two-phase write
+
+Cancelling a paid parcel issues a real Stripe refund. The shape of
+`src/helpers/refund.ts` is driven by one rule: **never call a payment gateway
+from inside a database transaction** — it holds the transaction open across a
+network round trip, and a rollback after Stripe moved money would leave a
+refund at the gateway with no record of it here. So:
+
+1. `recordRefundIntent(tx, …)` writes a `PENDING` Refund row **inside** the
+   transaction that cancels the parcel. Either both happen or neither does.
+2. `processRefund(id)` runs **after the commit** and does the gateway call,
+   then writes the outcome back.
+
+If phase 2 never runs (crash, Stripe down) the row stays `PENDING` and
+`processPendingRefunds()` picks it up. Nothing is lost and no money moves twice.
+
+`Refund` is the mirror of `Payout` — a ledger with one row per money movement:
+
+| | direction |
+| --- | --- |
+| `Payout` | platform → vendor |
+| `Refund` | platform → buyer |
+
+**Idempotency has two layers.** `Refund.vendorOrderId` is unique, so a replayed
+cancel finds the existing row instead of refunding the same goods twice; and
+`idempotencyKey` (`refund:<id>:<attempt>`) is sent to Stripe, so even a retried
+HTTP call for one attempt cannot move money twice. A deliberate retry after a
+`FAILED` attempt bumps `attempts` and derives a fresh key — that is what makes
+it a new request rather than a replay.
+
+**`Payment.refundAmount` means money that ACTUALLY went back** — the sum of
+`SUCCEEDED` refunds — and is owned exclusively by `recomputePaymentRefundState`.
+Nothing else may write it, or the ledger and the summary drift. What a buyer is
+*owed* is never stored; `outstandingRefundForOrder()` derives it from the
+cancelled parcels so it cannot go stale.
+
+`PaymentStatus.PARTIALLY_REFUNDED` exists because refunding one parcel of three
+is neither `PAID` (which hides it) nor `REFUNDED` (which overstates it).
+
+Two things follow from "the cancellation must not be undone by a gateway
+hiccup":
+
+- The automatic path calls `processRefund` with `throwOnError: false`. A
+  cancellation that has already committed must not be reported as failed just
+  because Stripe was briefly unavailable; the failure lands on the Refund row
+  and in the admin queue instead. An operator pressing **retry** does get the
+  gateway error (`throwOnError: true`), because they need to see it.
+- **A cancelled parcel whose refund is `FAILED` is a buyer who has not been
+  paid back.** That gap is what `/refunds/admin/outstanding` exists to surface.
+
+Cash on delivery has no gateway to call, so `recordRefundIntent` returns null
+for it; money handed back in person is recorded with `recordManualRefund`
+(`gateway` names the rail, e.g. `"cash"`, and there is no `gatewayRefundId`).
+
+The webhook also handles `refund.created/updated/failed` and `charge.refunded`,
+which is how a refund issued from the **Stripe dashboard** gets adopted into the
+ledger — without it, `Payment.refundAmount` would silently disagree with Stripe.
 
 ### Other domain notes
 
@@ -255,8 +311,14 @@ All environment access goes through **`src/config/env-config.ts`** (`envConfig` 
 
 ## Known gaps in the marketplace layer (verified, not yet fixed)
 
-- **No gateway refund call.** Cancelling a paid slice records `refundAmount`
-  but moves no money. Hook: `reconcilePayment` in `order.service.ts`.
+- **Nothing schedules `processPendingRefunds()`.** A refund that failed at the
+  gateway is retried only when an admin presses retry (or hits
+  `POST /refunds/retry-all`). Wire it to a cron/worker when one exists — the
+  function is idempotent and safe to run on a timer.
+- **A `PROCESSING` refund is not polled.** Rails that settle asynchronously
+  rely on the `refund.updated` webhook to finish the story; if that webhook is
+  not configured, such a refund stays `PROCESSING` forever. `retrieveStripeRefund`
+  in `src/helpers/stripe.ts` is the hook for a reconciliation sweep.
 - **No stock reservation.** Stock is deducted at order creation (COD) or at the
   webhook (Stripe); between starting a Stripe checkout and the charge landing,
   another buyer can take the last unit. The webhook then fails the stock guard

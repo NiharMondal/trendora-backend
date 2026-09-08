@@ -11,6 +11,8 @@ const customError_1 = __importDefault(require("../../utils/customError"));
 const db_1 = require("../../config/db");
 const prisma_1 = require("../../../generated/prisma");
 const checkout_1 = require("../../helpers/checkout");
+const refund_1 = require("../../helpers/refund");
+const money_1 = require("../../helpers/money");
 const create_order_1 = require("../../helpers/create-order");
 // Initialize Stripe
 const stripe = new stripe_1.default(env_config_1.envConfig.stripe_secret_key, {
@@ -44,6 +46,17 @@ const handleStripeWebhook = async (body, signature) => {
             break;
         case "payment_intent.payment_failed":
             await handlePaymentIntentFailed(event.data.object);
+            break;
+        // Refund lifecycle. These matter even though we create refunds
+        // ourselves: a refund issued from the Stripe dashboard, or one on a
+        // rail that settles asynchronously, only reaches us this way.
+        case "refund.created":
+        case "refund.updated":
+        case "refund.failed":
+            await handleRefundEvent(event.data.object);
+            break;
+        case "charge.refunded":
+            await handleChargeRefunded(event.data.object);
             break;
         default:
             console.log(`Unhandled event type: ${event.type}`);
@@ -180,6 +193,102 @@ async function handlePaymentIntentFailed(paymentIntent) {
             },
         });
     }
+}
+/**
+ * Reconcile one refund against the gateway's view of it.
+ *
+ * Matches on `gatewayRefundId` first — that is our own refund coming back. If
+ * there is no match the refund was created outside this system (an operator
+ * using the Stripe dashboard), and we record it so the ledger and
+ * `Payment.refundAmount` still reflect reality.
+ */
+async function handleRefundEvent(stripeRefund) {
+    const status = stripeRefund.status === "succeeded"
+        ? prisma_1.RefundStatus.SUCCEEDED
+        : stripeRefund.status === "failed" ||
+            stripeRefund.status === "canceled"
+            ? prisma_1.RefundStatus.FAILED
+            : prisma_1.RefundStatus.PROCESSING;
+    const existing = await db_1.prisma.refund.findUnique({
+        where: { gatewayRefundId: stripeRefund.id },
+    });
+    if (existing) {
+        // Never walk a settled refund backwards on a late duplicate event.
+        if (existing.status === prisma_1.RefundStatus.SUCCEEDED)
+            return;
+        await db_1.prisma.refund.update({
+            where: { id: existing.id },
+            data: {
+                status,
+                gatewayResponse: stripeRefund,
+                processedAt: status === prisma_1.RefundStatus.SUCCEEDED ? new Date() : null,
+                failureReason: status === prisma_1.RefundStatus.FAILED
+                    ? (stripeRefund.failure_reason ??
+                        "Gateway reported the refund as failed")
+                    : null,
+            },
+        });
+        await (0, refund_1.recomputePaymentRefundState)(existing.paymentId);
+        return;
+    }
+    // Unknown refund: adopt it. Our own refunds carry `refundId` in metadata,
+    // so anything without it was raised elsewhere.
+    const paymentIntentId = typeof stripeRefund.payment_intent === "string"
+        ? stripeRefund.payment_intent
+        : stripeRefund.payment_intent?.id;
+    if (!paymentIntentId)
+        return;
+    const payment = await db_1.prisma.payment.findUnique({
+        where: { transactionId: paymentIntentId },
+    });
+    if (!payment) {
+        console.log(`Refund ${stripeRefund.id}: no local payment for intent ${paymentIntentId}`);
+        return;
+    }
+    await db_1.prisma.refund.create({
+        data: {
+            orderId: payment.orderId,
+            paymentId: payment.id,
+            amount: (0, money_1.round2)((stripeRefund.amount ?? 0) / 100),
+            currency: stripeRefund.currency ?? "usd",
+            status,
+            reason: "Refunded at the gateway, outside Trendora",
+            gateway: "stripe",
+            gatewayRefundId: stripeRefund.id,
+            idempotencyKey: `gateway:${stripeRefund.id}`,
+            gatewayResponse: stripeRefund,
+            processedAt: status === prisma_1.RefundStatus.SUCCEEDED ? new Date() : null,
+        },
+    });
+    await (0, refund_1.recomputePaymentRefundState)(payment.id);
+    console.log(`Adopted external refund ${stripeRefund.id} on order ${payment.orderId}`);
+}
+/**
+ * A charge-level summary of everything refunded on it. Used as a backstop:
+ * `charge.refunded` fires even when an individual refund event is missed, so
+ * this makes sure the payment total is right regardless.
+ */
+async function handleChargeRefunded(charge) {
+    const paymentIntentId = typeof charge.payment_intent === "string"
+        ? charge.payment_intent
+        : charge.payment_intent?.id;
+    if (!paymentIntentId)
+        return;
+    const payment = await db_1.prisma.payment.findUnique({
+        where: { transactionId: paymentIntentId },
+    });
+    if (!payment)
+        return;
+    // Adopt any refund on this charge we have not seen.
+    for (const refund of charge.refunds?.data ?? []) {
+        const known = await db_1.prisma.refund.findUnique({
+            where: { gatewayRefundId: refund.id },
+        });
+        if (!known) {
+            await handleRefundEvent(refund);
+        }
+    }
+    await (0, refund_1.recomputePaymentRefundState)(payment.id);
 }
 exports.paymentServices = {
     handleStripeWebhook,

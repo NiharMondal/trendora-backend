@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createStripePaymentUrl = void 0;
+exports.retrieveStripeRefund = exports.createStripeRefund = exports.createStripePaymentUrl = void 0;
 const stripe_1 = __importDefault(require("stripe"));
 const env_config_1 = require("../config/env-config");
 const money_1 = require("./money");
@@ -89,3 +89,35 @@ const createStripePaymentUrl = async (params) => {
 exports.createStripePaymentUrl = createStripePaymentUrl;
 /** Stripe works in the currency's smallest unit. */
 const toCents = (amount) => Math.round((0, money_1.round2)(amount) * 100);
+/**
+ * Issues a refund against the original charge.
+ *
+ * `paymentIntentId` is `Payment.transactionId`, set by the checkout webhook.
+ * Stripe works out which charge to reverse from the intent.
+ *
+ * `idempotencyKey` is what makes this safe to retry: Stripe replays the stored
+ * response for a repeated key instead of moving money twice. The caller derives
+ * the key from the refund row and its attempt number, so a genuine retry after
+ * a failure is a new request while an accidental replay is not.
+ *
+ * Errors are deliberately NOT swallowed — the caller records the failure on the
+ * Refund row so an operator can retry it.
+ */
+const createStripeRefund = async (params) => {
+    return stripe.refunds.create({
+        payment_intent: params.paymentIntentId,
+        amount: toCents(params.amount),
+        // `requested_by_customer` is the closest of Stripe's three fixed
+        // reasons; the human-readable why lives in metadata and on the
+        // Refund row, since Stripe rejects anything else here.
+        reason: "requested_by_customer",
+        metadata: {
+            ...(params.metadata ?? {}),
+            ...(params.reason ? { note: params.reason.slice(0, 500) } : {}),
+        },
+    }, { idempotencyKey: params.idempotencyKey });
+};
+exports.createStripeRefund = createStripeRefund;
+/** Reads a refund back from Stripe — used to reconcile an uncertain state. */
+const retrieveStripeRefund = async (refundId) => stripe.refunds.retrieve(refundId);
+exports.retrieveStripeRefund = retrieveStripeRefund;

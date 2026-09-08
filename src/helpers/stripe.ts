@@ -98,3 +98,47 @@ export const createStripePaymentUrl = async (params: {
 
 /** Stripe works in the currency's smallest unit. */
 const toCents = (amount: number): number => Math.round(round2(amount) * 100);
+
+/**
+ * Issues a refund against the original charge.
+ *
+ * `paymentIntentId` is `Payment.transactionId`, set by the checkout webhook.
+ * Stripe works out which charge to reverse from the intent.
+ *
+ * `idempotencyKey` is what makes this safe to retry: Stripe replays the stored
+ * response for a repeated key instead of moving money twice. The caller derives
+ * the key from the refund row and its attempt number, so a genuine retry after
+ * a failure is a new request while an accidental replay is not.
+ *
+ * Errors are deliberately NOT swallowed — the caller records the failure on the
+ * Refund row so an operator can retry it.
+ */
+export const createStripeRefund = async (params: {
+    paymentIntentId: string;
+    /** In major units (dollars); converted to cents here. */
+    amount: number;
+    idempotencyKey: string;
+    reason?: string;
+    metadata?: Record<string, string>;
+}): Promise<Stripe.Refund> => {
+    return stripe.refunds.create(
+        {
+            payment_intent: params.paymentIntentId,
+            amount: toCents(params.amount),
+            // `requested_by_customer` is the closest of Stripe's three fixed
+            // reasons; the human-readable why lives in metadata and on the
+            // Refund row, since Stripe rejects anything else here.
+            reason: "requested_by_customer",
+            metadata: {
+                ...(params.metadata ?? {}),
+                ...(params.reason ? { note: params.reason.slice(0, 500) } : {}),
+            },
+        },
+        { idempotencyKey: params.idempotencyKey },
+    );
+};
+
+/** Reads a refund back from Stripe — used to reconcile an uncertain state. */
+export const retrieveStripeRefund = async (
+    refundId: string,
+): Promise<Stripe.Refund> => stripe.refunds.retrieve(refundId);

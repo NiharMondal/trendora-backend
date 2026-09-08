@@ -35,6 +35,7 @@ export const PaymentStatusEnum = z.enum([
     "PENDING",
     "PAID",
     "FAILED",
+    "PARTIALLY_REFUNDED",
     "REFUNDED",
 ]);
 
@@ -45,6 +46,14 @@ export const PayoutStatusEnum = z.enum([
     "PROCESSING",
     "PAID",
     "FAILED",
+]);
+
+export const RefundStatusEnum = z.enum([
+    "PENDING",
+    "PROCESSING",
+    "SUCCEEDED",
+    "FAILED",
+    "CANCELED",
 ]);
 
 export const CheckoutSessionStatusEnum = z.enum([

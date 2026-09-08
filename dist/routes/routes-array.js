@@ -12,6 +12,7 @@ const payout_route_1 = require("../modules/payout/payout.route");
 const image_route_1 = require("../modules/product-image/image.route");
 const variant_route_1 = require("../modules/product-variant/variant.route");
 const product_route_1 = require("../modules/product/product.route");
+const refund_route_1 = require("../modules/refund/refund.route");
 const review_route_1 = require("../modules/review/review.route");
 const size_group_route_1 = require("../modules/size-group/size-group.route");
 const size_route_1 = require("../modules/size/size.route");
@@ -40,6 +41,7 @@ exports.routesArray = [
     { path: "/vendors", element: vendor_route_1.vendorRouter },
     { path: "/vendor-reviews", element: vendor_review_route_1.vendorReviewRouter },
     { path: "/payouts", element: payout_route_1.payoutRouter },
+    { path: "/refunds", element: refund_route_1.refundRouter },
     // slide -> for showing slider data in frontend
     { path: "/slides", element: slide_route_1.slideRouter },
 ];
