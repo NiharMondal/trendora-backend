@@ -19,6 +19,10 @@ const vendorCardSelect = {
     logo: true,
     averageRating: true,
     status: true,
+    // The cart groups by store and charges shipping per store, so a product
+    // payload has to carry its store's delivery terms.
+    shippingFee: true,
+    freeShippingThreshold: true,
 };
 /**
  * Editing one of these re-opens moderation: an approved listing whose name,

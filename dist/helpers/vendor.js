@@ -25,6 +25,11 @@ exports.publicVendorSelect = {
     banner: true,
     averageRating: true,
     totalReviews: true,
+    // Shipping terms are public on purpose: the storefront shows "free
+    // delivery over X from this store", and the cart needs them to estimate
+    // per-store shipping without re-fetching every product's vendor.
+    shippingFee: true,
+    freeShippingThreshold: true,
     createdAt: true,
 };
 /**
