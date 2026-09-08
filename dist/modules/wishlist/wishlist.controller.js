@@ -5,7 +5,12 @@ const asyncHandler_1 = require("../../utils/asyncHandler");
 const sendResponse_1 = require("../../utils/sendResponse");
 const wishlist_service_1 = require("./wishlist.service");
 const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await wishlist_service_1.wishlistServices.createIntoDB(req.body);
+    const userId = req.user.id;
+    const payload = {
+        userId,
+        productId: req.body.productId,
+    };
+    const data = await wishlist_service_1.wishlistServices.createIntoDB(payload);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 201,
         message: "Wishlist added successfully",

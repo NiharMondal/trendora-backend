@@ -13,7 +13,7 @@ router
 	.route("/:id")
 	.get(sizeControllers.findById)
 	.patch(
-		// authGuard(Role.ADMIN),
+		authGuard(Role.ADMIN),
 		validateRequest(sizeSchema),
 		sizeControllers.updateData,
 	)

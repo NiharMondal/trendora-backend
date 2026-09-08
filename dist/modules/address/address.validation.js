@@ -3,19 +3,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.addressValidation = exports.updateAddress = void 0;
+exports.addressSchema = void 0;
 const zod_1 = __importDefault(require("zod"));
-const createAddress = zod_1.default.object({
-    userId: zod_1.default
-        .string({ error: "User ID is required" })
-        .nonempty({ error: "User ID can not be empty" }),
-    fullName: zod_1.default.string({ error: "Name is required" }),
-    phone: zod_1.default.string({ error: "Phone number is required" }),
-    street: zod_1.default.string({ error: "Street is required" }),
-    city: zod_1.default.string({ error: "City name is required" }),
-    state: zod_1.default.string({ error: "State name is required" }).optional(),
-    postalCode: zod_1.default.string({ error: "Postal code is required" }),
-    country: zod_1.default.string({ error: "Country name is required" }),
+exports.addressSchema = zod_1.default.object({
+    fullName: zod_1.default.string({ error: "Name is required" }).trim(),
+    email: zod_1.default.email().trim(),
+    phone: zod_1.default.string({ error: "Phone number is required" }).trim(),
+    street: zod_1.default.string({ error: "Street is required" }).trim(),
+    city: zod_1.default.string({ error: "City name is required" }).trim(),
+    state: zod_1.default.string().trim().optional(),
+    postalCode: zod_1.default.string({ error: "Postal code is required" }).trim(),
+    country: zod_1.default.string({ error: "Country name is required" }).trim(),
+    isDefault: zod_1.default.boolean().optional()
 });
-exports.updateAddress = createAddress.partial();
-exports.addressValidation = { createAddress, updateAddress: exports.updateAddress };

@@ -13,11 +13,15 @@ router
     .route("/:id")
     .get(slideControllers.findById)
     .patch(authGuard(Role.ADMIN), slideControllers.updateData)
-    .delete(slideControllers.deleteData);
+    .delete(authGuard(Role.ADMIN), slideControllers.deleteData);
 
 router
     .route("/")
-    .post(validateRequest(slideSchema), slideControllers.createIntoDB)
+    .post(
+        authGuard(Role.ADMIN),
+        validateRequest(slideSchema),
+        slideControllers.createIntoDB,
+    )
     .get(slideControllers.findAllFromDB);
 
 export const slideRouter = router;

@@ -5,6 +5,7 @@ import { categoryRouter } from "../modules/category/category.route";
 import { cloudinaryRouter } from "../modules/cloudinary/cloudinary.route";
 import { orderRouter } from "../modules/order/order.route";
 import { paymentRouter } from "../modules/payment/payment.route";
+import { payoutRouter } from "../modules/payout/payout.route";
 import { productImageRouter } from "../modules/product-image/image.route";
 import { variantRouter } from "../modules/product-variant/variant.route";
 import { productRouter } from "../modules/product/product.route";
@@ -13,6 +14,8 @@ import { sizeGroupRouter } from "../modules/size-group/size-group.route";
 import { sizeRouter } from "../modules/size/size.route";
 import { slideRouter } from "../modules/slide/slide.route";
 import { userRouter } from "../modules/user/user.route";
+import { vendorReviewRouter } from "../modules/vendor-review/vendor-review.route";
+import { vendorRouter } from "../modules/vendor/vendor.route";
 import { wishlistRouter } from "../modules/wishlist/wishlist.route";
 
 export const routesArray = [
@@ -31,6 +34,11 @@ export const routesArray = [
 	{ path: "/size-groups", element: sizeGroupRouter },
 	{ path: "/sizes", element: sizeRouter },
 	{ path: "/cloudinary", element: cloudinaryRouter },
+
+	// marketplace — stores, store ratings and vendor settlements
+	{ path: "/vendors", element: vendorRouter },
+	{ path: "/vendor-reviews", element: vendorReviewRouter },
+	{ path: "/payouts", element: payoutRouter },
 
 	// slide -> for showing slider data in frontend
 	{ path: "/slides", element: slideRouter },

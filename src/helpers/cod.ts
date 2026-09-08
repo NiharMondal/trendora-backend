@@ -4,127 +4,34 @@ import {
 	PaymentStatus,
 } from "../../generated/prisma";
 import { prisma } from "../config/db";
-import { TBasicInfo } from "../modules/order/order.service";
-import { TCreateOrderSchema } from "../modules/order/order.validation";
-import {  OrderCalculation } from "../types/common.types";
-import CustomError from "../utils/customError";
-import { logStatusChange } from "./order";
+import { OrderCalculation } from "../types/common.types";
+import { persistOrder } from "./create-order";
 
-export async function createCODOrder(
-	input: TCreateOrderSchema & TBasicInfo,
-	shippingAddressId:string,
-	calculation: OrderCalculation,
-	orderNumber: string,
-) {
-	return prisma.$transaction(async (tx) => {
-		// 0. Fetch shipping address for snapshot
-		const shippingAddress = await tx.address.findUnique({
-			where: { id: shippingAddressId },
-		});
-
-		if (!shippingAddress) {
-			throw new CustomError(404, "Shipping address not found");
-		}
-
-		// 1. Deduct stock atomically
-		for (const item of calculation.items) {
-			if (item.variantId) {
-				// Update variant stock
-				const variant = await tx.productVariant.update({
-					where: { id: item.variantId },
-					data: { stock: { decrement: item.quantity } },
-				});
-
-				if (variant.stock < 0) {
-					throw new CustomError(
-						400,
-						`Insufficient stock for ${item.productName}`,
-					);
-				}
-			} else {
-				// Update product stock
-				const product = await tx.product.update({
-					where: { id: item.productId },
-					data: { stockQuantity: { decrement: item.quantity } },
-				});
-
-				if (product.stockQuantity < 0) {
-					throw new CustomError(
-						400,
-						`Insufficient stock for ${item.productName}`,
-					);
-				}
-			}
-		}
-
-		// 2. Create order
-		const order = await tx.order.create({
-			data: {
-				orderNumber,
-				userId: input.userId,
-				subtotal: calculation.subtotal,
-				tax: calculation.tax,
-				shippingCost: calculation.shippingCost,
-				totalAmount: calculation.totalAmount,
-				paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
-				paymentStatus: PaymentStatus.PENDING,
-				orderStatus: OrderStatus.PENDING,
-				shippingAddressId: shippingAddressId,
-				shippingSnapshot: shippingAddress,
-				ipAddress: input.ipAddress,
-				userAgent: input.userAgent,
-				notes: input.notes,
-				items: {
-					create: calculation.items.map((item) => ({
-						productId: item.productId,
-						productName: item.productName,
-						variantId: item.variantId,
-						variantDetails: item.variantDetails,
-						quantity: item.quantity,
-						priceAtPurchase: item.priceAtPurchase,
-						originalPrice: item.originalPrice,
-						// discount: item.discount,
-						subtotal: item.subtotal,
-					})),
-				},
-			},
-			include: {
-				items: true,
-				shippingAddress: true,
-				user: {
-					select: {
-						id: true,
-						name: true,
-						auth: {
-							select: {
-								email: true,
-							},
-						},
-					},
-				},
-			},
-		});
-
-		// 3. Create payment record
-		await tx.payment.create({
-			data: {
-				orderId: order.id,
-				amount: calculation.totalAmount,
-				method: PaymentMethod.CASH_ON_DELIVERY,
-				status: PaymentStatus.PENDING,
-			},
-		});
-
-		// 4. Log status history
-		await logStatusChange(
-			tx,
-			order.id,
-			OrderStatus.PENDING,
-			OrderStatus.PENDING,
-			input.userId,
-			input.ipAddress,
-		);
-
-		return order;
-	});
+/**
+ * Cash on delivery: the order is created inline, unpaid. Payment flips to PAID
+ * when the last vendor order is delivered (see the order service).
+ */
+export async function createCODOrder(input: {
+	userId: string;
+	shippingAddressId: string;
+	calculation: OrderCalculation;
+	orderNumber: string;
+	notes?: string;
+	ipAddress?: string;
+	userAgent?: string;
+}) {
+	return prisma.$transaction(async (tx) =>
+		persistOrder(tx, {
+			orderNumber: input.orderNumber,
+			userId: input.userId,
+			shippingAddressId: input.shippingAddressId,
+			calculation: input.calculation,
+			paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
+			paymentStatus: PaymentStatus.PENDING,
+			initialVendorStatus: OrderStatus.PENDING,
+			notes: input.notes,
+			ipAddress: input.ipAddress,
+			userAgent: input.userAgent,
+		}),
+	);
 }

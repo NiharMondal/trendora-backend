@@ -20,4 +20,30 @@ const loginUser = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
         data: data,
     });
 });
-exports.authControllers = { registerUser, loginUser };
+const oAuthLogin = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await auth_service_1.authServices.oAuthLogin(req.body);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "OAuth Logged in Successfully",
+        data: data,
+    });
+});
+const changePassword = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const user = req.user;
+    const data = await auth_service_1.authServices.changePassword(req.body, user?.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Password changed Successfully",
+        data: data,
+    });
+});
+const refreshToken = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const token = req.body?.refreshToken;
+    const data = await auth_service_1.authServices.refreshToken(token);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Refresh token generated Successfully",
+        data: data,
+    });
+});
+exports.authControllers = { registerUser, loginUser, oAuthLogin, changePassword, refreshToken };

@@ -1,5 +1,4 @@
 import z from "zod";
-import { uuidSchema } from "../../utils/utils";
 
 export const createWishList = z.object({
 	userId: z.uuidv4("UserId can not be empty"),

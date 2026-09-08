@@ -9,10 +9,10 @@ const createReview = zod_1.default.object({
     rating: zod_1.default.number().min(1, "Min value is 1").max(5, "Max value is 5"),
     comment: zod_1.default
         .string()
-        .min(2, "Min length is 2")
-        .max(60, "Max length is 70")
+        .min(5, "Min length is 2")
+        .max(400, "Max length is 400")
+        .trim()
         .optional(),
-    userId: zod_1.default.string({ error: "User ID is required" }),
     productId: zod_1.default.string({ error: "Product ID is required" }),
 });
 const updateReview = zod_1.default.object({
@@ -24,7 +24,7 @@ const updateReview = zod_1.default.object({
     comment: zod_1.default
         .string()
         .min(2, "Min length is 2")
-        .max(60, "Max length is 70")
+        .max(400, "Max length is 400")
         .optional(),
 });
 exports.reviewValidation = { createReview, updateReview };

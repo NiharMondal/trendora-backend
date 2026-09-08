@@ -8,14 +8,18 @@ const review_validation_1 = require("./review.validation");
 const authGuard_1 = require("../../middleware/authGuard");
 const prisma_1 = require("../../../generated/prisma");
 const router = (0, express_1.Router)();
-router.get("/my-reviews", (0, authGuard_1.authGuard)(prisma_1.Role.CUSTOMER), review_controller_1.reviewControllers.findByUserId);
+const anySignedInUser = (0, authGuard_1.authGuard)(prisma_1.Role.CUSTOMER, prisma_1.Role.VENDOR, prisma_1.Role.ADMIN);
+router.get("/my-reviews", anySignedInUser, review_controller_1.reviewControllers.findByUserId);
+router.get("/product/:productId", review_controller_1.reviewControllers.findAllReviewsByProductId);
 router
     .route("/:id")
     .get(review_controller_1.reviewControllers.findById)
-    .patch((0, validateRequest_1.validateRequest)(review_validation_1.reviewValidation.updateReview), review_controller_1.reviewControllers.updateData)
-    .delete(review_controller_1.reviewControllers.deleteData);
+    .patch(anySignedInUser, (0, validateRequest_1.validateRequest)(review_validation_1.reviewValidation.updateReview), review_controller_1.reviewControllers.updateData)
+    .delete(anySignedInUser, review_controller_1.reviewControllers.deleteData);
 router
     .route("/")
-    .post((0, validateRequest_1.validateRequest)(review_validation_1.reviewValidation.createReview), review_controller_1.reviewControllers.createIntoDB)
+    .post(
+// authGuard first: authenticate before spending work on validation.
+anySignedInUser, (0, validateRequest_1.validateRequest)(review_validation_1.reviewValidation.createReview), review_controller_1.reviewControllers.createIntoDB)
     .get(review_controller_1.reviewControllers.findAllFromDB);
 exports.reviewRouter = router;

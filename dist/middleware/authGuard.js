@@ -25,6 +25,9 @@ const authGuard = (...roles) => {
                 where: {
                     id: id,
                 },
+                include: {
+                    auth: true,
+                },
             });
             if (!user || user.isDeleted) {
                 throw new customError_1.default(401, "User not found or deleted");
@@ -40,6 +43,7 @@ const authGuard = (...roles) => {
         catch (error) {
             // Optional: Handle token expiration separately if you want
             if (error instanceof Error &&
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 error.name === "TokenExpiredError") {
                 next(new customError_1.default(401, "Access token expired"));
             }

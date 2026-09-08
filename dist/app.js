@@ -8,9 +8,14 @@ const cors_1 = __importDefault(require("cors"));
 const rootRouter_1 = __importDefault(require("./routes/rootRouter"));
 const notFoundRoute_1 = require("./middleware/notFoundRoute");
 const globalErrorHandler_1 = require("./middleware/globalErrorHandler");
+const payment_route_1 = require("./modules/payment/payment.route");
 const app = (0, express_1.default)();
+app.use("/webhook", payment_route_1.createPaymentWithStripeWebhook);
 app.use(express_1.default.json());
-app.use((0, cors_1.default)({ credentials: true, origin: ["http://localhost:3000"] }));
+app.use((0, cors_1.default)({
+    credentials: true,
+    origin: ["http://localhost:3000"],
+}));
 app.use("/api/v1", rootRouter_1.default);
 // app.use("/", (req: Request, res: Response) => {
 // 	res.json({ success: true, message: "Trendora is running" });

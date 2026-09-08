@@ -1,25 +1,28 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-console */
 import Stripe from "stripe";
 import { envConfig } from "../../config/env-config";
 import CustomError from "../../utils/customError";
 import { prisma } from "../../config/db";
 import {
+    OrderStatus,
     PaymentMethod,
     PaymentStatus,
-    OrderStatus,
+    Prisma,
 } from "../../../generated/prisma";
-import { ValidatedOrderItem } from "../../types/common.types";
-import {  logStatusChange } from "../../helpers/order";
+import { consumeCheckoutSession } from "../../helpers/checkout";
+import { persistOrder } from "../../helpers/create-order";
+import { OrderCalculation } from "../../types/common.types";
 
 // Initialize Stripe
 const stripe = new Stripe(envConfig.stripe_secret_key as string, {
     apiVersion: "2025-07-30.basil",
 });
+
 /**
  * Handle Stripe webhook events
  * SECURITY: Verifies webhook signature to prevent tampering
  */
-const handleStripeWebhook = async (body: any, signature: string) => {
+const handleStripeWebhook = async (body: Buffer, signature: string) => {
     let event: Stripe.Event;
 
     // 1. Verify webhook signature
@@ -29,15 +32,23 @@ const handleStripeWebhook = async (body: any, signature: string) => {
             signature,
             envConfig.stripe_webhook_secret as string,
         );
-    } catch (error: any) {
-        console.error("Webhook signature verification failed:", error.message);
-        throw new CustomError(400, `Webhook Error: ${error.message}`);
+    } catch (error) {
+        const message =
+            error instanceof Error ? error.message : "unknown error";
+        console.error("Webhook signature verification failed:", message);
+        throw new CustomError(400, `Webhook Error: ${message}`);
     }
 
     // 2. Handle different event types
     switch (event.type) {
         case "checkout.session.completed":
             await handleCheckoutSessionCompleted(
+                event.data.object as Stripe.Checkout.Session,
+            );
+            break;
+
+        case "checkout.session.expired":
+            await handleCheckoutSessionExpired(
                 event.data.object as Stripe.Checkout.Session,
             );
             break;
@@ -62,55 +73,33 @@ const handleStripeWebhook = async (body: any, signature: string) => {
 };
 
 /**
- * Handle successful checkout session
+ * Create the order for a completed Stripe checkout.
+ *
+ * The cart is read back from the CheckoutSession draft the request created —
+ * never from Stripe metadata, which is too small to hold a multi-vendor cart.
+ * Redeeming that draft inside the transaction is what makes this idempotent:
+ * Stripe retries webhooks, and the second delivery finds the draft already
+ * COMPLETED and returns without writing a duplicate order.
  */
 async function handleCheckoutSessionCompleted(
     session: Stripe.Checkout.Session,
 ) {
     console.log("Processing checkout session:", session.id);
 
-    // 1. Validate metadata exists
-    if (!session.metadata) {
-        throw new CustomError(400, "Session metadata is missing");
-    }
+    const checkoutSessionId = session.metadata?.checkoutSessionId;
+    const orderNumber = session.metadata?.orderNumber;
 
-    const {
-        userId,
-        shippingAddressId,
-        orderNumber,
-        items: itemsJson,
-        subtotal,
-        tax,
-        shippingCost,
-        discount,
-        totalAmount,
-        ipAddress,
-        userAgent,
-        notes,
-    } = session.metadata;
-
-    // 2. Validate required fields
-    if (!userId || !shippingAddressId || !orderNumber || !itemsJson) {
-        throw new CustomError(400, "Required metadata fields are missing");
-    }
-
-    // 3. Parse items
-    const items: ValidatedOrderItem[] = JSON.parse(itemsJson);
-
-    // 4. Validate amounts match (SECURITY: prevent tampering)
-    const sessionAmount = (session?.amount_total as number) / 100; // Convert from cents
-    const expectedAmount = parseFloat(totalAmount);
-
-    if (Math.abs(sessionAmount - expectedAmount) > 0.01) {
+    if (!checkoutSessionId || !orderNumber) {
         throw new CustomError(
             400,
-            `Amount mismatch: session=${sessionAmount}, expected=${expectedAmount}`,
+            "Stripe session is missing checkoutSessionId/orderNumber metadata",
         );
     }
 
-    // 5. Check if order already exists (idempotency)
+    // Fast path for a replayed webhook — cheaper than opening a transaction.
     const existingOrder = await prisma.order.findUnique({
         where: { orderNumber },
+        select: { id: true },
     });
 
     if (existingOrder) {
@@ -118,162 +107,83 @@ async function handleCheckoutSessionCompleted(
         return;
     }
 
-    // 6. Get payment intent ID
-    const paymentIntentId = session.payment_intent as string;
+    const draft = await prisma.checkoutSession.findUnique({
+        where: { id: checkoutSessionId },
+    });
 
-    // 7. Create order in transaction
-    await prisma.$transaction(async (tx) => {
-        // Re-fetch products to validate prices haven't changed
-        const productIds = items.map((item) => item.productId);
-        const products = await tx.product.findMany({
-            where: {
-                id: { in: productIds },
-                isPublished: true,
-                isDeleted: false,
-            },
-            include: {
-                variants: {
-                    where: { isDeleted: false },
-                },
-            },
-        });
+    if (!draft) {
+        throw new CustomError(404, "Checkout session not found");
+    }
 
-        // Validate each item
-        for (const item of items) {
-            const product = products.find((p) => p.id === item.productId);
-            if (!product) {
-                throw new CustomError(
-                    400,
-                    `Product ${item.productId} not found or unavailable`,
-                );
-            }
+    // SECURITY: the charge must match what we priced. Stripe reports the
+    // amount in cents; compare with a one-cent tolerance.
+    const paidAmount = (session.amount_total ?? 0) / 100;
+    const expectedAmount = parseFloat(draft.amountTotal.toString());
 
-            let currentPrice: number;
-            let availableStock: number;
+    if (Math.abs(paidAmount - expectedAmount) > 0.01) {
+        throw new CustomError(
+            400,
+            `Amount mismatch: charged=${paidAmount}, expected=${expectedAmount}`,
+        );
+    }
 
-            if (item.variantId) {
-                const variant = product.variants.find(
-                    (v) => v.id === item.variantId,
-                );
-                if (!variant) {
-                    throw new CustomError(
-                        400,
-                        `Variant ${item.variantId} not found`,
-                    );
-                }
+    const paymentIntentId =
+        typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : session.payment_intent?.id;
 
-                const basePrice = product.discountPrice || product.basePrice;
-                currentPrice =
-                    parseFloat(basePrice.toString())
-                availableStock = variant.stock;
-            } else {
-                currentPrice = parseFloat(
-                    (product.discountPrice || product.basePrice).toString(),
-                );
-                availableStock = product.stockQuantity;
-            }
+    try {
+        const order = await prisma.$transaction(async (tx) => {
+            const claimed = await consumeCheckoutSession(
+                tx,
+                checkoutSessionId,
+            );
 
-            // SECURITY: Verify price hasn't changed significantly
-            if (Math.abs(currentPrice - item.priceAtPurchase) > 0.01) {
-                console.warn(
-                    `Price changed for ${item.productName}: session=${item.priceAtPurchase}, current=${currentPrice}`,
-                );
-                // You can decide to fail or accept the session price
-                // For now, we'll log but accept since payment already processed
-            }
-
-            // Check stock
-            if (availableStock < item.quantity) {
-                throw new CustomError(
-                    400,
-                    `Insufficient stock for ${item.productName}`,
-                );
-            }
-
-            // Deduct stock
-            if (item.variantId) {
-                await tx.productVariant.update({
-                    where: { id: item.variantId },
-                    data: { stock: { decrement: item.quantity } },
-                });
-
-            } else {
-                await tx.product.update({
-                    where: { id: item.productId },
-                    data: { stockQuantity: { decrement: item.quantity } },
-                });
-            }
-        }
-
-        // Create order
-        const order = await tx.order.create({
-            data: {
-                orderNumber,
-                userId,
-                subtotal: parseFloat(subtotal),
-                tax: parseFloat(tax),
-                shippingCost: parseFloat(shippingCost),
-                discount: parseFloat(discount),
-                totalAmount: parseFloat(totalAmount),
+            // Payment already succeeded, so the order opens in PROCESSING and
+            // each vendor can start fulfilling immediately.
+            return persistOrder(tx, {
+                orderNumber: claimed.orderNumber,
+                userId: claimed.userId,
+                shippingAddressId: claimed.shippingAddressId,
+                calculation: claimed.calculation as OrderCalculation,
                 paymentMethod: PaymentMethod.STRIPE,
                 paymentStatus: PaymentStatus.PAID,
-                orderStatus: OrderStatus.PROCESSING, // Automatically move to PROCESSING
-                shippingAddressId,
-                ipAddress,
-                userAgent,
-                notes,
-                items: {
-                    create: items.map((item) => ({
-                        productId: item.productId,
-                        productName: item.productName,
-                        variantId: item.variantId,
-                        variantDetails: item.variantDetails,
-                        quantity: item.quantity,
-                        priceAtPurchase: item.priceAtPurchase,
-                        originalPrice: item.originalPrice,
-                        subtotal: item.subtotal,
-                    })),
-                },
-            },
-        });
-
-        // Create payment record
-        await tx.payment.create({
-            data: {
-                orderId: order.id,
-                amount: parseFloat(totalAmount),
-                method: PaymentMethod.STRIPE,
-                status: PaymentStatus.PAID,
+                initialVendorStatus: OrderStatus.PROCESSING,
+                notes: claimed.notes,
+                ipAddress: claimed.ipAddress,
+                userAgent: claimed.userAgent,
                 transactionId: paymentIntentId,
                 paymentGateway: "stripe",
-                gatewayResponse: session as any, // Store full session
+                gatewayResponse: session as unknown as Prisma.InputJsonValue,
                 paidAt: new Date(),
-            },
+            });
         });
 
-        // Log initial status
-        await logStatusChange(
-            tx,
-            order.id,
-            OrderStatus.PENDING,
-            OrderStatus.PENDING,
-            "SYSTEM",
-            "Order created via Stripe",
+        console.log(
+            `Order ${order.orderNumber} created with ${order.vendorOrders.length} vendor order(s)`,
         );
+    } catch (error) {
+        // A concurrent delivery won the race — that is success, not failure.
+        if (error instanceof CustomError && error.statusCode === 409) {
+            console.log(
+                `Checkout session ${checkoutSessionId} already consumed, skipping`,
+            );
+            return;
+        }
 
-        // Log automatic transition to PROCESSING
-        await logStatusChange(
-            tx,
-            order.id,
-            OrderStatus.PENDING,
-            OrderStatus.PROCESSING,
-            "SYSTEM",
-            "Payment confirmed - moved to processing",
-        );
+        throw error;
+    }
+}
 
-        console.log(`Order ${orderNumber} created successfully`);
+/** Stripe's own expiry for an abandoned checkout page. */
+async function handleCheckoutSessionExpired(session: Stripe.Checkout.Session) {
+    const checkoutSessionId = session.metadata?.checkoutSessionId;
 
-        return order;
+    if (!checkoutSessionId) return;
+
+    await prisma.checkoutSession.updateMany({
+        where: { id: checkoutSessionId, status: "PENDING" },
+        data: { status: "EXPIRED" },
     });
 }
 
@@ -296,7 +206,8 @@ async function handlePaymentIntentSucceeded(
             data: {
                 status: PaymentStatus.PAID,
                 paidAt: new Date(),
-                gatewayResponse: paymentIntent as any,
+                gatewayResponse:
+                    paymentIntent as unknown as Prisma.InputJsonValue,
             },
         });
     }
@@ -319,7 +230,8 @@ async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
             data: {
                 status: PaymentStatus.FAILED,
                 failureReason: paymentIntent.last_payment_error?.message,
-                gatewayResponse: paymentIntent as any,
+                gatewayResponse:
+                    paymentIntent as unknown as Prisma.InputJsonValue,
             },
         });
 

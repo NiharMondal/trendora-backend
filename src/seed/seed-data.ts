@@ -1,4 +1,4 @@
-import { Gender, Role } from "../../generated/prisma";
+import { Gender, Role, VendorStatus } from "../../generated/prisma";
 
 /**
  * Fixture data for the development seed.
@@ -24,6 +24,8 @@ export type TSeedImage = {
 
 export type TSeedProduct = {
 	name: string;
+	/** Which seeded store lists this product (see `vendors` below). */
+	vendorSlug: string;
 	description: string;
 	basePrice: number;
 	discountPrice?: number;
@@ -75,6 +77,7 @@ export const categories: {
 export const products: TSeedProduct[] = [
 	{
 		name: "Levi's 501 Original Fit Jeans",
+		vendorSlug: "urban-threads",
 		description:
 			"The original blue jean since 1873. Crafted with a signature button fly and straight leg. A blank canvas for self-expression that has stayed true for over 140 years.",
 		basePrice: 89,
@@ -107,6 +110,7 @@ export const products: TSeedProduct[] = [
 	},
 	{
 		name: "Nike Air Max 270",
+		vendorSlug: "sole-society",
 		description:
 			"The Nike Air Max 270 features a large Max Air unit in the heel for cushioning and comfort. Perfect for everyday wear.",
 		basePrice: 150,
@@ -144,6 +148,7 @@ export const products: TSeedProduct[] = [
 	},
 	{
 		name: "Adidas Ultraboost 23 Running Shoes",
+		vendorSlug: "sole-society",
 		description:
 			"Energy-returning Boost cushioning. Adaptive Primeknit+ upper. Continental rubber outsole for superior grip. Perfect for running and everyday training.",
 		basePrice: 190,
@@ -175,6 +180,7 @@ export const products: TSeedProduct[] = [
 	},
 	{
 		name: "Classic T-Shirt",
+		vendorSlug: "trendora-official",
 		description:
 			"A midweight cotton tee with a clean crew neck and a relaxed fit that holds its shape after washing. The staple layer for everything else in the wardrobe.",
 		basePrice: 90.99,
@@ -220,6 +226,84 @@ export const users: {
 		email: "customer@trendora.test",
 		phone: "+8801700000002",
 		role: Role.CUSTOMER,
+	},
+	{
+		name: "Ayesha Rahman",
+		email: "vendor1@trendora.test",
+		phone: "+8801700000003",
+		role: Role.VENDOR,
+	},
+	{
+		name: "Rafiq Islam",
+		email: "vendor2@trendora.test",
+		phone: "+8801700000004",
+		role: Role.VENDOR,
+	},
+];
+
+/**
+ * Seeded storefronts.
+ *
+ * `trendora-official` is the store the multi-vendor migration created for the
+ * pre-marketplace catalogue — it is upserted here so a fresh database matches
+ * a migrated one. The other two exercise the parts of the system that only
+ * appear with several sellers: per-vendor shipping thresholds, a cart that
+ * splits across stores, and differing commission rates.
+ *
+ * `pending-store` stays PENDING on purpose so the admin moderation queue is
+ * never empty in development.
+ */
+export const vendors: {
+	storeName: string;
+	slug: string;
+	ownerEmail: string;
+	description: string;
+	businessEmail: string;
+	businessPhone: string;
+	status: VendorStatus;
+	commissionRate: number;
+	shippingFee: number;
+	freeShippingThreshold: number;
+}[] = [
+	{
+		storeName: "Trendora Official",
+		slug: "trendora-official",
+		ownerEmail: "admin@trendora.test",
+		description:
+			"The platform's own store. Holds every product that existed before Trendora became a marketplace.",
+		businessEmail: "store@trendora.test",
+		businessPhone: "+8801700000001",
+		status: VendorStatus.APPROVED,
+		commissionRate: 0,
+		shippingFee: 100,
+		freeShippingThreshold: 1000,
+	},
+	{
+		storeName: "Urban Threads",
+		slug: "urban-threads",
+		ownerEmail: "vendor1@trendora.test",
+		description:
+			"Denim and everyday essentials, cut for real life. Family-run since 2014 and still packing every order by hand.",
+		businessEmail: "hello@urbanthreads.test",
+		businessPhone: "+8801700000003",
+		status: VendorStatus.APPROVED,
+		commissionRate: 0.1,
+		shippingFee: 80,
+		freeShippingThreshold: 800,
+	},
+	{
+		storeName: "Sole Society",
+		slug: "sole-society",
+		ownerEmail: "vendor2@trendora.test",
+		description:
+			"Performance running and lifestyle sneakers, fitted properly. Free delivery once you cross a pair and a half.",
+		businessEmail: "hello@solesociety.test",
+		businessPhone: "+8801700000004",
+		status: VendorStatus.APPROVED,
+		// A negotiated rate — proof that commission is per store, not global.
+		commissionRate: 0.12,
+		shippingFee: 150,
+		freeShippingThreshold: 2000,
 	},
 ];
 

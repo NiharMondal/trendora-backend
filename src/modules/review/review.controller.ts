@@ -59,7 +59,11 @@ const findById = asyncHandler(async (req: Request, res: Response) => {
 });
 const updateData = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
-    const data = await reviewServices.updateData(id, req.body);
+    const data = await reviewServices.updateData(
+        { id: req.user.id, role: req.user.role },
+        id,
+        req.body,
+    );
 
     sendResponse(res, {
         statusCode: 200,
@@ -70,7 +74,10 @@ const updateData = asyncHandler(async (req: Request, res: Response) => {
 
 const deleteData = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
-    const data = await reviewServices.deleteData(id);
+    const data = await reviewServices.deleteData(
+        { id: req.user.id, role: req.user.role },
+        id,
+    );
 
     sendResponse(res, {
         statusCode: 200,
