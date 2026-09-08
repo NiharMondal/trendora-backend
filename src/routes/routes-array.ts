@@ -4,7 +4,6 @@ import { brandRouter } from "../modules/brand/brand.route";
 import { categoryRouter } from "../modules/category/category.route";
 import { cloudinaryRouter } from "../modules/cloudinary/cloudinary.route";
 import { orderRouter } from "../modules/order/order.route";
-import { paymentRouter } from "../modules/payment/payment.route";
 import { payoutRouter } from "../modules/payout/payout.route";
 import { productImageRouter } from "../modules/product-image/image.route";
 import { variantRouter } from "../modules/product-variant/variant.route";
@@ -31,7 +30,11 @@ export const routesArray = [
 	{ path: "/reviews", element: reviewRouter },
 	{ path: "/address", element: addressRouter },
 	{ path: "/orders", element: orderRouter },
-	{ path: "/payments", element: paymentRouter },
+	// NOTE: the Stripe webhook is deliberately NOT registered here. It is
+	// mounted at /webhook in app.ts, above express.json(), because signature
+	// verification needs the raw body. Registering it under /api/v1 would
+	// expose a second path whose body is already JSON-parsed, so every
+	// signature check on it would fail.
 	{ path: "/size-groups", element: sizeGroupRouter },
 	{ path: "/sizes", element: sizeRouter },
 	{ path: "/cloudinary", element: cloudinaryRouter },

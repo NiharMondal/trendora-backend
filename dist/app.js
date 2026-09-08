@@ -10,7 +10,9 @@ const notFoundRoute_1 = require("./middleware/notFoundRoute");
 const globalErrorHandler_1 = require("./middleware/globalErrorHandler");
 const payment_route_1 = require("./modules/payment/payment.route");
 const app = (0, express_1.default)();
-app.use("/webhook", payment_route_1.createPaymentWithStripeWebhook);
+// MUST stay above express.json(): Stripe signature verification needs the raw
+// request bytes. Serves POST /webhook and POST /webhook/stripe.
+app.use("/webhook", payment_route_1.stripeWebhookRouter);
 app.use(express_1.default.json());
 app.use((0, cors_1.default)({
     credentials: true,

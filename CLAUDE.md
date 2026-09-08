@@ -45,6 +45,8 @@ All feature routers are registered in **`src/routes/routes-array.ts`** as `{ pat
 
 Middleware ordering in `app.ts` matters: the **Stripe webhook is mounted at `/webhook` before `express.json()`** so it receives the raw body (`express.raw`). Everything else parses JSON. `notFoundRoute` and `globalErrorHandler` are last.
 
+The webhook router serves **both `POST /webhook` and `POST /webhook/stripe`**. It is deliberately NOT in `routes-array.ts`: registering it under `/api/v1` would expose a second path whose body `express.json()` has already consumed, so every signature check on it would fail. (That duplicate existed at `/api/v1/payments/stripe` and has been removed.)
+
 ### Module structure
 
 Every feature under `src/modules/<name>/` follows the same four-file layered pattern:
@@ -275,9 +277,31 @@ Cash on delivery has no gateway to call, so `recordRefundIntent` returns null
 for it; money handed back in person is recorded with `recordManualRefund`
 (`gateway` names the rail, e.g. `"cash"`, and there is no `gatewayRefundId`).
 
-The webhook also handles `refund.created/updated/failed` and `charge.refunded`,
-which is how a refund issued from the **Stripe dashboard** gets adopted into the
-ledger — without it, `Payment.refundAmount` would silently disagree with Stripe.
+### Which webhook events must be enabled
+
+`POST /webhook` handles nine event types, and the endpoint sending to it has to
+have them switched on or orders and refunds silently stop reconciling:
+
+| event | why |
+| --- | --- |
+| `checkout.session.completed` | **creates the order.** Without it no Stripe order exists at all |
+| `checkout.session.expired` | marks an abandoned checkout draft EXPIRED |
+| `payment_intent.succeeded` | backstop for the paid state |
+| `payment_intent.payment_failed` | records the failure reason |
+| `refund.created` / `refund.updated` / `refund.failed` | adopts and settles refunds, including ones raised in the **Stripe dashboard** |
+| `charge.refund.updated` | the LEGACY name for `refund.updated`; an endpoint pinned to an older `api_version` emits only this one |
+| `charge.refunded` | charge-level backstop, so a missed individual refund event still reconciles |
+
+Without the refund events, `Payment.refundAmount` silently disagrees with Stripe.
+
+**Local development:** `pnpm stripe:listen` forwards exactly this set to
+`localhost:5001/webhook` (needs the Stripe CLI: `brew install stripe/stripe-cli/stripe && stripe login`).
+It prints a `whsec_…` that must go in `STRIPE_WEBHOOK_SECRET` — that secret
+belongs to the listen session and is not a registered endpoint's secret. The
+script omits `charge.refund.updated` on purpose: `stripe listen` runs on the
+account's current API version, which emits `refund.*`, and forwarding both
+would deliver every refund change twice (harmless — the handler is idempotent —
+but pointless).
 
 ### Other domain notes
 
@@ -311,6 +335,11 @@ All environment access goes through **`src/config/env-config.ts`** (`envConfig` 
 
 ## Known gaps in the marketplace layer (verified, not yet fixed)
 
+- **This Stripe test account is shared with another project.** The only
+  registered webhook endpoint is `edu-sphere-backend-pi.vercel.app/webhook`
+  (api_version `2023-08-16`) — not Trendora's. There is no endpoint pointing at
+  this backend, so a deployed Trendora needs one created with the nine events
+  listed above. Local dev uses `pnpm stripe:listen` and needs none.
 - **Nothing schedules `processPendingRefunds()`.** A refund that failed at the
   gateway is retried only when an admin presses retry (or hits
   `POST /refunds/retry-all`). Wire it to a cron/worker when one exists — the

@@ -50,9 +50,16 @@ const handleStripeWebhook = async (body, signature) => {
         // Refund lifecycle. These matter even though we create refunds
         // ourselves: a refund issued from the Stripe dashboard, or one on a
         // rail that settles asynchronously, only reaches us this way.
+        //
+        // `charge.refund.updated` is the LEGACY name for the same thing. A
+        // webhook endpoint pinned to an older api_version (anything before the
+        // `refund.*` events existed) emits only that one, so listening for
+        // both is what makes this work regardless of how the endpoint is
+        // configured. All four carry a Refund object.
         case "refund.created":
         case "refund.updated":
         case "refund.failed":
+        case "charge.refund.updated":
             await handleRefundEvent(event.data.object);
             break;
         case "charge.refunded":
