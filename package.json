@@ -12,7 +12,11 @@
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
         "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+        "seed": "tsx src/seed/index.ts",
         "studio": "npx prisma studio"
+    },
+    "prisma": {
+        "seed": "tsx src/seed/index.ts"
     },
     "keywords": [],
     "author": "",
