@@ -26,6 +26,8 @@ export const envConfig = {
 		email: process.env.EMAIL,
 		password: process.env.PASSWORD,
 	},
+	// dev seed (src/seed) — not used by the running server
+	seed_password: process.env.SEED_PASSWORD || "Password123!",
 	// order related
 	tax_rate: parseFloat(process.env.TAX_RATE || "0.08"),
 	shipping_cost: parseFloat(process.env.SHIPPING_COST || "100.00"),
