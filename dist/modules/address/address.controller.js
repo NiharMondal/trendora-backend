@@ -5,16 +5,25 @@ const asyncHandler_1 = require("../../utils/asyncHandler");
 const sendResponse_1 = require("../../utils/sendResponse");
 const address_service_1 = require("./address.service");
 const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await address_service_1.addressServices.createIntoDB(req.body);
+    const user = req.user;
+    const data = await address_service_1.addressServices.createIntoDB(req.body, user.id);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 201,
         message: "Address created successfully",
         data: data,
     });
 });
-const findAddressByUserId = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+const findAllFromDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await address_service_1.addressServices.findAllFromDB();
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Address fetched successfully",
+        data: data,
+    });
+});
+const findMyAddress = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const userId = req.user.id;
-    const data = await address_service_1.addressServices.findAddressByUserId(userId);
+    const data = await address_service_1.addressServices.findMyAddress(userId);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Address fetched successfully",
@@ -50,7 +59,8 @@ const deleteData = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
 });
 exports.addressControllers = {
     createIntoDB,
-    findAddressByUserId,
+    findAllFromDB,
+    findMyAddress,
     findById,
     updateData,
     deleteData,

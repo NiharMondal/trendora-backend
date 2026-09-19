@@ -4,15 +4,18 @@ import { brandRouter } from "../modules/brand/brand.route";
 import { categoryRouter } from "../modules/category/category.route";
 import { cloudinaryRouter } from "../modules/cloudinary/cloudinary.route";
 import { orderRouter } from "../modules/order/order.route";
-import { paymentRouter } from "../modules/payment/payment.route";
+import { payoutRouter } from "../modules/payout/payout.route";
 import { productImageRouter } from "../modules/product-image/image.route";
 import { variantRouter } from "../modules/product-variant/variant.route";
 import { productRouter } from "../modules/product/product.route";
+import { refundRouter } from "../modules/refund/refund.route";
 import { reviewRouter } from "../modules/review/review.route";
 import { sizeGroupRouter } from "../modules/size-group/size-group.route";
 import { sizeRouter } from "../modules/size/size.route";
 import { slideRouter } from "../modules/slide/slide.route";
 import { userRouter } from "../modules/user/user.route";
+import { vendorReviewRouter } from "../modules/vendor-review/vendor-review.route";
+import { vendorRouter } from "../modules/vendor/vendor.route";
 import { wishlistRouter } from "../modules/wishlist/wishlist.route";
 
 export const routesArray = [
@@ -27,10 +30,20 @@ export const routesArray = [
 	{ path: "/reviews", element: reviewRouter },
 	{ path: "/address", element: addressRouter },
 	{ path: "/orders", element: orderRouter },
-	{ path: "/payments", element: paymentRouter },
+	// NOTE: the Stripe webhook is deliberately NOT registered here. It is
+	// mounted at /webhook in app.ts, above express.json(), because signature
+	// verification needs the raw body. Registering it under /api/v1 would
+	// expose a second path whose body is already JSON-parsed, so every
+	// signature check on it would fail.
 	{ path: "/size-groups", element: sizeGroupRouter },
 	{ path: "/sizes", element: sizeRouter },
 	{ path: "/cloudinary", element: cloudinaryRouter },
+
+	// marketplace — stores, store ratings and vendor settlements
+	{ path: "/vendors", element: vendorRouter },
+	{ path: "/vendor-reviews", element: vendorReviewRouter },
+	{ path: "/payouts", element: payoutRouter },
+	{ path: "/refunds", element: refundRouter },
 
 	// slide -> for showing slider data in frontend
 	{ path: "/slides", element: slideRouter },

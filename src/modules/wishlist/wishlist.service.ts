@@ -1,4 +1,3 @@
-import { Wishlist } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
 import CustomError from "../../utils/customError";
 import { TCreateWishListType } from "./wishlist.validation";

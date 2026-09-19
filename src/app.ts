@@ -3,11 +3,13 @@ import cors from "cors";
 import rootRouter from "./routes/rootRouter";
 import { notFoundRoute } from "./middleware/notFoundRoute";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
-import { createPaymentWithStripeWebhook } from "./modules/payment/payment.route";
+import { stripeWebhookRouter } from "./modules/payment/payment.route";
 
 const app: Application = express();
 
-app.use("/webhook", createPaymentWithStripeWebhook);
+// MUST stay above express.json(): Stripe signature verification needs the raw
+// request bytes. Serves POST /webhook and POST /webhook/stripe.
+app.use("/webhook", stripeWebhookRouter);
 
 app.use(express.json());
 app.use(

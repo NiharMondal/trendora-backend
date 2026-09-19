@@ -1,7 +1,34 @@
-import { Prisma, Review } from "../../../generated/prisma";
+import { Prisma, Review, Role } from "../../../generated/prisma";
 import { prisma } from "../../config/db";
+import { publicProductFilter } from "../../helpers/vendor";
 import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
 import CustomError from "../../utils/customError";
+
+type TActor = { id: string; role: string };
+
+/**
+ * Recompute a product's denormalised rating counters. Called inside the same
+ * transaction as every review write so `averageRating` / `totalReviews` on the
+ * product card can never drift from the reviews themselves.
+ */
+const recomputeProductRating = async (
+	tx: Prisma.TransactionClient,
+	productId: string,
+) => {
+	const stats = await tx.review.aggregate({
+		where: { productId, isDeleted: false },
+		_avg: { rating: true },
+		_count: { rating: true },
+	});
+
+	await tx.product.update({
+		where: { id: productId },
+		data: {
+			averageRating: stats._avg.rating ?? null,
+			totalReviews: stats._count.rating,
+		},
+	});
+};
 
 const createIntoDB = async (payload: Review) => {
 	const user = await prisma.user.findUnique({
@@ -11,8 +38,8 @@ const createIntoDB = async (payload: Review) => {
 	if (!user) {
 		throw new CustomError(404, "Sorry, User not found!");
 	}
-	const product = await prisma.product.findUnique({
-		where: { id: payload.productId, isDeleted: false },
+	const product = await prisma.product.findFirst({
+		where: publicProductFilter({ id: payload.productId }),
 	});
 
 	if (!product) {
@@ -24,19 +51,7 @@ const createIntoDB = async (payload: Review) => {
 			data: payload,
 		});
 
-		const ratingStats = await tx.review.aggregate({
-			where: { productId: payload.productId },
-			_avg: { rating: true },
-			_count: { rating: true },
-		});
-		await tx.product.update({
-			where: {
-				id: payload.productId,
-			},
-			data: {
-				averageRating: ratingStats._avg.rating ?? 0,
-			},
-		});
+		await recomputeProductRating(tx, payload.productId);
 
 		return review;
 	});
@@ -123,7 +138,11 @@ const findByUserId = async (id: string) => {
 	return review;
 };
 
-const updateData = async (id: string, payload: Partial<Review>) => {
+const updateData = async (
+	actor: TActor,
+	id: string,
+	payload: Partial<Review>,
+) => {
 	return await prisma.$transaction(async (tx) => {
 		// Fetch existing review
 		const existingReview = await tx.review.findUnique({
@@ -134,34 +153,31 @@ const updateData = async (id: string, payload: Partial<Review>) => {
 			throw new CustomError(404, "Review not found");
 		}
 
+		// Only the author may edit their review (an admin may moderate any).
+		if (
+			actor.role !== Role.ADMIN &&
+			existingReview.userId !== actor.id
+		) {
+			throw new CustomError(403, "You can only edit your own review");
+		}
+
 		const updatedReview = await tx.review.update({
 			where: { id },
-			data: payload,
-		});
-
-		// Recalculate rating
-		const stats = await tx.review.aggregate({
-			where: {
-				productId: existingReview.productId,
-				isDeleted: false,
-			},
-			_avg: { rating: true },
-			_count: { rating: true },
-		});
-
-		// Update product
-		await tx.product.update({
-			where: { id: existingReview.productId },
+			// Never let the body reassign authorship or move the review to
+			// another product.
 			data: {
-				averageRating: stats._avg.rating ?? 0,
+				rating: payload.rating,
+				comment: payload.comment,
 			},
 		});
+
+		await recomputeProductRating(tx, existingReview.productId);
 
 		return updatedReview;
 	});
 };
 
-const deleteData = async (id: string) => {
+const deleteData = async (actor: TActor, id: string) => {
 	return await prisma.$transaction(async (tx) => {
 		//  Fetch review
 		const review = await tx.review.findUnique({
@@ -172,28 +188,18 @@ const deleteData = async (id: string) => {
 			throw new CustomError(404, "Review not found");
 		}
 
-		// Soft delete
-		const deletedReview = await tx.review.delete({
+		if (actor.role !== Role.ADMIN && review.userId !== actor.id) {
+			throw new CustomError(403, "You can only delete your own review");
+		}
+
+		// Soft delete — this used to be a hard `delete` despite the comment,
+		// which lost the audit trail and broke the isDeleted filters.
+		const deletedReview = await tx.review.update({
 			where: { id },
+			data: { isDeleted: true },
 		});
 
-		//  Recalculate product rating
-		const stats = await tx.review.aggregate({
-			where: {
-				productId: review.productId,
-				isDeleted: false,
-			},
-			_avg: { rating: true },
-			_count: { rating: true },
-		});
-
-		// Update product
-		await tx.product.update({
-			where: { id: review.productId },
-			data: {
-				averageRating: stats._avg.rating ?? 0,
-			},
-		});
+		await recomputeProductRating(tx, review.productId);
 
 		return deletedReview;
 	});

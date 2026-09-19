@@ -1,0 +1,548 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.vendorServices = void 0;
+const prisma_1 = require("../../../generated/prisma");
+const db_1 = require("../../config/db");
+const env_config_1 = require("../../config/env-config");
+const money_1 = require("../../helpers/money");
+const slug_1 = require("../../helpers/slug");
+const vendor_1 = require("../../helpers/vendor");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
+const cloudinary_1 = require("../../utils/cloudinary");
+const customError_1 = __importDefault(require("../../utils/customError"));
+/**
+ * Promotes a Cloudinary temp upload into its final folder.
+ *
+ * The frontend uploads straight to `trendora/<folder>/temp/` and sends us
+ * `{ url, publicId }`; only assets still in `temp/` are moved, which is the
+ * same guard the product service uses to avoid touching a live image.
+ */
+const promoteImage = async (image) => {
+    if (!image)
+        return undefined;
+    if (image.publicId.includes("/temp/")) {
+        return (0, cloudinary_1.moveFromTemp)(image.publicId);
+    }
+    return { url: image.url, publicId: image.publicId };
+};
+/**
+ * A shopper applies to become a seller.
+ *
+ * The store is created PENDING — it is invisible and cannot list products
+ * until an admin approves it, which is also when the account's role is
+ * promoted to VENDOR.
+ */
+const applyForVendor = async (userId, payload) => {
+    const user = await db_1.prisma.user.findUnique({
+        where: { id: userId },
+        include: { auth: true },
+    });
+    if (!user || user.isDeleted) {
+        throw new customError_1.default(404, "User not found");
+    }
+    const existing = await db_1.prisma.vendor.findFirst({
+        where: { ownerId: userId },
+    });
+    if (existing) {
+        // A rejected applicant may re-apply; the same row is reused so the
+        // one-store-per-user invariant (Vendor.ownerId is unique) holds.
+        if (existing.status === prisma_1.VendorStatus.REJECTED) {
+            return reapply(existing.id, payload);
+        }
+        throw new customError_1.default(409, existing.status === prisma_1.VendorStatus.PENDING
+            ? "You already have a vendor application under review"
+            : "You already have a vendor account");
+    }
+    const [slug, logo, banner] = await Promise.all([
+        (0, slug_1.generateUniqueVendorSlug)(payload.storeName),
+        promoteImage(payload.logo),
+        promoteImage(payload.banner),
+    ]);
+    return db_1.prisma.vendor.create({
+        data: {
+            ownerId: userId,
+            storeName: payload.storeName,
+            slug,
+            description: payload.description,
+            businessEmail: payload.businessEmail,
+            businessPhone: payload.businessPhone,
+            taxId: payload.taxId,
+            logo: logo?.url,
+            logoPublicId: logo?.publicId,
+            banner: banner?.url,
+            bannerPublicId: banner?.publicId,
+            payoutDetails: payload.payoutDetails,
+            // Platform defaults; an admin can tune them per store afterwards.
+            commissionRate: env_config_1.envConfig.platform_commission_rate,
+            shippingFee: env_config_1.envConfig.shipping_cost,
+            freeShippingThreshold: env_config_1.envConfig.free_shipping_threshold,
+            status: prisma_1.VendorStatus.PENDING,
+        },
+    });
+};
+/** Resubmit a rejected application on the existing row. */
+const reapply = async (vendorId, payload) => {
+    const [slug, logo, banner] = await Promise.all([
+        (0, slug_1.generateUniqueVendorSlug)(payload.storeName, vendorId),
+        promoteImage(payload.logo),
+        promoteImage(payload.banner),
+    ]);
+    return db_1.prisma.vendor.update({
+        where: { id: vendorId },
+        data: {
+            storeName: payload.storeName,
+            slug,
+            description: payload.description,
+            businessEmail: payload.businessEmail,
+            businessPhone: payload.businessPhone,
+            taxId: payload.taxId,
+            logo: logo?.url,
+            logoPublicId: logo?.publicId,
+            banner: banner?.url,
+            bannerPublicId: banner?.publicId,
+            payoutDetails: payload.payoutDetails,
+            status: prisma_1.VendorStatus.PENDING,
+            rejectionReason: null,
+            isDeleted: false,
+        },
+    });
+};
+/**
+ * The caller's own store in any status — this is what the vendor dashboard
+ * reads to know whether the application is pending, rejected or live.
+ */
+const getMyStore = async (userId) => {
+    const vendor = await (0, vendor_1.findVendorByOwner)(userId);
+    if (!vendor) {
+        throw new customError_1.default(404, "You do not have a vendor account yet");
+    }
+    return vendor;
+};
+const updateMyStore = async (userId, payload) => {
+    const vendor = await getMyStore(userId);
+    if (vendor.status === prisma_1.VendorStatus.SUSPENDED ||
+        vendor.status === prisma_1.VendorStatus.REJECTED) {
+        throw new customError_1.default(403, "You cannot edit your store while it is suspended or rejected");
+    }
+    const [logo, banner] = await Promise.all([
+        promoteImage(payload.logo),
+        promoteImage(payload.banner),
+    ]);
+    // Clean up the replaced assets only once the new ones are safely promoted.
+    if (logo && vendor.logoPublicId && logo.publicId !== vendor.logoPublicId) {
+        await (0, cloudinary_1.deleteFromCloudinary)(vendor.logoPublicId);
+    }
+    if (banner &&
+        vendor.bannerPublicId &&
+        banner.publicId !== vendor.bannerPublicId) {
+        await (0, cloudinary_1.deleteFromCloudinary)(vendor.bannerPublicId);
+    }
+    // Renaming the store re-derives the slug, which changes its public URL.
+    const slug = payload.storeName
+        ? await (0, slug_1.generateUniqueVendorSlug)(payload.storeName, vendor.id)
+        : undefined;
+    return db_1.prisma.vendor.update({
+        where: { id: vendor.id },
+        data: {
+            storeName: payload.storeName,
+            slug,
+            description: payload.description,
+            businessEmail: payload.businessEmail,
+            businessPhone: payload.businessPhone,
+            taxId: payload.taxId,
+            logo: logo?.url,
+            logoPublicId: logo?.publicId,
+            banner: banner?.url,
+            bannerPublicId: banner?.publicId,
+            payoutDetails: payload.payoutDetails,
+            shippingFee: payload.shippingFee,
+            freeShippingThreshold: payload.freeShippingThreshold,
+        },
+    });
+};
+// ---------------------------------------------------------------- public reads
+/** Approved, non-deleted stores for the storefront's vendor directory. */
+const findAllPublic = async (query) => {
+    const builder = new PrismaQueryBuilder_1.default(query);
+    const prismaArgs = builder
+        .withDefaultFilter({
+        status: prisma_1.VendorStatus.APPROVED,
+        isDeleted: false,
+    })
+        .search(["storeName", "description"])
+        .filter()
+        .paginate()
+        .sort("createdAt", "desc")
+        .select(vendor_1.publicVendorSelect)
+        .build();
+    const [vendors, meta] = await Promise.all([
+        db_1.prisma.vendor.findMany(prismaArgs),
+        builder.getMeta(db_1.prisma.vendor),
+    ]);
+    return { meta, data: vendors };
+};
+/** A single storefront by slug, with its live product count. */
+const findBySlug = async (slug) => {
+    const vendor = await db_1.prisma.vendor.findFirst({
+        where: { slug, status: prisma_1.VendorStatus.APPROVED, isDeleted: false },
+        select: vendor_1.publicVendorSelect,
+    });
+    if (!vendor) {
+        throw new customError_1.default(404, "Store not found");
+    }
+    const totalProducts = await db_1.prisma.product.count({
+        where: (0, vendor_1.publicProductFilter)({ vendorId: vendor.id }),
+    });
+    return { ...vendor, totalProducts };
+};
+// ----------------------------------------------------------------- admin reads
+/**
+ * Every store in any status — the admin moderation queue.
+ * `?status=PENDING` narrows it via the standard filter handling.
+ */
+const findAllForAdmin = async (query) => {
+    const builder = new PrismaQueryBuilder_1.default(query);
+    const prismaArgs = builder
+        .withDefaultFilter({ isDeleted: false })
+        .search(["storeName", "businessEmail", "description"])
+        .filter()
+        .paginate()
+        .sort("createdAt", "desc")
+        .include({
+        owner: {
+            select: {
+                id: true,
+                name: true,
+                avatar: true,
+                auth: { select: { email: true, role: true } },
+            },
+        },
+        _count: { select: { products: true, vendorOrders: true } },
+    })
+        .build();
+    const [vendors, meta] = await Promise.all([
+        db_1.prisma.vendor.findMany(prismaArgs),
+        builder.getMeta(db_1.prisma.vendor),
+    ]);
+    return { meta, data: vendors };
+};
+const findByIdForAdmin = async (vendorId) => {
+    const vendor = await db_1.prisma.vendor.findUnique({
+        where: { id: vendorId },
+        include: {
+            owner: {
+                select: {
+                    id: true,
+                    name: true,
+                    avatar: true,
+                    auth: { select: { email: true, role: true } },
+                },
+            },
+            _count: {
+                select: { products: true, vendorOrders: true, payouts: true },
+            },
+        },
+    });
+    if (!vendor) {
+        throw new customError_1.default(404, "Vendor not found");
+    }
+    return vendor;
+};
+// ------------------------------------------------------------ admin moderation
+/**
+ * Approve a store and promote its owner to VENDOR.
+ *
+ * An ADMIN owner keeps their role — an admin running a store must not be
+ * demoted out of the admin panel.
+ */
+const approveVendor = async (vendorId) => {
+    const vendor = await db_1.prisma.vendor.findUnique({
+        where: { id: vendorId },
+        include: { owner: { include: { auth: true } } },
+    });
+    if (!vendor) {
+        throw new customError_1.default(404, "Vendor not found");
+    }
+    if (vendor.status === prisma_1.VendorStatus.APPROVED) {
+        throw new customError_1.default(400, "This store is already approved");
+    }
+    return db_1.prisma.$transaction(async (tx) => {
+        if (vendor.owner.auth && vendor.owner.auth.role !== prisma_1.Role.ADMIN) {
+            await tx.auth.update({
+                where: { userId: vendor.ownerId },
+                data: { role: prisma_1.Role.VENDOR },
+            });
+        }
+        return tx.vendor.update({
+            where: { id: vendorId },
+            data: {
+                status: prisma_1.VendorStatus.APPROVED,
+                approvedAt: new Date(),
+                suspendedAt: null,
+                rejectionReason: null,
+                isDeleted: false,
+            },
+        });
+    });
+};
+/** Reject an application and hand the role back to CUSTOMER. */
+const rejectVendor = async (vendorId, payload) => {
+    const vendor = await db_1.prisma.vendor.findUnique({
+        where: { id: vendorId },
+        include: { owner: { include: { auth: true } } },
+    });
+    if (!vendor) {
+        throw new customError_1.default(404, "Vendor not found");
+    }
+    return db_1.prisma.$transaction(async (tx) => {
+        if (vendor.owner.auth && vendor.owner.auth.role === prisma_1.Role.VENDOR) {
+            await tx.auth.update({
+                where: { userId: vendor.ownerId },
+                data: { role: prisma_1.Role.CUSTOMER },
+            });
+        }
+        // Hide the catalogue: rejected stores must not keep live listings.
+        await tx.product.updateMany({
+            where: { vendorId },
+            data: { isPublished: false },
+        });
+        return tx.vendor.update({
+            where: { id: vendorId },
+            data: {
+                status: prisma_1.VendorStatus.REJECTED,
+                rejectionReason: payload.reason,
+                approvedAt: null,
+            },
+        });
+    });
+};
+/**
+ * Suspend a live store.
+ *
+ * The role stays VENDOR so the owner can still see their dashboard and
+ * outstanding orders, but `requireApprovedVendor` blocks every write and
+ * `publicProductFilter` hides the catalogue from shoppers immediately.
+ * In-flight orders are deliberately left alone — buyers are still owed those.
+ */
+const suspendVendor = async (vendorId, payload) => {
+    const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) {
+        throw new customError_1.default(404, "Vendor not found");
+    }
+    if (vendor.status === prisma_1.VendorStatus.SUSPENDED) {
+        throw new customError_1.default(400, "This store is already suspended");
+    }
+    return db_1.prisma.vendor.update({
+        where: { id: vendorId },
+        data: {
+            status: prisma_1.VendorStatus.SUSPENDED,
+            suspendedAt: new Date(),
+            rejectionReason: payload.reason,
+        },
+    });
+};
+/** Lift a suspension. Listings stay hidden until the vendor republishes. */
+const reinstateVendor = async (vendorId) => {
+    const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) {
+        throw new customError_1.default(404, "Vendor not found");
+    }
+    if (vendor.status !== prisma_1.VendorStatus.SUSPENDED) {
+        throw new customError_1.default(400, "This store is not suspended");
+    }
+    return db_1.prisma.vendor.update({
+        where: { id: vendorId },
+        data: {
+            status: prisma_1.VendorStatus.APPROVED,
+            suspendedAt: null,
+            rejectionReason: null,
+        },
+    });
+};
+/** Admin-only commercial terms. Only affects orders placed from now on. */
+const updateVendorSettings = async (vendorId, payload) => {
+    const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) {
+        throw new customError_1.default(404, "Vendor not found");
+    }
+    return db_1.prisma.vendor.update({
+        where: { id: vendorId },
+        data: {
+            commissionRate: payload.commissionRate,
+            shippingFee: payload.shippingFee,
+            freeShippingThreshold: payload.freeShippingThreshold,
+        },
+    });
+};
+/** Soft-delete a store and unpublish everything it listed. */
+const deleteVendor = async (vendorId) => {
+    const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) {
+        throw new customError_1.default(404, "Vendor not found");
+    }
+    const openOrders = await db_1.prisma.vendorOrder.count({
+        where: {
+            vendorId,
+            orderStatus: {
+                notIn: [prisma_1.OrderStatus.DELIVERED, prisma_1.OrderStatus.CANCELED],
+            },
+        },
+    });
+    if (openOrders > 0) {
+        throw new customError_1.default(400, `This store still has ${openOrders} order(s) in flight. Suspend it instead, or settle those first.`);
+    }
+    return db_1.prisma.$transaction(async (tx) => {
+        await tx.product.updateMany({
+            where: { vendorId },
+            data: { isPublished: false, isDeleted: true },
+        });
+        return tx.vendor.update({
+            where: { id: vendorId },
+            data: { isDeleted: true, status: prisma_1.VendorStatus.SUSPENDED },
+        });
+    });
+};
+// -------------------------------------------------------------------- analytics
+/**
+ * The vendor dashboard.
+ *
+ * Every figure is scoped to the caller's own store: revenue comes from that
+ * store's VendorOrders, never from the parent Order (which may include other
+ * vendors' money).
+ */
+const getMyDashboard = async (userId, range) => {
+    const vendor = await (0, vendor_1.requireApprovedVendor)(userId);
+    const dateFilter = range?.startDate && range?.endDate
+        ? { createdAt: { gte: range.startDate, lte: range.endDate } }
+        : {};
+    const scope = {
+        vendorId: vendor.id,
+        ...dateFilter,
+    };
+    const [totalOrders, earnings, ordersByStatus, productCounts, pendingPayout, topProducts, recentOrders,] = await Promise.all([
+        db_1.prisma.vendorOrder.count({ where: scope }),
+        // Money the store has actually earned: paid orders that were not
+        // canceled. `vendorEarning` already excludes commission and tax.
+        db_1.prisma.vendorOrder.aggregate({
+            where: {
+                ...scope,
+                orderStatus: { not: prisma_1.OrderStatus.CANCELED },
+                order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+            },
+            _sum: {
+                vendorEarning: true,
+                commissionAmount: true,
+                totalAmount: true,
+                subtotal: true,
+            },
+        }),
+        db_1.prisma.vendorOrder.groupBy({
+            by: ["orderStatus"],
+            where: scope,
+            _count: { id: true },
+        }),
+        db_1.prisma.product.groupBy({
+            by: ["status"],
+            where: { vendorId: vendor.id, isDeleted: false },
+            _count: { id: true },
+        }),
+        // Delivered and paid, but not yet attached to a payout.
+        db_1.prisma.vendorOrder.aggregate({
+            where: {
+                vendorId: vendor.id,
+                orderStatus: prisma_1.OrderStatus.DELIVERED,
+                payoutId: null,
+                order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+            },
+            _sum: { vendorEarning: true },
+            _count: { id: true },
+        }),
+        db_1.prisma.orderItem.groupBy({
+            by: ["productId", "productName"],
+            where: {
+                vendorId: vendor.id,
+                vendorOrder: {
+                    orderStatus: { not: prisma_1.OrderStatus.CANCELED },
+                    ...dateFilter,
+                },
+            },
+            _sum: { quantity: true, subtotal: true },
+            orderBy: { _sum: { quantity: "desc" } },
+            take: 10,
+        }),
+        db_1.prisma.vendorOrder.findMany({
+            where: scope,
+            include: {
+                items: true,
+                order: {
+                    select: {
+                        orderNumber: true,
+                        paymentStatus: true,
+                        createdAt: true,
+                        user: { select: { id: true, name: true } },
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+        }),
+    ]);
+    const netEarnings = (0, money_1.toNumber)(earnings._sum.vendorEarning);
+    const grossSales = (0, money_1.toNumber)(earnings._sum.totalAmount);
+    return {
+        store: {
+            id: vendor.id,
+            storeName: vendor.storeName,
+            slug: vendor.slug,
+            status: vendor.status,
+            averageRating: vendor.averageRating,
+            totalReviews: vendor.totalReviews,
+            commissionRate: (0, money_1.toNumber)(vendor.commissionRate),
+        },
+        overview: {
+            totalOrders,
+            grossSales,
+            netEarnings,
+            commissionPaid: (0, money_1.toNumber)(earnings._sum.commissionAmount),
+            averageOrderValue: totalOrders > 0 ? Number((grossSales / totalOrders).toFixed(2)) : 0,
+            pendingPayoutAmount: (0, money_1.toNumber)(pendingPayout._sum.vendorEarning),
+            pendingPayoutOrders: pendingPayout._count.id,
+        },
+        ordersByStatus: ordersByStatus.map((row) => ({
+            status: row.orderStatus,
+            count: row._count.id,
+        })),
+        productsByStatus: productCounts.map((row) => ({
+            status: row.status,
+            count: row._count.id,
+        })),
+        topProducts: topProducts.map((row) => ({
+            productId: row.productId,
+            productName: row.productName,
+            quantitySold: row._sum.quantity ?? 0,
+            revenue: (0, money_1.toNumber)(row._sum.subtotal),
+        })),
+        recentOrders,
+    };
+};
+exports.vendorServices = {
+    applyForVendor,
+    getMyStore,
+    updateMyStore,
+    getMyDashboard,
+    //
+    findAllPublic,
+    findBySlug,
+    //
+    findAllForAdmin,
+    findByIdForAdmin,
+    approveVendor,
+    rejectVendor,
+    suspendVendor,
+    reinstateVendor,
+    updateVendorSettings,
+    deleteVendor,
+};

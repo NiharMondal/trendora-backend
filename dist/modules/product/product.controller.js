@@ -4,8 +4,13 @@ exports.productControllers = void 0;
 const asyncHandler_1 = require("../../utils/asyncHandler");
 const sendResponse_1 = require("../../utils/sendResponse");
 const product_service_1 = require("./product.service");
+/** The authenticated caller, in the shape the vendor scoping helpers expect. */
+const actorOf = (req) => ({
+    id: req.user.id,
+    role: req.user.role,
+});
 const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await product_service_1.productServices.createIntoDB(req.body);
+    const data = await product_service_1.productServices.createIntoDB(actorOf(req), req.body);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 201,
         message: "Product created successfully",
@@ -13,11 +18,12 @@ const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const findAllFromDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await product_service_1.productServices.findAllFromDB(req.query);
+    const { data, meta } = await product_service_1.productServices.findAllFromDB(req.query);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Product fetched successfully",
-        data: data,
+        data,
+        meta,
     });
 });
 const findById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
@@ -40,7 +46,7 @@ const findBySlug = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
 });
 const updateData = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const id = req.params.id;
-    const data = await product_service_1.productServices.updateData(id, req.body);
+    const data = await product_service_1.productServices.updateData(actorOf(req), id, req.body);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Product updated successfully",
@@ -49,11 +55,97 @@ const updateData = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
 });
 const deleteData = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const id = req.params.id;
-    const data = await product_service_1.productServices.deleteData(id);
+    const data = await product_service_1.productServices.deleteData(actorOf(req), id);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Product deleted successfully",
         data: data,
+    });
+});
+const findMyProducts = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const { data, meta } = await product_service_1.productServices.findMyProducts(actorOf(req), req.query);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Products fetched successfully",
+        data,
+        meta,
+    });
+});
+const findMyProductById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await product_service_1.productServices.findMyProductById(actorOf(req), req.params.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Product fetched successfully",
+        data,
+    });
+});
+const submitForReview = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await product_service_1.productServices.submitForReview(actorOf(req), req.params.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Product submitted for review",
+        data,
+    });
+});
+const setPublished = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await product_service_1.productServices.setPublished(actorOf(req), req.params.id, req.body.isPublished);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: req.body.isPublished
+            ? "Product published"
+            : "Product unpublished",
+        data,
+    });
+});
+const findAllForAdmin = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const { data, meta } = await product_service_1.productServices.findAllForAdmin(req.query);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Products fetched successfully",
+        data,
+        meta,
+    });
+});
+const approveProduct = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await product_service_1.productServices.approveProduct(req.params.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Product approved successfully",
+        data,
+    });
+});
+const rejectProduct = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await product_service_1.productServices.rejectProduct(req.params.id, req.body);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Product rejected",
+        data,
+    });
+});
+const newArrivalProducts = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await product_service_1.productServices.newArrivalProducts();
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Product fetched successfully",
+        data: data,
+    });
+});
+const relatedProducts = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const id = req.params.id;
+    const data = await product_service_1.productServices.relatedProducts(id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Related products fetched successfully",
+        data: data,
+    });
+});
+const findByVendorSlug = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const { data, meta } = await product_service_1.productServices.findByVendorSlug(req.params.slug, req.query);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Store products fetched successfully",
+        data,
+        meta,
     });
 });
 exports.productControllers = {
@@ -63,4 +155,17 @@ exports.productControllers = {
     findBySlug,
     updateData,
     deleteData,
+    //
+    findMyProducts,
+    findMyProductById,
+    submitForReview,
+    setPublished,
+    //
+    findAllForAdmin,
+    approveProduct,
+    rejectProduct,
+    //
+    newArrivalProducts,
+    relatedProducts,
+    findByVendorSlug,
 };

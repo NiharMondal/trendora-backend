@@ -7,11 +7,9 @@ import { Role } from "../../../generated/prisma";
 
 const router = Router();
 
-router.get(
-	"/my-reviews",
-	authGuard(Role.CUSTOMER),
-	reviewControllers.findByUserId
-);
+const anySignedInUser = authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN);
+
+router.get("/my-reviews", anySignedInUser, reviewControllers.findByUserId);
 router.get(
 	"/product/:productId",
 	reviewControllers.findAllReviewsByProductId
@@ -20,16 +18,18 @@ router
 	.route("/:id")
 	.get(reviewControllers.findById)
 	.patch(
+		anySignedInUser,
 		validateRequest(reviewValidation.updateReview),
 		reviewControllers.updateData
 	)
-	.delete(reviewControllers.deleteData);
+	.delete(anySignedInUser, reviewControllers.deleteData);
 
 router
 	.route("/")
 	.post(
+		// authGuard first: authenticate before spending work on validation.
+		anySignedInUser,
 		validateRequest(reviewValidation.createReview),
-		authGuard(Role.CUSTOMER, Role.ADMIN),
 		reviewControllers.createIntoDB
 	)
 	.get(reviewControllers.findAllFromDB);

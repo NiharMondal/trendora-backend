@@ -13,11 +13,12 @@ const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const findAllFromDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await category_service_1.categoryServices.findAllFromDB(req.query);
+    const { categories, meta } = await category_service_1.categoryServices.findAllFromDB(req.query);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Category fetched successfully",
-        data: data,
+        meta: meta,
+        data: categories,
     });
 });
 const findById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {

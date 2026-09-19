@@ -1,6 +1,27 @@
 import { z } from "zod";
 
-export const RoleEnum = z.enum(["CUSTOMER", "ADMIN"]);
+/**
+ * Zod mirrors of the Prisma enums in prisma/schema.prisma.
+ *
+ * Enums live in three places — the Prisma schema, these mirrors, and the
+ * frontend constants/types. All three must agree.
+ */
+
+export const RoleEnum = z.enum(["CUSTOMER", "VENDOR", "ADMIN"]);
+
+export const VendorStatusEnum = z.enum([
+    "PENDING",
+    "APPROVED",
+    "REJECTED",
+    "SUSPENDED",
+]);
+
+export const ProductStatusEnum = z.enum([
+    "DRAFT",
+    "PENDING",
+    "APPROVED",
+    "REJECTED",
+]);
 
 export const OrderStatusEnum = z.enum([
     "PENDING",
@@ -14,7 +35,32 @@ export const PaymentStatusEnum = z.enum([
     "PENDING",
     "PAID",
     "FAILED",
+    "PARTIALLY_REFUNDED",
     "REFUNDED",
 ]);
 
 export const PaymentMethodEnum = z.enum(["STRIPE", "CASH_ON_DELIVERY"]);
+
+export const PayoutStatusEnum = z.enum([
+    "PENDING",
+    "PROCESSING",
+    "PAID",
+    "FAILED",
+]);
+
+export const RefundStatusEnum = z.enum([
+    "PENDING",
+    "PROCESSING",
+    "SUCCEEDED",
+    "FAILED",
+    "CANCELED",
+]);
+
+export const CheckoutSessionStatusEnum = z.enum([
+    "PENDING",
+    "COMPLETED",
+    "EXPIRED",
+    "CANCELED",
+]);
+
+export const GenderEnum = z.enum(["MEN", "WOMEN", "KIDS", "UNISEX"]);

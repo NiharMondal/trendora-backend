@@ -9,21 +9,33 @@ const router = Router();
 
 router.get(
     "/my-address",
-    authGuard(Role.CUSTOMER),
+    // A VENDOR is also a shopper — every buyer-facing route accepts all three
+    // roles, otherwise approving a seller would break their own checkout.
+    authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
     addressControllers.findMyAddress
 );
 
 router
     .route("/:id")
-    .get(addressControllers.findById)
-    .patch(validateRequest(addressSchema), addressControllers.updateData)
-    .delete(addressControllers.deleteData);
+    .get(
+        authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
+        addressControllers.findById,
+    )
+    .patch(
+        authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
+        validateRequest(addressSchema),
+        addressControllers.updateData,
+    )
+    .delete(
+        authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
+        addressControllers.deleteData,
+    );
 
 router
     .route("/")
-    .get(addressControllers.findAllFromDB)
+    .get(authGuard(Role.ADMIN), addressControllers.findAllFromDB)
     .post(
-        authGuard(Role.CUSTOMER),
+        authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
         validateRequest(addressSchema),
         addressControllers.createIntoDB
     );

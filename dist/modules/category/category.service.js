@@ -7,23 +7,62 @@ exports.categoryServices = void 0;
 const db_1 = require("../../config/db");
 const slug_1 = require("../../helpers/slug");
 const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
+const utils_1 = require("../../utils/utils");
 const createIntoDB = async (payload) => {
+    const name = (0, utils_1.capitalizeFirstLetter)(payload.name.trim());
     const slug = (0, slug_1.generateSlug)(payload.name);
     const data = await db_1.prisma.category.create({
-        data: { ...payload, slug },
+        data: { ...payload, name, slug },
     });
     return data;
 };
 const findAllFromDB = async (query) => {
     const builder = new PrismaQueryBuilder_1.default(query);
-    const prismaArgs = builder.search(["name"]).filter().paginate().build();
-    const category = await db_1.prisma.category.findMany(prismaArgs);
-    const meta = await builder.getMeta(db_1.prisma.category);
-    return { meta, category };
+    const prismaArgs = builder
+        .withDefaultFilter({ isDeleted: false })
+        .search(["name"])
+        .filter()
+        .paginate()
+        .sort()
+        .include({
+        parent: {
+            select: {
+                id: true,
+                name: true,
+            },
+        },
+        sizeGroup: {
+            select: {
+                id: true,
+                name: true,
+            },
+        },
+    })
+        .build();
+    const [categories, meta] = await Promise.all([
+        db_1.prisma.category.findMany(prismaArgs),
+        builder.getMeta(db_1.prisma.category),
+    ]);
+    return { meta, categories };
 };
 const findById = async (id) => {
     const category = await db_1.prisma.category.findUniqueOrThrow({
         where: { id },
+        include: {
+            parent: {
+                select: { id: true, name: true },
+            },
+            sizeGroup: {
+                select: {
+                    sizes: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+            },
+        },
     });
     return category;
 };

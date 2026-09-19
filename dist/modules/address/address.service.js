@@ -6,20 +6,34 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.addressServices = void 0;
 const db_1 = require("../../config/db");
 const customError_1 = __importDefault(require("../../utils/customError"));
-const createIntoDB = async (payload) => {
+const createIntoDB = async (payload, userId) => {
+    const user = await db_1.prisma.user.findUnique({ where: {
+            id: userId
+        } });
+    if (!user) {
+        throw new customError_1.default(404, "User does not exist!");
+    }
     const address = await db_1.prisma.address.create({
-        data: payload,
+        data: {
+            ...payload,
+            userId
+        },
     });
     return address;
 };
-const findAddressByUserId = async (userId) => {
-    const user = await db_1.prisma.user.findUnique({ where: { id: userId } });
+const findAllFromDB = async () => {
+    const addresses = await db_1.prisma.address.findMany();
+    return addresses;
+};
+const findMyAddress = async (userId) => {
+    const user = await db_1.prisma.address.findMany({ where: { userId: userId, isDeleted: false } });
     if (!user) {
         throw new customError_1.default(404, "Sorry, user not found!");
     }
     const addresses = await db_1.prisma.address.findMany({
         where: {
             userId: userId,
+            isDeleted: false
         },
     });
     return addresses;
@@ -51,7 +65,8 @@ const deleteData = async (id) => {
 };
 exports.addressServices = {
     createIntoDB,
-    findAddressByUserId,
+    findAllFromDB,
+    findMyAddress,
     findById,
     updateData,
     deleteData,

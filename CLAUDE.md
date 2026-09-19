@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Trendora backend — an e-commerce REST API built with Express 5, TypeScript, and Prisma (PostgreSQL). Package manager is **pnpm**.
+Trendora backend — a **multi-vendor** e-commerce REST API built with Express 5, TypeScript, and Prisma (PostgreSQL). Package manager is **pnpm**.
+
+Many sellers list products; buyers check out once across several stores; the platform takes a commission and settles the rest to each vendor. See **The marketplace model** below — it is the part of this codebase least guessable from the file tree.
 
 ## Commands
 
@@ -42,6 +44,8 @@ Note the codebase is inconsistent here: `src/helpers/order.ts` imports `Prisma` 
 All feature routers are registered in **`src/routes/routes-array.ts`** as `{ path, element }` entries. To add a module, create it under `src/modules/<name>/` and add one line to this array. Multiple routers can share a base path (e.g. `/products` is served by `productRouter`, `variantRouter`, and `productImageRouter`).
 
 Middleware ordering in `app.ts` matters: the **Stripe webhook is mounted at `/webhook` before `express.json()`** so it receives the raw body (`express.raw`). Everything else parses JSON. `notFoundRoute` and `globalErrorHandler` are last.
+
+The webhook router serves **both `POST /webhook` and `POST /webhook/stripe`**. It is deliberately NOT in `routes-array.ts`: registering it under `/api/v1` would expose a second path whose body `express.json()` has already consumed, so every signature check on it would fail. (That duplicate existed at `/api/v1/payments/stripe` and has been removed.)
 
 ### Module structure
 
@@ -85,12 +89,237 @@ Keep DB/business logic in services, not controllers.
 - User identity is split across two models: **`User`** (profile) and **`Auth`** (email/password/role, one-to-one). OAuth accounts link via `OAuthAccount`. Social users have `Auth.password = null`.
 - JWT payload shape is `{ id: userId, role, email }`.
 
-### Domain: orders & payments
+## The marketplace model
 
-- **`src/helpers/order.ts`** is the source of truth for order pricing. `validateAndCalculateOrder` fetches real prices from the DB — **never trust client-supplied prices**. Tax/shipping come from env (`TAX_RATE`, `SHIPPING_COST`, `FREE_SHIPPING_THRESHOLD`) via `envConfig`. It also generates order numbers (`ORD-YYYYMM-XXXXXX`) and logs status changes.
-- **`src/helpers/allowedTransition.ts`** — `ensureTransitionAllowed(current, next)` enforces the order-status state machine (PENDING→PROCESSING→SHIPPED→DELIVERED, any non-terminal→CANCELED).
-- Prices are Prisma `Decimal`; convert with `parseFloat(x.toString())` before arithmetic (existing pattern).
-- Payments support Stripe (webhook-driven) and cash on delivery. Enums live in both `prisma/schema.prisma` and as Zod enums in `src/helpers/enum.ts` — keep them in sync.
+### Three actors, one role enum
+
+`Role` is `CUSTOMER | VENDOR | ADMIN`. A user becomes a seller by owning a
+`Vendor` (`Vendor.ownerId` is unique — **one store per account**); an admin
+approving that store is what flips the role to `VENDOR`.
+
+**A VENDOR is still a shopper.** Every buyer-facing route therefore guards with
+all three roles (`authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)`), not just
+`CUSTOMER` — writing `authGuard(Role.CUSTOMER)` on a cart/address/order/review
+route silently locks sellers out of their own checkout.
+
+### `authGuard` checks role, never ownership
+
+`authGuard` cannot answer "does this row belong to the caller?", so every
+vendor-scoped read and write goes through **`src/helpers/vendor.ts`**:
+
+| helper | use |
+| --- | --- |
+| `requireApprovedVendor(userId)` | the caller's store, or a 403 naming the actual state (pending/rejected/suspended) |
+| `resolveVendorScope(user, targetVendorId?)` | which store a write applies to — an ADMIN must name one, a VENDOR always gets their own and any id they send is ignored |
+| `vendorListScope(user, requestedVendorId?)` | pins a list query to the caller's store |
+| `assertVendorOwnsProduct` / `assertVendorOwnsVendorOrder` | row ownership; **404, not 403**, so another store's ids stay unguessable |
+| `publicProductFilter(extra?)` | the storefront visibility filter |
+
+Adding a vendor-scoped endpoint without one of these is the main way to leak
+one store's data into another's dashboard.
+
+### Product visibility has three independent gates
+
+A product is public only when **all three** hold, which is exactly what
+`publicProductFilter` encodes — always compose from it rather than hand-rolling
+the conditions:
+
+1. `status === APPROVED` — admin moderation (`DRAFT → PENDING → APPROVED/REJECTED`)
+2. `isPublished === true` — the vendor's own show/hide switch
+3. the owning `Vendor.status === APPROVED` — a suspended store's catalogue disappears at once
+
+Editing a *material* field (name, description, category, brand, gender, images)
+on an approved listing sends it back to `PENDING`; price and stock edits do not
+(see `MATERIAL_FIELDS` in `product.service.ts`). Moderation state is never
+accepted from the request body.
+
+`Product.name` is unique **per vendor** (`@@unique([vendorId, name])`) — two
+stores may both sell "Nike Air Max 90". `slug` stays globally unique and
+`generateUniqueProductSlug` appends the store slug on collision.
+
+### Orders split across two levels
+
+| model | role |
+| --- | --- |
+| `Order` | the buyer-facing container: one checkout, one payment, one shipping address. Money fields are the **sum** of its slices. |
+| `VendorOrder` | one vendor's slice — the unit of **fulfilment and payout**. Its `orderStatus` is authoritative. |
+| `OrderItem` | belongs to a `VendorOrder`; carries a denormalised `vendorId`. |
+
+**`Order.orderStatus` is derived, not authoritative.** Never write it directly:
+call `recalculateOrderRollup(tx, orderId)` after any `VendorOrder` change. The
+rules live in `deriveOrderStatus`. Fulfilment moves through
+`PATCH /orders/vendor-orders/:vendorOrderId/status`; the old
+`PATCH /orders/:orderId/status` is gone, because with several sellers there is
+no single status to set.
+
+`ensureTransitionAllowedForRole(current, next, role)` layers role permissions on
+the state machine: a vendor may cancel while nothing has shipped, but
+cancelling an already-shipped order is a refund dispute and is ADMIN-only.
+
+### The money formulas (duplicated on the frontend — keep in sync)
+
+Per vendor group, in `validateAndCalculateOrder` (`src/helpers/order.ts`):
+
+```
+subtotal     = sum(item.subtotal)           // priceAtPurchase x qty, discount already baked in
+shippingCost = subtotal >= vendor.freeShippingThreshold ? 0 : vendor.shippingFee
+tax          = round2(subtotal x TAX_RATE)
+totalAmount  = subtotal + tax + shippingCost
+
+commissionAmount = round2(subtotal x commissionRate)   // platform's cut
+vendorEarning    = subtotal + shippingCost - commissionAmount
+```
+
+- **`discount` is informational.** `priceAtPurchase` is already the discounted
+  price, so subtracting `discount` from a total double-counts it.
+- Invariant, asserted by `assertCalculationBalances` and mirrored in the
+  migration's backfill:
+  `commissionAmount + vendorEarning == subtotal + shippingCost == totalAmount - tax`.
+  Tax is the platform's to remit; **shipping belongs to the vendor who ships**.
+- **Shipping is per vendor**, evaluated against each store's own threshold — a
+  two-store cart pays two shipping fees.
+- `VendorOrder.commissionRate` is a **snapshot**, so changing a store's rate
+  never rewrites past orders.
+- Money helpers live in `src/helpers/money.ts` (`round2`, `toNumber`,
+  `sumMoney`). Round at the point each value is computed, never at the end.
+
+### Checkout is webhook-first, via a server-side draft
+
+`POST /orders` with `paymentMethod: "STRIPE"` writes **no order row**. It
+persists the priced split as a `CheckoutSession` and returns
+`{ paymentUrl, orderNumber, vendors, totalAmount }`; the order is created by
+`POST /webhook` once the charge succeeds.
+
+The draft exists because Stripe metadata (50 keys, 500 chars per value) cannot
+carry a multi-vendor cart — only `checkoutSessionId` travels through Stripe.
+It is also the idempotency key: `consumeCheckoutSession` flips it to
+`COMPLETED` inside the same transaction that creates the order, so a replayed
+webhook finds nothing to redeem and returns without duplicating.
+
+> Historical note: the previous implementation read `items`/`subtotal`/`tax`
+> from Stripe metadata that `createStripePaymentUrl` never set, so **no Stripe
+> order was ever created**. Don't reintroduce cart-in-metadata.
+
+`CASH_ON_DELIVERY` creates the order inline and returns `{ order, paymentUrl: null }`.
+
+**`src/helpers/create-order.ts` (`persistOrder`) is the single place an Order is
+written** — both payment branches call it, so the shape of a created order
+cannot drift between them. It must run inside a `$transaction`; stock is
+deducted with a conditional `updateMany` guarded on `stock >= quantity`, so a
+concurrent order aborts rather than overselling.
+
+### Payouts: platform collects, then settles
+
+One charge lands in the platform's account; each vendor is owed their
+`vendorEarning`. A `Payout` batches those into one transfer.
+
+Eligibility is *delivered + buyer paid + `payoutId IS NULL`*. Attaching the
+vendor orders happens in the same transaction that creates the payout, which is
+what makes a run idempotent — an earning can only ever belong to one payout.
+`markFailed` releases them back to the pool.
+
+`reconcilePayment` keeps the single `Payment` row consistent with N
+independently-cancellable slices: COD becomes `PAID` once every live slice is
+delivered, and a fully-cancelled unpaid order becomes `FAILED`. It deliberately
+does **not** touch refund state — see below.
+
+### Refunds: a ledger, and a two-phase write
+
+Cancelling a paid parcel issues a real Stripe refund. The shape of
+`src/helpers/refund.ts` is driven by one rule: **never call a payment gateway
+from inside a database transaction** — it holds the transaction open across a
+network round trip, and a rollback after Stripe moved money would leave a
+refund at the gateway with no record of it here. So:
+
+1. `recordRefundIntent(tx, …)` writes a `PENDING` Refund row **inside** the
+   transaction that cancels the parcel. Either both happen or neither does.
+2. `processRefund(id)` runs **after the commit** and does the gateway call,
+   then writes the outcome back.
+
+If phase 2 never runs (crash, Stripe down) the row stays `PENDING` and
+`processPendingRefunds()` picks it up. Nothing is lost and no money moves twice.
+
+`Refund` is the mirror of `Payout` — a ledger with one row per money movement:
+
+| | direction |
+| --- | --- |
+| `Payout` | platform → vendor |
+| `Refund` | platform → buyer |
+
+**Idempotency has two layers.** `Refund.vendorOrderId` is unique, so a replayed
+cancel finds the existing row instead of refunding the same goods twice; and
+`idempotencyKey` (`refund:<id>:<attempt>`) is sent to Stripe, so even a retried
+HTTP call for one attempt cannot move money twice. A deliberate retry after a
+`FAILED` attempt bumps `attempts` and derives a fresh key — that is what makes
+it a new request rather than a replay.
+
+**`Payment.refundAmount` means money that ACTUALLY went back** — the sum of
+`SUCCEEDED` refunds — and is owned exclusively by `recomputePaymentRefundState`.
+Nothing else may write it, or the ledger and the summary drift. What a buyer is
+*owed* is never stored; `outstandingRefundForOrder()` derives it from the
+cancelled parcels so it cannot go stale.
+
+`PaymentStatus.PARTIALLY_REFUNDED` exists because refunding one parcel of three
+is neither `PAID` (which hides it) nor `REFUNDED` (which overstates it).
+
+Two things follow from "the cancellation must not be undone by a gateway
+hiccup":
+
+- The automatic path calls `processRefund` with `throwOnError: false`. A
+  cancellation that has already committed must not be reported as failed just
+  because Stripe was briefly unavailable; the failure lands on the Refund row
+  and in the admin queue instead. An operator pressing **retry** does get the
+  gateway error (`throwOnError: true`), because they need to see it.
+- **A cancelled parcel whose refund is `FAILED` is a buyer who has not been
+  paid back.** That gap is what `/refunds/admin/outstanding` exists to surface.
+
+Cash on delivery has no gateway to call, so `recordRefundIntent` returns null
+for it; money handed back in person is recorded with `recordManualRefund`
+(`gateway` names the rail, e.g. `"cash"`, and there is no `gatewayRefundId`).
+
+### Which webhook events must be enabled
+
+`POST /webhook` handles nine event types, and the endpoint sending to it has to
+have them switched on or orders and refunds silently stop reconciling:
+
+| event | why |
+| --- | --- |
+| `checkout.session.completed` | **creates the order.** Without it no Stripe order exists at all |
+| `checkout.session.expired` | marks an abandoned checkout draft EXPIRED |
+| `payment_intent.succeeded` | backstop for the paid state |
+| `payment_intent.payment_failed` | records the failure reason |
+| `refund.created` / `refund.updated` / `refund.failed` | adopts and settles refunds, including ones raised in the **Stripe dashboard** |
+| `charge.refund.updated` | the LEGACY name for `refund.updated`; an endpoint pinned to an older `api_version` emits only this one |
+| `charge.refunded` | charge-level backstop, so a missed individual refund event still reconciles |
+
+Without the refund events, `Payment.refundAmount` silently disagrees with Stripe.
+
+**Local development:** `pnpm stripe:listen` forwards exactly this set to
+`localhost:5001/webhook` (needs the Stripe CLI: `brew install stripe/stripe-cli/stripe && stripe login`).
+It prints a `whsec_…` that must go in `STRIPE_WEBHOOK_SECRET` — that secret
+belongs to the listen session and is not a registered endpoint's secret. The
+script omits `charge.refund.updated` on purpose: `stripe listen` runs on the
+account's current API version, which emits `refund.*`, and forwarding both
+would deliver every refund change twice (harmless — the handler is idempotent —
+but pointless).
+
+### Other domain notes
+
+- **`src/helpers/order.ts`** is still the source of truth for pricing.
+  `validateAndCalculateOrder` fetches real prices from the DB — **never trust
+  client-supplied prices** — and now also rejects items whose store is
+  suspended, and merges duplicate cart lines so the same variant cannot pass
+  the stock check twice.
+- Order numbers are `ORD-YYYYMM-XXXXXX`; a vendor slice is `...-V01`. Generation
+  checks both `Order` and `CheckoutSession`, since a draft claims a number
+  before the order row exists.
+- Prices are Prisma `Decimal`; convert with `toNumber()` from
+  `src/helpers/money.ts` rather than `parseFloat(x.toString())` in new code.
+- `VendorReview` rates a **store** (tied to a delivered vendor order, one per
+  order); `Review` rates a **product**. Both maintain denormalised
+  `averageRating` / `totalReviews` counters inside the write transaction.
+- Enums live in `prisma/schema.prisma`, as Zod mirrors in `src/helpers/enum.ts`,
+  and as frontend constants — all three must stay in sync.
 
 ### Config
 
@@ -98,7 +327,41 @@ All environment access goes through **`src/config/env-config.ts`** (`envConfig` 
 
 ## Conventions
 
+- **The taxonomy is platform-owned.** `Category`, `SizeGroup`, `Size` and `Brand` are ADMIN-only writes — if vendors could create categories you would have forty spellings of "T-Shirts" within a month and the size-group logic would come apart.
 - Soft deletes: most models have `isDeleted`; delete operations set `isDeleted: true` and list queries filter it out via `withDefaultFilter({ isDeleted: false })`.
-- Slugs are generated with `src/helpers/slug.ts` (`generateSlug`) on create/update for `Product` and `Category`.
+- Slugs are generated with `src/helpers/slug.ts` on create/update. Use `generateUniqueProductSlug` / `generateUniqueVendorSlug` for products and stores (they resolve collisions); bare `generateSlug` is for `Category`, whose names are admin-controlled and already unique.
 - Cloudinary uploads use a `/temp/` staging folder; `moveFromTemp` promotes images to their final folder on save, and `deleteFromCloudinary` cleans up removed images (see `src/modules/product/product.service.ts` and `src/utils/cloudinary.ts`).
 - ESLint uses `typescript-eslint` strict + stylistic; `no-console` is a warning (server bootstrap logs are `eslint-disable`d).
+
+## Known gaps in the marketplace layer (verified, not yet fixed)
+
+- **This Stripe test account is shared with another project.** The only
+  registered webhook endpoint is `edu-sphere-backend-pi.vercel.app/webhook`
+  (api_version `2023-08-16`) — not Trendora's. There is no endpoint pointing at
+  this backend, so a deployed Trendora needs one created with the nine events
+  listed above. Local dev uses `pnpm stripe:listen` and needs none.
+- **Nothing schedules `processPendingRefunds()`.** A refund that failed at the
+  gateway is retried only when an admin presses retry (or hits
+  `POST /refunds/retry-all`). Wire it to a cron/worker when one exists — the
+  function is idempotent and safe to run on a timer.
+- **A `PROCESSING` refund is not polled.** Rails that settle asynchronously
+  rely on the `refund.updated` webhook to finish the story; if that webhook is
+  not configured, such a refund stays `PROCESSING` forever. `retrieveStripeRefund`
+  in `src/helpers/stripe.ts` is the hook for a reconciliation sweep.
+- **No stock reservation.** Stock is deducted at order creation (COD) or at the
+  webhook (Stripe); between starting a Stripe checkout and the charge landing,
+  another buyer can take the last unit. The webhook then fails the stock guard
+  and that charge needs refunding by hand.
+- **Expired checkout drafts are not swept.** `expireStaleCheckoutSessions()`
+  exists but nothing schedules it. Harmless — `consumeCheckoutSession` refuses
+  anything not `PENDING` — but the rows accumulate.
+- **No vendor moderation audit log.** `Vendor` keeps `rejectionReason`,
+  `approvedAt` and `suspendedAt`, but not *which* admin acted, nor the history.
+  Copy the `OrderStatusHistory` pattern if that becomes necessary.
+- **No per-vendor shipping methods/zones.** One flat fee plus one free-shipping
+  threshold per store. A `ShippingMethod` model hanging off `Vendor` is the
+  extension point.
+- Two pre-existing `onDelete: SetNull` warnings on required columns
+  (`Size.sizeGroupId`, `Order.shippingAddressId`) surface on every
+  `prisma validate`. Fixing them means making those columns optional, which is
+  a frontend contract change, so they were left as they were.

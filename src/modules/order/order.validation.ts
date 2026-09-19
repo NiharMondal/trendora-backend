@@ -1,4 +1,5 @@
 import z from "zod";
+import { OrderStatusEnum } from "../../helpers/enum";
 
 const orderItems = z.array(
     z.object({
@@ -12,6 +13,12 @@ const orderItems = z.array(
         quantity: z.number({ error: "Quantity is required" }),
     })
 );
+
+/**
+ * A cart may span several stores; the backend groups the items by vendor
+ * itself, so the client sends one flat item list exactly as before. Nothing
+ * about money or vendor ownership is accepted from the client.
+ */
 const createOrderSchema = z.object({
     paymentMethod: z.enum(["STRIPE", "CASH_ON_DELIVERY"]),
     shippingAddressId: z
@@ -37,15 +44,23 @@ const createOrderSchema = z.object({
 
 export type TCreateOrderSchema = z.infer<typeof createOrderSchema>;
 
-
-const updateOrderStatusSchema = z.object({
-    orderStatus: z.enum([
-        "PENDING",
-        "PROCESSING",
-        "SHIPPED",
-        "DELIVERED",
-        "CANCELED",
-    ]),
+/**
+ * Fulfilment happens per vendor order, so this targets a VendorOrder id.
+ * `trackingNumber`/`carrier` accompany a SHIPPED transition; `cancelReason`
+ * accompanies a CANCELED one.
+ */
+const updateVendorOrderStatusSchema = z.object({
+    orderStatus: OrderStatusEnum,
+    trackingNumber: z.string().trim().max(120).optional(),
+    carrier: z.string().trim().max(80).optional(),
+    cancelReason: z.string().trim().max(500).optional(),
 });
 
-export const orderValidation = { createOrderSchema, updateOrderStatusSchema };
+export type TUpdateVendorOrderStatus = z.infer<
+    typeof updateVendorOrderStatusSchema
+>;
+
+export const orderValidation = {
+    createOrderSchema,
+    updateVendorOrderStatusSchema,
+};

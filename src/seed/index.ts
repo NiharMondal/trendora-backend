@@ -3,6 +3,7 @@ import { envConfig } from "../config/env-config";
 import { prisma } from "../config/db";
 import { makePasswordHash } from "../helpers/password";
 import { generateSlug } from "../helpers/slug";
+import { ProductStatus } from "../../generated/prisma";
 import {
 	brands,
 	categories,
@@ -10,6 +11,7 @@ import {
 	sizeGroups,
 	slides,
 	users,
+	vendors,
 } from "./seed-data";
 
 /**
@@ -108,6 +110,7 @@ async function seedProducts(
 	brandIds: Map<string, string>,
 	categoryIds: Map<string, string>,
 	sizeIds: Map<string, string>,
+	vendorIds: Map<string, string>,
 ): Promise<void> {
 	let variantCount = 0;
 	let imageCount = 0;
@@ -115,10 +118,17 @@ async function seedProducts(
 	for (const product of products) {
 		const brandId = brandIds.get(product.brand);
 		const categoryId = categoryIds.get(product.categorySlug);
+		const vendorId = vendorIds.get(product.vendorSlug);
 
 		if (!brandId || !categoryId) {
 			throw new Error(
 				`Seed data for "${product.name}" points at an unknown brand or category`,
+			);
+		}
+
+		if (!vendorId) {
+			throw new Error(
+				`Seed data for "${product.name}" points at unknown store "${product.vendorSlug}"`,
 			);
 		}
 
@@ -137,6 +147,12 @@ async function seedProducts(
 			gender: product.gender,
 			brandId,
 			categoryId,
+			vendorId,
+			// Seeded listings are pre-moderated, otherwise the storefront
+			// would render nothing (publicProductFilter requires APPROVED).
+			status: ProductStatus.APPROVED,
+			approvedAt: new Date(),
+			submittedAt: new Date(),
 		};
 
 		const row = await prisma.product.upsert({
@@ -213,8 +229,10 @@ async function seedProducts(
 	);
 }
 
-async function seedUsers(): Promise<void> {
+async function seedUsers(): Promise<Map<string, string>> {
 	const password = await makePasswordHash(envConfig.seed_password);
+	// key: email -> User.id
+	const userIds = new Map<string, string>();
 
 	for (const user of users) {
 		const existing = await prisma.auth.findUnique({
@@ -226,10 +244,11 @@ async function seedUsers(): Promise<void> {
 				where: { email: user.email },
 				data: { password, role: user.role },
 			});
+			userIds.set(user.email, existing.userId);
 			continue;
 		}
 
-		await prisma.user.create({
+		const created = await prisma.user.create({
 			data: {
 				name: user.name,
 				phone: user.phone,
@@ -242,9 +261,54 @@ async function seedUsers(): Promise<void> {
 				},
 			},
 		});
+
+		userIds.set(user.email, created.id);
 	}
 
 	console.log(`  users:       ${users.length}`);
+	return userIds;
+}
+
+async function seedVendors(
+	userIds: Map<string, string>,
+): Promise<Map<string, string>> {
+	// key: vendor slug -> Vendor.id
+	const vendorIds = new Map<string, string>();
+
+	for (const vendor of vendors) {
+		const ownerId = userIds.get(vendor.ownerEmail);
+
+		if (!ownerId) {
+			throw new Error(
+				`Seed vendor "${vendor.storeName}" points at unknown owner ${vendor.ownerEmail}`,
+			);
+		}
+
+		const data = {
+			storeName: vendor.storeName,
+			description: vendor.description,
+			businessEmail: vendor.businessEmail,
+			businessPhone: vendor.businessPhone,
+			status: vendor.status,
+			commissionRate: vendor.commissionRate,
+			shippingFee: vendor.shippingFee,
+			freeShippingThreshold: vendor.freeShippingThreshold,
+			approvedAt: vendor.status === "APPROVED" ? new Date() : null,
+		};
+
+		// Upsert on slug so re-running converges on the store the multi-vendor
+		// migration may already have created.
+		const row = await prisma.vendor.upsert({
+			where: { slug: vendor.slug },
+			update: { ...data, isDeleted: false },
+			create: { ...data, slug: vendor.slug, ownerId },
+		});
+
+		vendorIds.set(vendor.slug, row.id);
+	}
+
+	console.log(`  vendors:     ${vendorIds.size}`);
+	return vendorIds;
 }
 
 async function seedSlides(): Promise<void> {
@@ -266,13 +330,24 @@ async function main(): Promise<void> {
 	const brandIds = await seedBrands();
 	const categoryIds = await seedCategories();
 
-	await seedProducts(brandIds, categoryIds, sizeIds);
-	await seedUsers();
+	// Users before vendors (a store needs an owner) and vendors before
+	// products (a listing needs a store).
+	const userIds = await seedUsers();
+	const vendorIds = await seedVendors(userIds);
+
+	await seedProducts(brandIds, categoryIds, sizeIds, vendorIds);
 	await seedSlides();
 
 	console.log("\nDone. Sign in with:");
 	for (const user of users) {
 		console.log(`  ${user.role.padEnd(8)} ${user.email} / ${envConfig.seed_password}`);
+	}
+
+	console.log("\nStorefronts:");
+	for (const vendor of vendors) {
+		console.log(
+			`  ${vendor.status.padEnd(8)} /vendors/${vendor.slug}  (${vendor.storeName}, ${vendor.commissionRate * 100}% commission)`,
+		);
 	}
 }
 
