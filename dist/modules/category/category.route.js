@@ -3,14 +3,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.categoryRouter = void 0;
 const express_1 = require("express");
 const category_controller_1 = require("./category.controller");
+const validateRequest_1 = require("../../middleware/validateRequest");
+const category_validation_1 = require("./category.validation");
+const authGuard_1 = require("../../middleware/authGuard");
+const prisma_1 = require("../../../generated/prisma");
 const router = (0, express_1.Router)();
 router
     .route("/:id")
     .get(category_controller_1.categoryControllers.findById)
-    .patch(category_controller_1.categoryControllers.updateData)
-    .delete(category_controller_1.categoryControllers.deleteData);
+    .patch((0, authGuard_1.authGuard)(prisma_1.Role.ADMIN), category_controller_1.categoryControllers.updateData)
+    .delete((0, authGuard_1.authGuard)(prisma_1.Role.ADMIN), category_controller_1.categoryControllers.deleteData);
 router
     .route("/")
-    .post(category_controller_1.categoryControllers.createIntoDB)
+    .post((0, authGuard_1.authGuard)(prisma_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(category_validation_1.categorySchema), category_controller_1.categoryControllers.createIntoDB)
     .get(category_controller_1.categoryControllers.findAllFromDB);
 exports.categoryRouter = router;

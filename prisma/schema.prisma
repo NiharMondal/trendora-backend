@@ -8,15 +8,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================================
+// Identity
+// ============================================================================
+
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  phone     String?  @unique
-  avatar    String?
+  id             String   @id @default(uuid())
+  name           String
+  phone          String?  @unique
+  avatar         String?
   avatarPublicId String?
-  isDeleted Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isDeleted      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   auth                 Auth?
   oauthAccounts        OAuthAccount[]
@@ -25,30 +29,33 @@ model User {
   reviews              Review[]
   wishlist             Wishlist[]
   orderStatusHistories OrderStatusHistory[]
+  // A user becomes a seller by owning exactly one Vendor (one store per account).
+  vendor               Vendor?
+  vendorReviews        VendorReview[]
 }
 
 model OAuthAccount {
-  id         String   @id @default(uuid())
+  id         String       @id @default(uuid())
   provider   AuthProvider
   providerId String
   userId     String
-  user       User     @relation(fields: [userId], references: [id])
+  user       User         @relation(fields: [userId], references: [id])
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([provider, providerId])
 }
 
 model Auth {
-  id         String   @id @default(uuid())
-  email      String   @unique
-  password   String?
-  role       Role     @default(CUSTOMER)
-  userId     String   @unique
-  user       User     @relation(fields: [userId], references: [id])
+  id       String  @id @default(uuid())
+  email    String  @unique
+  password String?
+  role     Role    @default(CUSTOMER)
+  userId   String  @unique
+  user     User    @relation(fields: [userId], references: [id])
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Address {
@@ -62,7 +69,7 @@ model Address {
   state      String?
   postalCode String
   country    String
-  isDefault  Boolean @default(false)  
+  isDefault  Boolean  @default(false)
   isDeleted  Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -72,6 +79,96 @@ model Address {
 
   @@index([userId])
 }
+
+// ============================================================================
+// Marketplace: vendors
+// ============================================================================
+
+/// A seller's storefront. One per User (`ownerId` is unique) — a user with an
+/// APPROVED vendor and Role.VENDOR can list products and fulfil VendorOrders.
+///
+/// Commerce settings (commissionRate / shippingFee / freeShippingThreshold) are
+/// per-vendor so each store prices its own delivery. They are seeded from the
+/// platform env defaults when the store is created, and `commissionRate` is
+/// *snapshotted* onto every VendorOrder so changing it never rewrites history.
+model Vendor {
+  id             String  @id @default(uuid())
+  ownerId        String  @unique
+  // Public identity
+  storeName      String  @unique
+  slug           String  @unique
+  description    String?
+  logo           String?
+  logoPublicId   String?
+  banner         String?
+  bannerPublicId String?
+
+  // Moderation
+  status          VendorStatus @default(PENDING)
+  rejectionReason String?
+  approvedAt      DateTime?
+  suspendedAt     DateTime?
+
+  // Business / contact details captured at application time
+  businessEmail String
+  businessPhone String
+  taxId         String?
+  /// Where the platform sends this vendor's money. Free-form JSON so the
+  /// payout rail (bank, mobile wallet, Stripe Connect) can change without a
+  /// migration. Never returned by public endpoints.
+  payoutDetails Json?
+
+  // Commerce settings
+  commissionRate        Decimal @default(0.1000) @db.Decimal(5, 4)
+  shippingFee           Decimal @default(100.00) @db.Decimal(10, 2)
+  freeShippingThreshold Decimal @default(1000.00) @db.Decimal(10, 2)
+
+  // Denormalised store rating, maintained from VendorReview
+  averageRating Decimal? @db.Decimal(3, 2)
+  totalReviews  Int      @default(0)
+
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products     Product[]
+  vendorOrders VendorOrder[]
+  orderItems   OrderItem[]
+  payouts      Payout[]
+  reviews      VendorReview[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([isDeleted])
+}
+
+/// Buyer rating of a *store* (distinct from Review, which rates a product).
+/// Tied to a delivered VendorOrder so only real customers can rate, one review
+/// per vendor order.
+model VendorReview {
+  id            String   @id @default(uuid())
+  vendorId      String
+  userId        String
+  vendorOrderId String
+  rating        Decimal  @db.Decimal(3, 2)
+  comment       String?
+  isDeleted     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  vendor      Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendorOrder VendorOrder @relation(fields: [vendorOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vendorOrderId])
+  @@index([vendorId])
+  @@index([userId])
+}
+
+// ============================================================================
+// Catalogue (platform-owned taxonomy: only ADMIN mutates these)
+// ============================================================================
 
 model SizeGroup {
   id        String  @id @default(uuid())
@@ -97,8 +194,8 @@ model Brand {
 
 model Size {
   id          String           @id @default(uuid())
-  name        String           
-  sizeGroupId String           
+  name        String
+  sizeGroupId String
   sizeGroup   SizeGroup?       @relation(fields: [sizeGroupId], references: [id], onDelete: SetNull)
   isDeleted   Boolean          @default(false)
   createdAt   DateTime         @default(now())
@@ -126,25 +223,43 @@ model Category {
   @@index([slug])
 }
 
+/// A listing owned by exactly one Vendor.
+///
+/// Two independent gates control public visibility:
+///   * `status`      — admin moderation (DRAFT -> PENDING -> APPROVED/REJECTED)
+///   * `isPublished` — the vendor's own show/hide switch
+/// A product is publicly visible only when it is APPROVED **and** published
+/// **and** its vendor is APPROVED. See `publicProductFilter` in
+/// src/helpers/vendor.ts — always use that instead of hand-rolling the filter.
+///
+/// `name` is unique *per vendor*, not globally: two stores may legitimately
+/// sell "Nike Air Max 90". `slug` stays globally unique and is generated with
+/// the vendor slug appended (see src/helpers/slug.ts).
 model Product {
-  id            String   @id @default(uuid())
-  name          String   @unique
-  slug          String   @unique
-  description   String
-  basePrice     Decimal  @db.Decimal(10, 2)
-  discountPrice Decimal? @db.Decimal(10, 2)
-  stockQuantity Int      @default(0)
-  isPublished   Boolean  @default(true)
-  isFeatured    Boolean  @default(false)
-  gender        Gender
-  categoryId    String
-  brandId       String
-  averageRating Decimal? @db.Decimal(3, 2) // Changed from Int to Decimal for precision
-  totalReviews  Int      @default(0)
-  isDeleted     Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String        @id @default(uuid())
+  vendorId        String
+  name            String
+  slug            String        @unique
+  description     String
+  basePrice       Decimal       @db.Decimal(10, 2)
+  discountPrice   Decimal?      @db.Decimal(10, 2)
+  stockQuantity   Int           @default(0)
+  isPublished     Boolean       @default(true)
+  isFeatured      Boolean       @default(false)
+  status          ProductStatus @default(DRAFT)
+  rejectionReason String?
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  gender          Gender
+  categoryId      String
+  brandId         String
+  averageRating   Decimal?      @db.Decimal(3, 2)
+  totalReviews    Int           @default(0)
+  isDeleted       Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
+  vendor        Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   brand         Brand            @relation(fields: [brandId], references: [id])
   category      Category         @relation(fields: [categoryId], references: [id])
   images        ProductImage[]
@@ -153,11 +268,15 @@ model Product {
   reviews       Review[]
   wishlistItems Wishlist[]
 
+  @@unique([vendorId, name])
+  @@index([vendorId])
   @@index([categoryId])
   @@index([brandId])
   @@index([slug])
   @@index([isPublished])
   @@index([isFeatured])
+  @@index([status])
+  @@index([vendorId, status])
 }
 
 model ProductVariant {
@@ -223,18 +342,63 @@ model Review {
   @@index([rating])
 }
 
+// ============================================================================
+// Checkout
+// ============================================================================
+
+/// Server-side draft of an order awaiting payment.
+///
+/// Stripe metadata is capped (50 keys / 500 chars per value) and cannot carry a
+/// multi-vendor cart, so the full priced calculation is persisted here and only
+/// `checkoutSessionId` travels in the Stripe session metadata. The webhook
+/// reads the draft back, which also makes order creation idempotent: a replayed
+/// webhook finds `status = COMPLETED` and does nothing.
+model CheckoutSession {
+  id                String                @id @default(uuid())
+  orderNumber       String                @unique
+  userId            String
+  shippingAddressId String
+  paymentMethod     PaymentMethod
+  /// Serialised OrderCalculation — per-vendor groups, priced from the DB.
+  calculation       Json
+  amountTotal       Decimal               @db.Decimal(10, 2)
+  status            CheckoutSessionStatus @default(PENDING)
+  stripeSessionId   String?               @unique
+  notes             String?
+  ipAddress         String?
+  userAgent         String?
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// Orders — split across two levels
+// ============================================================================
+
+/// The buyer-facing order: one row per checkout, one payment, one shipping
+/// address. Money fields are the SUM of its VendorOrders.
+///
+/// `orderStatus` here is a DERIVED rollup of the vendor order statuses — never
+/// write it directly, call `recalculateOrderRollup()` in src/helpers/order.ts.
+/// Fulfilment state lives on VendorOrder, because each vendor ships separately.
 model Order {
   id                String        @id @default(uuid())
-  orderNumber       String        @unique // e.g., "ORD-2024-001234"
+  orderNumber       String        @unique // e.g., "ORD-202609-001234"
   userId            String
-  subtotal          Decimal       @default(0) @db.Decimal(10, 2) // Sum of all items before tax and shipping
-  tax               Decimal       @default(0) @db.Decimal(10, 2) // Calculated tax amount
-  shippingCost      Decimal       @default(0) @db.Decimal(10, 2) // Shipping fee (0 if free shipping)
-  discount          Decimal       @default(0) @db.Decimal(10, 2) // Total discount on all items
-  totalAmount       Decimal       @db.Decimal(10, 2) // subtotal + tax + shippingCost
+  subtotal          Decimal       @default(0) @db.Decimal(10, 2) // Sum of vendor order subtotals
+  tax               Decimal       @default(0) @db.Decimal(10, 2)
+  shippingCost      Decimal       @default(0) @db.Decimal(10, 2) // Sum of per-vendor shipping
+  discount          Decimal       @default(0) @db.Decimal(10, 2)
+  totalAmount       Decimal       @db.Decimal(10, 2) // subtotal + tax + shippingCost - discount
   paymentStatus     PaymentStatus @default(PENDING)
   paymentMethod     PaymentMethod
-  orderStatus       OrderStatus   @default(PENDING)
+  orderStatus       OrderStatus   @default(PENDING) // DERIVED — see note above
   shippingAddressId String
   ipAddress         String?
   userAgent         String?
@@ -245,8 +409,10 @@ model Order {
 
   shippingAddress Address              @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull)
   user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendorOrders    VendorOrder[]
   items           OrderItem[]
   payment         Payment?
+  refunds         Refund[]
   statusHistory   OrderStatusHistory[]
 
   @@index([userId])
@@ -256,23 +422,84 @@ model Order {
   @@index([createdAt])
 }
 
+/// One vendor's slice of an Order — the unit of fulfilment and of payout.
+///
+/// This is what a vendor sees in their dashboard and the only level at which
+/// `orderStatus` may be written. `commissionRate` is a snapshot of
+/// `Vendor.commissionRate` at purchase time, so
+/// `commissionAmount + vendorEarning == subtotal + shippingCost`
+/// stays true forever even if the vendor's rate later changes.
+model VendorOrder {
+  id                String @id @default(uuid())
+  orderId           String
+  vendorId          String
+  vendorOrderNumber String @unique // e.g., "ORD-202609-001234-V1"
+
+  subtotal     Decimal @default(0) @db.Decimal(10, 2)
+  tax          Decimal @default(0) @db.Decimal(10, 2)
+  shippingCost Decimal @default(0) @db.Decimal(10, 2)
+  discount     Decimal @default(0) @db.Decimal(10, 2)
+  totalAmount  Decimal @db.Decimal(10, 2)
+
+  // Money split — snapshotted at purchase time
+  commissionRate   Decimal @db.Decimal(5, 4)
+  commissionAmount Decimal @default(0) @db.Decimal(10, 2)
+  vendorEarning    Decimal @default(0) @db.Decimal(10, 2)
+
+  orderStatus    OrderStatus @default(PENDING)
+  trackingNumber String?
+  carrier        String?
+  cancelReason   String?
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+  canceledAt     DateTime?
+
+  payoutId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order         Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  vendor        Vendor               @relation(fields: [vendorId], references: [id])
+  payout        Payout?              @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  reviews       VendorReview[]
+  refund        Refund?
+
+  @@unique([orderId, vendorId])
+  @@index([vendorId])
+  @@index([vendorId, orderStatus])
+  @@index([orderId])
+  @@index([payoutId])
+  @@index([createdAt])
+}
+
 model OrderItem {
-  id              String          @id @default(uuid())
+  id              String  @id @default(uuid())
   orderId         String
+  vendorOrderId   String
+  /// Denormalised from the product so vendor analytics never has to join up
+  /// through Product (which the vendor could later transfer or soft-delete).
+  vendorId        String
   productId       String
   productName     String
   variantId       String?
   variantDetails  String? // e.g., "Red, Size M" - for reference
-  quantity        Int             @db.SmallInt
-  priceAtPurchase Decimal         @default(0) @db.Decimal(10, 2) // Actual price paid (with variant modifiers)
-  originalPrice   Decimal         @default(0) @db.Decimal(10, 2) // Price before any discount
-  discount        Decimal         @default(0) @db.Decimal(10, 2) // (originalPrice - priceAtPurchase) * quantity
-  subtotal        Decimal         @default(0) @db.Decimal(10, 2) // priceAtPurchase * quantity
-  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product         Product         @relation(fields: [productId], references: [id])
-  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+  quantity        Int     @db.SmallInt
+  priceAtPurchase Decimal @default(0) @db.Decimal(10, 2) // Actual price paid (with variant modifiers)
+  originalPrice   Decimal @default(0) @db.Decimal(10, 2) // Price before any discount
+  discount        Decimal @default(0) @db.Decimal(10, 2) // (originalPrice - priceAtPurchase) * quantity
+  subtotal        Decimal @default(0) @db.Decimal(10, 2) // priceAtPurchase * quantity
+
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  vendorOrder VendorOrder     @relation(fields: [vendorOrderId], references: [id], onDelete: Cascade)
+  vendor      Vendor          @relation(fields: [vendorId], references: [id])
+  product     Product         @relation(fields: [productId], references: [id])
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
 
   @@index([orderId])
+  @@index([vendorOrderId])
+  @@index([vendorId])
   @@index([productId])
 }
 
@@ -292,27 +519,129 @@ model Payment {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds Refund[]
 
   @@index([orderId])
   @@index([transactionId])
   @@index([status])
 }
 
-model OrderStatusHistory {
-  id        String      @id @default(uuid())
-  orderId   String
-  oldStatus OrderStatus
-  newStatus OrderStatus
-  ipAddress String?
-  userId    String?
-  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  createdAt DateTime    @default(now())
+/// One attempt to move money back to the buyer.
+///
+/// The mirror of Payout: Payout settles what the platform owes a vendor,
+/// Refund settles what it owes a buyer. Both are ledgers — a row per money
+/// movement, never mutated into a different meaning.
+///
+/// Why a table rather than a column on Payment: an order has N independently
+/// cancellable parcels, so a single charge can be refunded several times, each
+/// for a different amount, each succeeding or failing on its own.
+///
+/// Idempotency has two layers:
+///   * `vendorOrderId` is unique — a parcel can only ever have one refund, so
+///     a replayed cancel cannot create a second one.
+///   * `idempotencyKey` is sent to Stripe, so even a retried HTTP call for the
+///     same attempt cannot move money twice.
+/// A genuine retry after a FAILED attempt bumps `attempts` and derives a fresh
+/// key, which is what makes it a new request rather than a replay.
+model Refund {
+  id            String  @id @default(uuid())
+  orderId       String
+  paymentId     String
+  /// The parcel being refunded. NULL for an order-level manual refund.
+  vendorOrderId String? @unique
+
+  amount   Decimal      @db.Decimal(10, 2)
+  currency String       @default("usd")
+  status   RefundStatus @default(PENDING)
+  reason   String?
+
+  /// "stripe" for a gateway refund; NULL when an admin records cash returned
+  /// out-of-band (cash on delivery has no gateway to call).
+  gateway         String?
+  gatewayRefundId String?   @unique
+  idempotencyKey  String    @unique
+  attempts        Int       @default(0)
+  failureReason   String?
+  gatewayResponse Json?
+  processedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment     Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  vendorOrder VendorOrder? @relation(fields: [vendorOrderId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([paymentId])
+  @@index([status])
   @@index([createdAt])
 }
+
+/// Audit trail for status changes. `vendorOrderId` is set for fulfilment
+/// events (the normal case) and null for order-level events.
+model OrderStatusHistory {
+  id            String       @id @default(uuid())
+  orderId       String
+  vendorOrderId String?
+  oldStatus     OrderStatus
+  newStatus     OrderStatus
+  /// Human-readable reason, e.g. "Payment confirmed" or a cancel reason.
+  note          String?
+  ipAddress     String?
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order         Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  vendorOrder   VendorOrder? @relation(fields: [vendorOrderId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+
+  @@index([orderId])
+  @@index([vendorOrderId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// Payouts — what the platform owes each vendor
+// ============================================================================
+
+/// A batch of vendor earnings the platform settles in one transfer.
+///
+/// Built from DELIVERED, PAID VendorOrders that are not yet attached to a
+/// payout (`payoutId IS NULL`); attaching them is what makes a payout run
+/// idempotent — an order can only ever belong to one payout.
+model Payout {
+  id            String       @id @default(uuid())
+  vendorId      String
+  /// Sum of `vendorEarning` over the attached vendor orders.
+  amount        Decimal      @db.Decimal(10, 2)
+  status        PayoutStatus @default(PENDING)
+  /// Rail used to settle, e.g. "bank_transfer", "bkash", "stripe".
+  method        String?
+  /// Gateway/bank reference once the money has moved.
+  reference     String?
+  /// Snapshot of Vendor.payoutDetails at the time the payout was created.
+  payoutDetails Json?
+  failureReason String?
+  periodStart   DateTime
+  periodEnd     DateTime
+  processedAt   DateTime?
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  vendor       Vendor        @relation(fields: [vendorId], references: [id])
+  vendorOrders VendorOrder[]
+
+  @@index([vendorId])
+  @@index([vendorId, status])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// Content
+// ============================================================================
 
 model Slide {
   id        String   @id @default(uuid())
@@ -330,9 +659,29 @@ model Slide {
   @@index([sortOrder])
 }
 
+// ============================================================================
+// Enums — mirrored as Zod schemas in src/helpers/enum.ts. Keep both in sync,
+// plus the frontend constants/types.
+// ============================================================================
+
 enum Role {
   CUSTOMER
+  VENDOR
   ADMIN
+}
+
+enum VendorStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum ProductStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum OrderStatus {
@@ -347,12 +696,42 @@ enum PaymentStatus {
   PENDING
   PAID
   FAILED
+  /// Some parcels of a multi-vendor order were refunded, others were not.
+  /// Without this, refunding one parcel of three would have to be reported as
+  /// either PAID (hiding it) or REFUNDED (overstating it).
+  PARTIALLY_REFUNDED
   REFUNDED
 }
 
 enum PaymentMethod {
   STRIPE
   CASH_ON_DELIVERY
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+}
+
+enum RefundStatus {
+  /// Recorded as owed, not yet sent to the gateway.
+  PENDING
+  /// Handed to the gateway, awaiting confirmation.
+  PROCESSING
+  SUCCEEDED
+  /// Gateway rejected it. Retryable — see Refund.attempts.
+  FAILED
+  /// Abandoned by an operator; no money moved.
+  CANCELED
+}
+
+enum CheckoutSessionStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+  CANCELED
 }
 
 enum Gender {

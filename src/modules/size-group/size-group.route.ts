@@ -13,11 +13,15 @@ router
 	.route("/:id")
 	.get(sizeGroupControllers.findById)
 	.patch(authGuard(Role.ADMIN), sizeGroupControllers.updateData)
-	.delete(sizeGroupControllers.deleteData);
+	.delete(authGuard(Role.ADMIN), sizeGroupControllers.deleteData);
 
 router
 	.route("/")
-	.post(validateRequest(sizeGroupSchema), sizeGroupControllers.createIntoDB)
+	.post(
+		authGuard(Role.ADMIN),
+		validateRequest(sizeGroupSchema),
+		sizeGroupControllers.createIntoDB,
+	)
 	.get(sizeGroupControllers.findAllFromDB);
 
 export const sizeGroupRouter = router;

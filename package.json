@@ -12,7 +12,12 @@
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
         "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+        "stripe:listen": "stripe listen --forward-to localhost:5001/webhook --events checkout.session.completed,checkout.session.expired,payment_intent.succeeded,payment_intent.payment_failed,refund.created,refund.updated,refund.failed,charge.refunded",
+        "seed": "tsx src/seed/index.ts",
         "studio": "npx prisma studio"
+    },
+    "prisma": {
+        "seed": "tsx src/seed/index.ts"
     },
     "keywords": [],
     "author": "",

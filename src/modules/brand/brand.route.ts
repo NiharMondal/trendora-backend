@@ -12,11 +12,15 @@ router
     .route("/:id")
     .get(brandControllers.findById)
     .patch(authGuard(Role.ADMIN), brandControllers.updateData)
-    .delete(brandControllers.deleteData);
+    .delete(authGuard(Role.ADMIN), brandControllers.deleteData);
 
 router
     .route("/")
-    .post(validateRequest(brandSchema), brandControllers.createIntoDB)
+    .post(
+        authGuard(Role.ADMIN),
+        validateRequest(brandSchema),
+        brandControllers.createIntoDB,
+    )
     .get(brandControllers.findAllFromDB);
 
 export const brandRouter = router;

@@ -3,7 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.globalErrorHandler = void 0;
 const prisma_1 = require("../../generated/prisma");
 const zod_1 = require("zod");
-const globalErrorHandler = (error, req, res, next) => {
+const globalErrorHandler = (
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+error, req, res, 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+next) => {
     const errorResponse = {
         statusCode: error?.statusCode || 500,
         message: error?.message || "Something went wrong",
@@ -27,6 +31,7 @@ const globalErrorHandler = (error, req, res, next) => {
         const match = error.message.match(/Argument\s+`[^`]+`\s+is\s+missing\./);
         const result = match ? match[0] : null;
         errorResponse.errorDetails = result;
+        console.log(error);
     }
     if (error instanceof prisma_1.Prisma.PrismaClientKnownRequestError) {
         if (error.code === "P2002") {

@@ -3,16 +3,21 @@ import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
 
+const actorOf = (req: Request) => ({
+	id: req.user.id as string,
+	role: req.user.role as string,
+});
+
 const createOrder = asyncHandler(async (req: Request, res: Response) => {
-	const userAgent = req.headers['user-agent'] || 'Unknown';
-	const ipAddress = req.ip || 'Unknown';
-	const userId = req?.user?.id;
+	const userAgent = req.headers["user-agent"] || "Unknown";
+	const ipAddress = req.ip || "Unknown";
+	const userId = req.user.id;
 	const payload = {
 		...req.body,
 		userAgent,
 		ipAddress,
 		userId,
-	}
+	};
 	const data = await orderServices.createOrder(payload);
 	sendResponse(res, {
 		statusCode: 201,
@@ -31,7 +36,10 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 const getOrderById = asyncHandler(async (req: Request, res: Response) => {
-	const data = await orderServices.getOrderById(req.params.orderId);
+	const data = await orderServices.getOrderById(
+		req.params.orderId,
+		actorOf(req),
+	);
 
 	sendResponse(res, {
 		statusCode: 200,
@@ -40,8 +48,11 @@ const getOrderById = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 const getMyOrders = asyncHandler(async (req: Request, res: Response) => {
-	const userId = req.user.userId;
-	const {orders,meta} = await orderServices.getMyOrders(userId, req.query);
+	// NOTE: this used to read `req.user.userId`, which is not in the JWT
+	// payload ({ id, role, email }) — it was always undefined, so the filter
+	// silently matched nothing.
+	const userId = req.user.id;
+	const { orders, meta } = await orderServices.getMyOrders(userId, req.query);
 
 	sendResponse(res, {
 		statusCode: 200,
@@ -51,21 +62,76 @@ const getMyOrders = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 
-const updateOrderStatus = asyncHandler(async (req: Request, res: Response) => {
-	const orderId = req.params.orderId;
-	const data = await orderServices.updateOrderStatus(orderId, req.body);
+const getMyVendorOrders = asyncHandler(async (req: Request, res: Response) => {
+	const { vendorOrders, meta } = await orderServices.getMyVendorOrders(
+		actorOf(req),
+		req.query,
+	);
 
 	sendResponse(res, {
 		statusCode: 200,
-		message: "Order status updated successfully",
-		data: data,
+		message: "Vendor orders fetched successfully",
+		meta,
+		data: vendorOrders,
 	});
 });
+
+const getVendorOrderById = asyncHandler(async (req: Request, res: Response) => {
+	const data = await orderServices.getVendorOrderById(
+		actorOf(req),
+		req.params.vendorOrderId,
+	);
+
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Vendor order fetched successfully",
+		data,
+	});
+});
+
+const updateVendorOrderStatus = asyncHandler(
+	async (req: Request, res: Response) => {
+		const data = await orderServices.updateVendorOrderStatus(
+			actorOf(req),
+			req.params.vendorOrderId,
+			req.body,
+			req.ip,
+		);
+
+		sendResponse(res, {
+			statusCode: 200,
+			message: "Order status updated successfully",
+			data,
+		});
+	},
+);
+
+const getDashboardAnalytics = asyncHandler(
+	async (req: Request, res: Response) => {
+		const { startDate, endDate } = req.query;
+
+		const data = await orderServices.getDashboardAnalytics(
+			startDate ? new Date(String(startDate)) : undefined,
+			endDate ? new Date(String(endDate)) : undefined,
+		);
+
+		sendResponse(res, {
+			statusCode: 200,
+			message: "Analytics fetched successfully",
+			data,
+		});
+	},
+);
 
 export const orderControllers = {
 	createOrder,
 	findAllFromDB,
 	getOrderById,
-	updateOrderStatus,
 	getMyOrders,
+	//
+	getMyVendorOrders,
+	getVendorOrderById,
+	updateVendorOrderStatus,
+	//
+	getDashboardAnalytics,
 };

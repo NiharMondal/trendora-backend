@@ -35,6 +35,18 @@ const findByUserId = async (id) => {
         where: {
             userId: id,
         },
+        include: {
+            product: {
+                select: {
+                    name: true,
+                    id: true,
+                    slug: true,
+                    basePrice: true,
+                    discountPrice: true,
+                    images: true,
+                },
+            },
+        },
     });
     return myWishLists;
 };

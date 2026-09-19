@@ -5,16 +5,20 @@ import { Role } from "../../../generated/prisma";
 
 const router = Router();
 
-router.get(
-	"/my-wishlist",
-	authGuard(Role.CUSTOMER),
-	wishlistControllers.findByUserId,
-);
+/**
+ * A VENDOR is also a shopper, so every buyer-facing route accepts all three
+ * roles — otherwise approving a seller would break their own wishlist and
+ * checkout.
+ */
+const anySignedInUser = authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN);
+
+router.get("/my-wishlist", anySignedInUser, wishlistControllers.findByUserId);
 
 router
 	.route("/:id")
-	.get(authGuard(Role.CUSTOMER), wishlistControllers.findById)
-	.delete(authGuard(Role.CUSTOMER), wishlistControllers.deleteData);
+	.get(anySignedInUser, wishlistControllers.findById)
+	.delete(anySignedInUser, wishlistControllers.deleteData);
 
-router.post("/", authGuard(Role.CUSTOMER), wishlistControllers.createIntoDB);
+router.post("/", anySignedInUser, wishlistControllers.createIntoDB);
+
 export const wishlistRouter = router;
