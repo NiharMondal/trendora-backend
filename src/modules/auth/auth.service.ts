@@ -290,10 +290,32 @@ const refreshToken = async (token: string) => {
 		accessToken,
 	};
 };
+
+const forgotPassword = async (email: string) => {
+	const auth = await prisma.auth.findUnique({
+		where: { email },
+	});
+
+	if (!auth) {
+		throw new CustomError(404, "Email not found");
+	}
+
+	const token = generateAccessToken(
+		{ email: auth.email },
+		envConfig.access_token_secret as string,
+	);
+
+	return {
+		token,
+		email: auth.email,
+	};
+};
+
 export const authServices = {
 	registerUser,
 	loginUser,
 	oAuthLogin,
 	changePassword,
 	refreshToken,
+	forgotPassword,
 };

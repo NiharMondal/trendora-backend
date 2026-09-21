@@ -80,9 +80,14 @@ const changePassword = z.object({
 		.trim(),
 });
 
-export const authSchema = { registerUser, login, oauthLogin, changePassword };
+const forgotPassword = z.object({
+	email: z.email({ error: "Provide valid email" }).nonempty("Email is required"),
+});
+
+export const authSchema = { registerUser, login, oauthLogin, changePassword, forgotPassword };
 
 export type TLoginUser = z.infer<typeof login>;
 export type TChangePassword = z.infer<typeof changePassword>;
 export type TRegisterUser = z.infer<typeof registerUser>;
 export type TOauth = z.infer<typeof oauthLogin>;
+export type TForgotPassword = z.infer<typeof forgotPassword>;

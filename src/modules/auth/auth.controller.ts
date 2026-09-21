@@ -54,4 +54,13 @@ const refreshToken = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 
-export const authControllers = { registerUser, loginUser, oAuthLogin, changePassword, refreshToken};
+const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
+	const data = await authServices.forgotPassword(req.body.email);
+	sendResponse(res, {
+		statusCode: 200,
+		message: "Forgot password email sent Successfully",
+		data: data,
+	});
+});
+
+export const authControllers = { registerUser, loginUser, oAuthLogin, changePassword, refreshToken, forgotPassword};
