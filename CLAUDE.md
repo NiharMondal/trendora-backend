@@ -613,9 +613,16 @@ turns a brief DB blip into a restart loop across every instance.
   another buyer can take the last unit. The webhook then fails the stock guard
   and that charge needs refunding by hand.
 - ~~**Expired checkout drafts are not swept.**~~ **Fixed** — swept hourly.
-- **No vendor moderation audit log.** `Vendor` keeps `rejectionReason`,
-  `approvedAt` and `suspendedAt`, but not *which* admin acted, nor the history.
-  Copy the `OrderStatusHistory` pattern if that becomes necessary.
+- ~~**No vendor moderation audit log.**~~ **Fixed** — `VendorStatusHistory`
+  records every change to a store's state (`logVendorStatusChange` in
+  `helpers/vendor.ts`), including the two non-obvious doors: an admin deleting a
+  store, and `disableUser` suspending a seller's store as a side effect of
+  disabling their account. Commercial-terms edits are logged with
+  `oldStatus === newStatus` and the change in `note`. Every write shares a
+  transaction with the change it describes. Admins see the actor and IP; a seller
+  reading `/vendors/me` gets the same timeline and reasons with both stripped
+  (`sanitizeVendorHistory`) — the `sanitizeStatusHistory` rule again. The three
+  seeded stores predate the table, so their trails start empty.
 - **No per-vendor shipping methods/zones.** One flat fee plus one free-shipping
   threshold per store. A `ShippingMethod` model hanging off `Vendor` is the
   extension point.

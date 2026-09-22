@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.assertVendorOwnsVendorOrder = exports.assertVendorOwnsProduct = exports.vendorListScope = exports.resolveVendorScope = exports.requireApprovedVendor = exports.findVendorByOwner = exports.publicProductFilter = exports.publicVendorSelect = void 0;
+exports.sanitizeVendorHistory = exports.vendorStatusHistorySelect = exports.logVendorStatusChange = exports.assertVendorOwnsVendorOrder = exports.assertVendorOwnsProduct = exports.vendorListScope = exports.resolveVendorScope = exports.requireApprovedVendor = exports.findVendorByOwner = exports.publicProductFilter = exports.publicVendorSelect = void 0;
 const prisma_client_1 = require("../lib/prisma-client.js");
 const db_1 = require("../config/db.js");
 const customError_1 = __importDefault(require("../utils/customError.js"));
@@ -147,3 +147,52 @@ const assertVendorOwnsVendorOrder = async (vendorId, vendorOrderId) => {
     return vendorOrder;
 };
 exports.assertVendorOwnsVendorOrder = assertVendorOwnsVendorOrder;
+/**
+ * Record a change to a store's moderation state.
+ *
+ * `Vendor` keeps `rejectionReason`, `approvedAt` and `suspendedAt`, but each is
+ * a single current value: it cannot say **which admin** acted, and it forgets
+ * every earlier decision the moment the next one overwrites it. This is the
+ * same trail `logStatusChange` keeps for orders.
+ *
+ * Takes a `TransactionClient` rather than the shared client on purpose — the
+ * log and the change it describes must commit together, or the trail quietly
+ * becomes fiction.
+ *
+ * `oldStatus` is null for the application itself, which has no previous state.
+ * A change to commercial terms is logged with `oldStatus === newStatus` and the
+ * detail in `note`.
+ */
+const logVendorStatusChange = async (tx, params) => {
+    await tx.vendorStatusHistory.create({
+        data: {
+            vendorId: params.vendorId,
+            oldStatus: params.oldStatus ?? null,
+            newStatus: params.newStatus,
+            note: params.note,
+            userId: params.actor?.id ?? null,
+            ipAddress: params.actor?.ipAddress,
+        },
+    });
+};
+exports.logVendorStatusChange = logVendorStatusChange;
+/** What a `VendorStatusHistory` row may leave the server as. */
+exports.vendorStatusHistorySelect = {
+    id: true,
+    oldStatus: true,
+    newStatus: true,
+    note: true,
+    createdAt: true,
+    ipAddress: true,
+    user: { select: { id: true, name: true } },
+};
+/**
+ * A seller sees their own timeline and the reasons; only an ADMIN sees which
+ * colleague acted and from what address.
+ *
+ * Identical reasoning to `sanitizeStatusHistory` for orders: a seller needs to
+ * know their store was suspended and why, but the moderator's personal name and
+ * IP are internal — that is abuse-investigation data, which is admin work.
+ */
+const sanitizeVendorHistory = (history, isAdmin) => history.map(({ ipAddress, user, ...event }) => isAdmin ? { ...event, ipAddress, actor: user } : event);
+exports.sanitizeVendorHistory = sanitizeVendorHistory;

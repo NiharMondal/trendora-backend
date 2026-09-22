@@ -42,7 +42,10 @@ const findById = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const disableUser = asyncHandler(async (req: Request, res: Response) => {
-	const data = await userServices.disableUser(req.user.id, req.params.id);
+	const data = await userServices.disableUser(
+		{ id: req.user.id as string, ipAddress: req.ip },
+		req.params.id,
+	);
 
 	sendResponse(res, {
 		statusCode: 200,

@@ -4,6 +4,14 @@ exports.vendorControllers = void 0;
 const asyncHandler_1 = require("../../utils/asyncHandler.js");
 const sendResponse_1 = require("../../utils/sendResponse.js");
 const vendor_service_1 = require("./vendor.service");
+/**
+ * The admin taking a moderation action, for the audit trail. `req.ip` is what
+ * `trust proxy` in app.ts makes meaningful behind a load balancer.
+ */
+const moderatorOf = (req) => ({
+    id: req.user.id,
+    ipAddress: req.ip,
+});
 const applyForVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const data = await vendor_service_1.vendorServices.applyForVendor(req.user.id, req.body);
     (0, sendResponse_1.sendResponse)(res, {
@@ -75,7 +83,7 @@ const findByIdForAdmin = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const approveVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await vendor_service_1.vendorServices.approveVendor(req.params.id);
+    const data = await vendor_service_1.vendorServices.approveVendor(req.params.id, moderatorOf(req));
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Vendor approved successfully",
@@ -83,7 +91,7 @@ const approveVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const rejectVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await vendor_service_1.vendorServices.rejectVendor(req.params.id, req.body);
+    const data = await vendor_service_1.vendorServices.rejectVendor(req.params.id, req.body, moderatorOf(req));
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Vendor application rejected",
@@ -91,7 +99,7 @@ const rejectVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const suspendVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await vendor_service_1.vendorServices.suspendVendor(req.params.id, req.body);
+    const data = await vendor_service_1.vendorServices.suspendVendor(req.params.id, req.body, moderatorOf(req));
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Vendor suspended",
@@ -99,7 +107,7 @@ const suspendVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const reinstateVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await vendor_service_1.vendorServices.reinstateVendor(req.params.id);
+    const data = await vendor_service_1.vendorServices.reinstateVendor(req.params.id, moderatorOf(req));
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Vendor reinstated",
@@ -107,7 +115,7 @@ const reinstateVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const updateVendorSettings = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await vendor_service_1.vendorServices.updateVendorSettings(req.params.id, req.body);
+    const data = await vendor_service_1.vendorServices.updateVendorSettings(req.params.id, req.body, moderatorOf(req));
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Vendor settings updated",
@@ -115,7 +123,7 @@ const updateVendorSettings = (0, asyncHandler_1.asyncHandler)(async (req, res) =
     });
 });
 const deleteVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await vendor_service_1.vendorServices.deleteVendor(req.params.id);
+    const data = await vendor_service_1.vendorServices.deleteVendor(req.params.id, moderatorOf(req));
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Vendor deleted successfully",

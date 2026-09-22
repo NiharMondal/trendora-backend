@@ -184,3 +184,87 @@ export const assertVendorOwnsVendorOrder = async (
 
     return vendorOrder;
 };
+
+// ------------------------------------------------------- moderation audit trail
+
+/** Who took a moderation action, and from where. */
+export type TModerationActor = {
+    /** `User.id`. NULL only for system-driven changes. */
+    id?: string | null;
+    ipAddress?: string;
+};
+
+/**
+ * Record a change to a store's moderation state.
+ *
+ * `Vendor` keeps `rejectionReason`, `approvedAt` and `suspendedAt`, but each is
+ * a single current value: it cannot say **which admin** acted, and it forgets
+ * every earlier decision the moment the next one overwrites it. This is the
+ * same trail `logStatusChange` keeps for orders.
+ *
+ * Takes a `TransactionClient` rather than the shared client on purpose — the
+ * log and the change it describes must commit together, or the trail quietly
+ * becomes fiction.
+ *
+ * `oldStatus` is null for the application itself, which has no previous state.
+ * A change to commercial terms is logged with `oldStatus === newStatus` and the
+ * detail in `note`.
+ */
+export const logVendorStatusChange = async (
+    tx: Prisma.TransactionClient,
+    params: {
+        vendorId: string;
+        oldStatus?: VendorStatus | null;
+        newStatus: VendorStatus;
+        actor?: TModerationActor | null;
+        note?: string;
+    },
+) => {
+    await tx.vendorStatusHistory.create({
+        data: {
+            vendorId: params.vendorId,
+            oldStatus: params.oldStatus ?? null,
+            newStatus: params.newStatus,
+            note: params.note,
+            userId: params.actor?.id ?? null,
+            ipAddress: params.actor?.ipAddress,
+        },
+    });
+};
+
+/** What a `VendorStatusHistory` row may leave the server as. */
+export const vendorStatusHistorySelect = {
+    id: true,
+    oldStatus: true,
+    newStatus: true,
+    note: true,
+    createdAt: true,
+    ipAddress: true,
+    user: { select: { id: true, name: true } },
+} satisfies Prisma.VendorStatusHistorySelect;
+
+type TRawVendorHistory = {
+    id: string;
+    oldStatus: VendorStatus | null;
+    newStatus: VendorStatus;
+    note: string | null;
+    createdAt: Date;
+    ipAddress: string | null;
+    user: { id: string; name: string } | null;
+};
+
+/**
+ * A seller sees their own timeline and the reasons; only an ADMIN sees which
+ * colleague acted and from what address.
+ *
+ * Identical reasoning to `sanitizeStatusHistory` for orders: a seller needs to
+ * know their store was suspended and why, but the moderator's personal name and
+ * IP are internal — that is abuse-investigation data, which is admin work.
+ */
+export const sanitizeVendorHistory = (
+    history: TRawVendorHistory[],
+    isAdmin: boolean,
+) =>
+    history.map(({ ipAddress, user, ...event }) =>
+        isAdmin ? { ...event, ipAddress, actor: user } : event,
+    );
