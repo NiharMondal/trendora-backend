@@ -11,7 +11,7 @@ const router = (0, express_1.Router)();
 router
     .route("/:id")
     .get(brand_controller_1.brandControllers.findById)
-    .patch((0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), brand_controller_1.brandControllers.updateData)
+    .patch((0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(brand_validation_1.brandUpdateSchema), brand_controller_1.brandControllers.updateData)
     .delete((0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), brand_controller_1.brandControllers.deleteData);
 router
     .route("/")

@@ -51,7 +51,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-18~~ | ~~No graceful shutdown; server lies about the DB~~ | ✅ **FIXED** 2026-09-22 | — | ops |
 | ~~BE-19~~ | ~~No env validation at boot~~ | ✅ **FIXED** 2026-09-22 | — | ops |
 | ~~BE-20~~ | ~~`GET /users` returns no email, role or pagination meta~~ | ✅ **FIXED** 2026-09-22 | — | users |
-| BE-21 | Brand validation silently drops `logo` | P1 | S | catalogue |
+| ~~BE-21~~ | ~~Brand validation silently drops `logo`~~ | ✅ **FIXED** 2026-09-22 | — | catalogue |
 | BE-22 | No test runner, no CI, no Dockerfile | P1 | L | ops |
 | BE-40 | `POST /auth/register` returns the bcrypt password hash | P1 | S | security |
 | BE-23 | SSLCommerz is dead dependency + dead config | P2 | S | cleanup |
@@ -946,20 +946,37 @@ That is **BE-06**, still open; a missing header correctly returns 401.
 
 ---
 
-### BE-21 · Brand validation silently drops `logo`
-**P1 · S · catalogue**
+### ~~BE-21~~ · Brand validation silently drops `logo`
+**✅ FIXED — 2026-09-22 · catalogue**
 
-**Now:** `src/modules/brand/brand.validation.ts:3-8` declares **only** `name`.
-`src/middleware/validateRequest.ts:12` replaces `req.body` with the parsed result, and Zod strips
-unknown keys, so `logo` never reaches the service — although `Brand.logo` exists
-(`prisma/schema.prisma:187`) and the frontend sends it.
+**Was:** `brandSchema` declared **only** `name`. `validateRequest` replaces `req.body` with the
+parsed result and Zod strips unknown keys, so `logo` never reached `createIntoDB` — although
+`Brand.logo` exists and the frontend sends it. `POST /brands` returned 201 with the logo gone.
 
-**Gap:** Brand logos can never be saved, through any path, and the request succeeds with a 200 so
-nothing signals the loss. See **XR-03**.
+The original entry said the logo could not be saved "through any path". That was half right:
+`PATCH /brands/:id` had **no `validateRequest` at all**, so `logo` did persist there — and so did
+every other key, straight into `prisma.brand.update({ data: req.body })`. An admin could flip
+`isDeleted` back to `false` to resurrect a deleted brand, or rewrite `id` / `createdAt`.
 
-**Fix:** Add `logo: z.string().optional()` to `brandSchema`. Audit the other validation schemas
-for the same omission — `validateRequest`'s strip-on-parse means any field missing from a schema
-is discarded silently.
+**Now:** `src/modules/brand/brand.validation.ts` declares `logo` and exports a second schema:
+
+- `logo` is a plain URL string (`Brand.logo` is `String?`) — **not** the `{ url, publicId }`
+  handshake object `Vendor.logo` uses. It is validated with `z.url()`, so a typo is a 400 rather
+  than a broken `<img>`.
+- The admin form initialises `logo: ""` and submits its values verbatim, so the schema preprocesses
+  a blank string to `null` instead of 400ing or storing `""`. The same rule is what lets an update
+  **clear** an existing logo.
+- `brandUpdateSchema` (every field optional, nothing outside the list) is now wired into the PATCH
+  route, closing the mass-assignment hole above.
+- The service types its payloads from `z.infer` rather than the Prisma `Brand` model, so the next
+  field added to the schema is visible to the compiler instead of being silently dropped.
+
+Verified by parsing each case directly: `logo: ""` → `null`, a Cloudinary URL passes through,
+`"not-a-url"` → 400, and `isDeleted` / `id` are stripped on both create and update.
+
+**Still open:** the frontend's `BrandForm` renders no logo input — it only carries the field in its
+zod schema and default values. The backend now accepts a logo; nothing in the admin UI can supply
+one yet. See **XR-03**.
 
 ---
 
@@ -1248,12 +1265,16 @@ from this count.
 
 ---
 
-### XR-03 · Brand `logo` is stripped before the service sees it
-**P1 · S · contract**
+### ~~XR-03~~ · Brand `logo` is stripped before the service sees it
+**✅ FIXED (backend half) — 2026-09-22 · contract**
 
-See BE-21. The frontend sends `logo` (`frontend/src/features/brands/schemas/brand-form.schema.ts:5`),
-`brandSchema` does not declare it, `validateRequest` strips it, the request returns 200, the logo
-is gone. **A one-line fix on this side; nothing to change on the frontend.**
+See BE-21. The backend now declares, validates and persists `logo`, and treats the empty string the
+frontend sends as "no logo".
+
+**Still open on the frontend:** `BrandForm`
+(`frontend/src/features/brands/components/brand-form.tsx`) declares `logo` in its zod schema and
+default values but renders **no input for it**, so the field is always `""`. An admin cannot set a
+brand logo until that form grows an upload control.
 
 ---
 
