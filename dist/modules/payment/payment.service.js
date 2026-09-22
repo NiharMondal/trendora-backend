@@ -15,6 +15,8 @@ const refund_1 = require("../../helpers/refund.js");
 const money_1 = require("../../helpers/money.js");
 const create_order_1 = require("../../helpers/create-order.js");
 const notifications_1 = require("../../helpers/notifications.js");
+const payment_1 = require("../../helpers/payment.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 // Initialize Stripe
 const stripe = new stripe_1.default(env_config_1.envConfig.stripe_secret_key, {
     apiVersion: "2025-07-30.basil",
@@ -299,6 +301,121 @@ async function handleChargeRefunded(charge) {
     }
     await (0, refund_1.recomputePaymentRefundState)(payment.id);
 }
+/** The caller's own payments, newest first. */
+const findMine = async (actor, query) => {
+    const builder = new PrismaQueryBuilder_1.default(query, {
+        model: "Payment",
+    });
+    const prismaArgs = builder
+        .withDefaultFilter({ order: { is: { userId: actor.id } } })
+        .filter()
+        .paginate()
+        .sort("createdAt", "desc")
+        .build();
+    const [payments, meta] = await Promise.all([
+        db_1.prisma.payment.findMany({
+            ...prismaArgs,
+            select: {
+                ...payment_1.buyerPaymentSelect,
+                order: { select: { id: true, orderNumber: true } },
+            },
+        }),
+        builder.getMeta(db_1.prisma.payment),
+    ]);
+    return { meta, data: payments };
+};
+/**
+ * The payment on one order, for the buyer who placed it or an ADMIN.
+ *
+ * A seller is deliberately not an audience here: one payment covers every
+ * store on the order, so there is no slice of it that belongs to one vendor.
+ * What a seller legitimately needs — has the buyer paid? — is already on their
+ * own parcel read as `order.paymentStatus`.
+ *
+ * 404 rather than 403 for someone else's order, so order ids stay unguessable.
+ */
+const findByOrderId = async (actor, orderId) => {
+    if (actor.role === prisma_client_1.Role.ADMIN) {
+        const payment = await db_1.prisma.payment.findUnique({
+            where: { orderId },
+            include: { refunds: { orderBy: { createdAt: "desc" } } },
+        });
+        if (!payment) {
+            throw new customError_1.default(404, "Payment not found");
+        }
+        return payment;
+    }
+    const payment = await db_1.prisma.payment.findFirst({
+        where: { orderId, order: { is: { userId: actor.id } } },
+        select: {
+            ...payment_1.buyerPaymentSelect,
+            order: { select: { id: true, orderNumber: true } },
+        },
+    });
+    if (!payment) {
+        throw new customError_1.default(404, "Payment not found");
+    }
+    return payment;
+};
+/** Every payment, for the admin ledger. `?status=FAILED` narrows it. */
+const findAllForAdmin = async (query) => {
+    const builder = new PrismaQueryBuilder_1.default(query, {
+        model: "Payment",
+    });
+    const prismaArgs = builder
+        .filter()
+        .paginate()
+        .sort("createdAt", "desc")
+        .include({
+        order: {
+            select: {
+                id: true,
+                orderNumber: true,
+                orderStatus: true,
+                user: { select: { id: true, name: true } },
+            },
+        },
+        _count: { select: { refunds: true } },
+    })
+        .build();
+    const [payments, meta] = await Promise.all([
+        db_1.prisma.payment.findMany(prismaArgs),
+        builder.getMeta(db_1.prisma.payment),
+    ]);
+    return { meta, data: payments };
+};
+/**
+ * One payment in full, ADMIN only — this is the single place
+ * `gatewayResponse` is returned, and the reason it is kept at all: it is what
+ * an operator reconciles against the Stripe dashboard when the ledger and the
+ * gateway disagree.
+ */
+const findById = async (id) => {
+    const payment = await db_1.prisma.payment.findUnique({
+        where: { id },
+        include: {
+            refunds: { orderBy: { createdAt: "desc" } },
+            order: {
+                select: {
+                    id: true,
+                    orderNumber: true,
+                    orderStatus: true,
+                    paymentStatus: true,
+                    totalAmount: true,
+                    user: { select: { id: true, name: true } },
+                },
+            },
+        },
+    });
+    if (!payment) {
+        throw new customError_1.default(404, "Payment not found");
+    }
+    return payment;
+};
 exports.paymentServices = {
     handleStripeWebhook,
+    findMine,
+    findByOrderId,
+    findAllForAdmin,
+    findById,
 };

@@ -34,6 +34,7 @@ import {
 	assertVendorOwnsVendorOrder,
 	requireApprovedVendor,
 } from "@/helpers/vendor";
+import { sanitizePayment, sanitizeRefund } from "@/helpers/payment";
 import { TCreateOrderSchema, TUpdateVendorOrderStatus } from "./order.validation";
 
 export type TBasicInfo = {
@@ -403,15 +404,34 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 
 	const isAdmin = actor.role === Role.ADMIN;
 
-	/** Re-attach each parcel's history, narrowed for this caller. */
-	const withSafeHistory = (slices: typeof order.vendorOrders) =>
+	/**
+	 * Re-attach each parcel's history and refund, narrowed for this caller.
+	 *
+	 * `refund` is the raw row, which carries `gatewayResponse` and our
+	 * `idempotencyKey` — gateway internals nobody outside the platform needs.
+	 */
+	const withSafeSlices = (slices: typeof order.vendorOrders) =>
 		slices.map((slice) => ({
 			...slice,
 			statusHistory: sanitizeStatusHistory(slice.statusHistory, isAdmin),
+			refund: slice.refund
+				? sanitizeRefund(slice.refund, isAdmin)
+				: slice.refund,
 		}));
 
-	if (isAdmin || order.userId === actor.id) {
-		return { ...order, vendorOrders: withSafeHistory(order.vendorOrders) };
+	if (isAdmin) {
+		return { ...order, vendorOrders: withSafeSlices(order.vendorOrders) };
+	}
+
+	if (order.userId === actor.id) {
+		return {
+			...order,
+			vendorOrders: withSafeSlices(order.vendorOrders),
+			payment: order.payment && sanitizePayment(order.payment, "buyer"),
+			refunds: order.refunds.map((refund) =>
+				sanitizeRefund(refund, false),
+			),
+		};
 	}
 
 	if (actor.role === Role.VENDOR) {
@@ -424,11 +444,27 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 			throw new CustomError(404, "Order not found");
 		}
 
+		const mineIds = new Set(mine.map((slice) => slice.id));
+
 		// Narrow to this vendor's slice, and drop the money fields that
 		// describe the whole basket.
 		return {
 			...order,
-			vendorOrders: withSafeHistory(mine),
+			vendorOrders: withSafeSlices(mine),
+			// One payment covers every store on this order, so a seller is
+			// told only whether the buyer paid — never the basket total, and
+			// never the Stripe session, which carries the buyer's billing
+			// address.
+			payment: order.payment && sanitizePayment(order.payment, "seller"),
+			// Order-level refunds include other stores' parcels. A seller sees
+			// refunds against their own slices and nothing else.
+			refunds: order.refunds
+				.filter(
+					(refund) =>
+						refund.vendorOrderId !== null &&
+						mineIds.has(refund.vendorOrderId),
+				)
+				.map((refund) => sanitizeRefund(refund, false)),
 			subtotal: undefined,
 			tax: undefined,
 			shippingCost: undefined,

@@ -7,6 +7,7 @@ const brand_route_1 = require("../modules/brand/brand.route.js");
 const category_route_1 = require("../modules/category/category.route.js");
 const cloudinary_route_1 = require("../modules/cloudinary/cloudinary.route.js");
 const order_route_1 = require("../modules/order/order.route.js");
+const payment_route_1 = require("../modules/payment/payment.route.js");
 const payout_route_1 = require("../modules/payout/payout.route.js");
 const image_route_1 = require("../modules/product-image/image.route.js");
 const variant_route_1 = require("../modules/product-variant/variant.route.js");
@@ -32,6 +33,9 @@ exports.routesArray = [
     { path: "/reviews", element: review_route_1.reviewRouter },
     { path: "/address", element: address_route_1.addressRouter },
     { path: "/orders", element: order_route_1.orderRouter },
+    // Read-only payment views. This is `paymentRouter`, NOT the webhook router
+    // from the same module — see the comment below and payment.route.ts.
+    { path: "/payments", element: payment_route_1.paymentRouter },
     // NOTE: the Stripe webhook is deliberately NOT registered here. It is
     // mounted at /webhook in app.ts, above express.json(), because signature
     // verification needs the raw body. Registering it under /api/v1 would

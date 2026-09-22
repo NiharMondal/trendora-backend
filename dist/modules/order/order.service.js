@@ -17,6 +17,7 @@ const money_1 = require("../../helpers/money.js");
 const refund_1 = require("../../helpers/refund.js");
 const notifications_1 = require("../../helpers/notifications.js");
 const vendor_1 = require("../../helpers/vendor.js");
+const payment_1 = require("../../helpers/payment.js");
 /** Store identity shown next to each slice of an order. */
 /**
  * What `OrderStatusHistory` may leave the server as.
@@ -323,13 +324,29 @@ const getOrderById = async (orderId, actor) => {
         throw new customError_1.default(404, "Order not found");
     }
     const isAdmin = actor.role === prisma_client_1.Role.ADMIN;
-    /** Re-attach each parcel's history, narrowed for this caller. */
-    const withSafeHistory = (slices) => slices.map((slice) => ({
+    /**
+     * Re-attach each parcel's history and refund, narrowed for this caller.
+     *
+     * `refund` is the raw row, which carries `gatewayResponse` and our
+     * `idempotencyKey` — gateway internals nobody outside the platform needs.
+     */
+    const withSafeSlices = (slices) => slices.map((slice) => ({
         ...slice,
         statusHistory: sanitizeStatusHistory(slice.statusHistory, isAdmin),
+        refund: slice.refund
+            ? (0, payment_1.sanitizeRefund)(slice.refund, isAdmin)
+            : slice.refund,
     }));
-    if (isAdmin || order.userId === actor.id) {
-        return { ...order, vendorOrders: withSafeHistory(order.vendorOrders) };
+    if (isAdmin) {
+        return { ...order, vendorOrders: withSafeSlices(order.vendorOrders) };
+    }
+    if (order.userId === actor.id) {
+        return {
+            ...order,
+            vendorOrders: withSafeSlices(order.vendorOrders),
+            payment: order.payment && (0, payment_1.sanitizePayment)(order.payment, "buyer"),
+            refunds: order.refunds.map((refund) => (0, payment_1.sanitizeRefund)(refund, false)),
+        };
     }
     if (actor.role === prisma_client_1.Role.VENDOR) {
         const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
@@ -337,11 +354,23 @@ const getOrderById = async (orderId, actor) => {
         if (mine.length === 0) {
             throw new customError_1.default(404, "Order not found");
         }
+        const mineIds = new Set(mine.map((slice) => slice.id));
         // Narrow to this vendor's slice, and drop the money fields that
         // describe the whole basket.
         return {
             ...order,
-            vendorOrders: withSafeHistory(mine),
+            vendorOrders: withSafeSlices(mine),
+            // One payment covers every store on this order, so a seller is
+            // told only whether the buyer paid — never the basket total, and
+            // never the Stripe session, which carries the buyer's billing
+            // address.
+            payment: order.payment && (0, payment_1.sanitizePayment)(order.payment, "seller"),
+            // Order-level refunds include other stores' parcels. A seller sees
+            // refunds against their own slices and nothing else.
+            refunds: order.refunds
+                .filter((refund) => refund.vendorOrderId !== null &&
+                mineIds.has(refund.vendorOrderId))
+                .map((refund) => (0, payment_1.sanitizeRefund)(refund, false)),
             subtotal: undefined,
             tax: undefined,
             shippingCost: undefined,

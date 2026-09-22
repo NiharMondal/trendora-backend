@@ -9,6 +9,7 @@ import {
     PaymentStatus,
     Prisma,
     RefundStatus,
+    Role,
 } from "@/lib/prisma-client";
 import { consumeCheckoutSession } from "@/helpers/checkout";
 import {
@@ -19,6 +20,8 @@ import { round2 } from "@/helpers/money";
 import { persistOrder } from "@/helpers/create-order";
 import { notifyOrderPlaced } from "@/helpers/notifications";
 import { OrderCalculation } from "@/types/common.types";
+import { buyerPaymentSelect } from "@/helpers/payment";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 
 // Initialize Stripe
 const stripe = new Stripe(envConfig.stripe_secret_key as string, {
@@ -395,6 +398,147 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     await recomputePaymentRefundState(payment.id);
 }
 
+// ---------------------------------------------------------------------- reads
+//
+// The `Payment` row was write-only until now: the webhook created it and
+// nothing ever read it back. These endpoints are deliberately READ-ONLY —
+// payment state is owned by the gateway and reconciled by the webhook and
+// `reconcilePayment`, never set by a client.
+
+type TActor = { id: string; role: string };
+
+/** The caller's own payments, newest first. */
+const findMine = async (actor: TActor, query: Record<string, unknown>) => {
+    const builder = new PrismaQueryBuilder<Prisma.PaymentWhereInput>(query, {
+        model: "Payment",
+    });
+
+    const prismaArgs = builder
+        .withDefaultFilter({ order: { is: { userId: actor.id } } })
+        .filter()
+        .paginate()
+        .sort("createdAt", "desc")
+        .build();
+
+    const [payments, meta] = await Promise.all([
+        prisma.payment.findMany({
+            ...prismaArgs,
+            select: {
+                ...buyerPaymentSelect,
+                order: { select: { id: true, orderNumber: true } },
+            },
+        }),
+        builder.getMeta(prisma.payment),
+    ]);
+
+    return { meta, data: payments };
+};
+
+/**
+ * The payment on one order, for the buyer who placed it or an ADMIN.
+ *
+ * A seller is deliberately not an audience here: one payment covers every
+ * store on the order, so there is no slice of it that belongs to one vendor.
+ * What a seller legitimately needs — has the buyer paid? — is already on their
+ * own parcel read as `order.paymentStatus`.
+ *
+ * 404 rather than 403 for someone else's order, so order ids stay unguessable.
+ */
+const findByOrderId = async (actor: TActor, orderId: string) => {
+    if (actor.role === Role.ADMIN) {
+        const payment = await prisma.payment.findUnique({
+            where: { orderId },
+            include: { refunds: { orderBy: { createdAt: "desc" } } },
+        });
+
+        if (!payment) {
+            throw new CustomError(404, "Payment not found");
+        }
+
+        return payment;
+    }
+
+    const payment = await prisma.payment.findFirst({
+        where: { orderId, order: { is: { userId: actor.id } } },
+        select: {
+            ...buyerPaymentSelect,
+            order: { select: { id: true, orderNumber: true } },
+        },
+    });
+
+    if (!payment) {
+        throw new CustomError(404, "Payment not found");
+    }
+
+    return payment;
+};
+
+/** Every payment, for the admin ledger. `?status=FAILED` narrows it. */
+const findAllForAdmin = async (query: Record<string, unknown>) => {
+    const builder = new PrismaQueryBuilder<Prisma.PaymentWhereInput>(query, {
+        model: "Payment",
+    });
+
+    const prismaArgs = builder
+        .filter()
+        .paginate()
+        .sort("createdAt", "desc")
+        .include({
+            order: {
+                select: {
+                    id: true,
+                    orderNumber: true,
+                    orderStatus: true,
+                    user: { select: { id: true, name: true } },
+                },
+            },
+            _count: { select: { refunds: true } },
+        })
+        .build();
+
+    const [payments, meta] = await Promise.all([
+        prisma.payment.findMany(prismaArgs),
+        builder.getMeta(prisma.payment),
+    ]);
+
+    return { meta, data: payments };
+};
+
+/**
+ * One payment in full, ADMIN only — this is the single place
+ * `gatewayResponse` is returned, and the reason it is kept at all: it is what
+ * an operator reconciles against the Stripe dashboard when the ledger and the
+ * gateway disagree.
+ */
+const findById = async (id: string) => {
+    const payment = await prisma.payment.findUnique({
+        where: { id },
+        include: {
+            refunds: { orderBy: { createdAt: "desc" } },
+            order: {
+                select: {
+                    id: true,
+                    orderNumber: true,
+                    orderStatus: true,
+                    paymentStatus: true,
+                    totalAmount: true,
+                    user: { select: { id: true, name: true } },
+                },
+            },
+        },
+    });
+
+    if (!payment) {
+        throw new CustomError(404, "Payment not found");
+    }
+
+    return payment;
+};
+
 export const paymentServices = {
     handleStripeWebhook,
+    findMine,
+    findByOrderId,
+    findAllForAdmin,
+    findById,
 };
