@@ -42,7 +42,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-09~~ | ~~A customer cannot cancel their own order~~ | ✅ **FIXED** 2026-09-22 | — | orders |
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
 | ~~BE-11~~ | ~~Nothing schedules the refund / checkout sweeps~~ | ✅ **FIXED** 2026-09-22 | — | refunds |
-| BE-12 | No transactional email beyond password reset | P1 | L | notifications |
+| ~~BE-12~~ | ~~No transactional email beyond password reset~~ | ✅ **FIXED** 2026-09-22 | — | notifications |
 | BE-13 | `OrderStatusHistory` is written and never read | P1 | M | orders |
 | BE-14 | `sortBy` is never validated against a column allowlist | P1 | S | query |
 | BE-15 | Four list endpoints have no pagination | P1 | S | query |
@@ -521,31 +521,63 @@ handler yet — that is **BE-18**. Until then a deploy can kill a sweep mid-flig
 
 ---
 
-### BE-12 · No transactional email beyond password reset
-**P1 · L · notifications**
+### ~~BE-12~~ · No transactional email beyond password reset
+**✅ FIXED — 2026-09-22 · notifications**
 
-**Now:** the transport exists and is reusable — **this half is done.**
-`src/utils/sendEmail.ts` owns the single pooled nodemailer transport and exposes
-`sendEmail` (throws) and `sendEmailSafely` (logs and returns `false`), plus `isEmailConfigured`
-so an environment with no SMTP credentials skips mail instead of failing the request that
-triggered it. Bodies live in `src/utils/email-templates.ts`, one exported function per message
-returning `{ subject, html, text }`, so a caller cannot forget the plain-text fallback.
+**Was:** the transport existed (from BE-01) but only the two password templates used it. No order
+confirmation, no shipping notice, no refund confirmation, no vendor decision, no payout notice — a
+seller learned about a new order only by opening the dashboard.
 
-Two templates exist, both wired into the password-reset flow (BE-01): `passwordResetEmail` and
-`passwordChangedEmail`.
+**Now:** six more templates in `src/utils/email-templates.ts`, wired through a new
+`src/helpers/notifications.ts`:
 
-**Gap:** every *other* notification is still missing. No order confirmation, no shipping notice,
-no refund confirmation, no vendor application decision, no payout notice. A seller still learns
-about a new order only by opening the dashboard.
+| event | who is told | hook point |
+| --- | --- | --- |
+| Order placed | buyer (whole order) **and** each seller (their parcel only) | `createCODOrder`, and the Stripe webhook after `persistOrder` |
+| Parcel SHIPPED / DELIVERED / CANCELED | buyer | `updateVendorOrderStatus` |
+| Refund SUCCEEDED | buyer | `updateVendorOrderStatus`, after `processRefund` |
+| Store approved / rejected | store owner | `approveVendor` / `rejectVendor` |
+| Payout marked paid | store owner | `markPaid` |
 
-**Fix:** Add a template per event and call `sendEmailSafely` from the existing hook points:
-`persistOrder` (`src/helpers/create-order.ts`), the vendor-order status transition,
-`processRefund`, the vendor approve/reject handlers, and the payout mark-paid path. Keep using
-`sendEmailSafely` rather than `sendEmail` — a mail outage must not roll back a committed
-transaction, the same reasoning that keeps the gateway call outside the transaction in
-`src/helpers/refund.ts`.
+**`notifications.ts` exists so services stay clean.** Each service calls one function with an id;
+that module does the reading, picks the template and sends. Two rules hold it together, and both
+are enforced in one place rather than remembered at five call sites:
 
-There is still no *in-app* notification model; that remains unstarted.
+1. **Never throw.** Every function is wrapped in `notify()`, which turns any failure into a log
+   line. An order that is already committed is not un-placed because a confirmation email bounced.
+2. **Never call from inside a `$transaction`.** These read from the database and talk to SMTP;
+   doing that inside a transaction holds it open across network round trips. Every hook point is
+   *after* the commit — the same reasoning that keeps the gateway call out of the refund
+   transaction.
+
+Judgement calls worth knowing:
+- **`PROCESSING` sends nothing.** Only SHIPPED, DELIVERED and CANCELED reach the buyer; mailing an
+  internal step is noise.
+- **A cancellation only promises a refund when one exists.** `refundExpected` is driven by whether
+  a `Refund` row was actually created, so a cancelled COD or unpaid parcel does not tell the buyer
+  money is coming when it is not.
+- **Sellers see their own parcel only**, never the whole order.
+- Money is formatted USD, matching the storefront's hardcoded `currencyFormatter`. If
+  multi-currency ever lands, `money()` in `email-templates.ts` is one of the places that must learn
+  about it.
+
+**Verified** against the dev database, with SMTP deliberately unconfigured so every send was logged
+instead of delivered:
+- A real COD order produced exactly two messages — `"Trendora order ORD-… confirmed"` to
+  `customer@trendora.test` and `"New order for Urban Threads — ORD-…-V01"` to
+  `vendor1@trendora.test`.
+- The same parcel at `PENDING` sent **nothing**; forced to `SHIPPED` it sent
+  `"Your parcel is on its way"` with the tracking number and carrier.
+- Store approve and reject sent the right subjects to the owner.
+- A missing payout and a missing refund were silent no-ops; a bogus order id did not throw.
+- Every template was rendered and read end to end, which caught a real formatting bug: a
+  `.filter(Boolean)` intended to drop an optional trailing note was stripping **every** blank line
+  from the plain-text bodies. Fixed in four templates by spreading optional pieces conditionally.
+- Probe order removed afterwards and product stock restored to 300.
+
+**Still open:** there is no *in-app* notification model — nothing is persisted, so a user who
+misses an email has no second channel. Low-stock alerts to sellers and an order-confirmation to
+guests (there is no guest checkout yet) are the obvious next additions.
 
 ---
 

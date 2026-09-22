@@ -160,11 +160,26 @@ public. The rules that hold it together, none of which are optional:
 Bodies live in `src/utils/email-templates.ts` — one exported function per message returning
 `{ subject, html, text }`, so no caller can forget the plain-text fallback or invent a subject.
 
-Adding a notification is a template plus one `sendEmailSafely` call. **Prefer
-`sendEmailSafely` for anything that reports on already-committed work** — an order confirmation
-must not fail the order. Same reasoning as keeping the gateway call outside the refund
-transaction. Requires `EMAIL` / `PASSWORD` (a Gmail *app password*); with them unset, mail is
-skipped and logged rather than throwing.
+Requires `EMAIL` / `PASSWORD` (a Gmail *app password*); with them unset, mail is skipped and
+logged rather than throwing.
+
+**`src/helpers/notifications.ts` decides who gets told what.** Services call one function with an
+id (`notifyOrderPlaced(orderId)`, `notifyVendorOrderStatusChanged(vendorOrderId)`, …) and that
+module does the reading, picks the template and sends. Adding a notification is a template plus one
+entry there — not a new `include` tree in a service.
+
+Two rules, both absolute:
+
+1. **Never throw.** Everything is wrapped in `notify()`, which turns failures into a log line. An
+   order that is already committed is not un-placed because a confirmation email bounced.
+2. **Never call from inside a `$transaction`.** These read from the database and talk to SMTP;
+   doing that inside a transaction holds it open across network round trips. Every hook point is
+   *after* the commit — the same reasoning that keeps the gateway call outside the refund
+   transaction.
+
+Wired today: order placed (buyer + each seller, their own parcel only), parcel SHIPPED / DELIVERED
+/ CANCELED, refund SUCCEEDED, store approved / rejected, payout paid. `PROCESSING` deliberately
+sends nothing, and a cancellation only promises a refund when a `Refund` row actually exists.
 
 ## The marketplace model
 

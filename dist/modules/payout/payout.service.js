@@ -10,6 +10,7 @@ const money_1 = require("../../helpers/money.js");
 const vendor_1 = require("../../helpers/vendor.js");
 const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 const customError_1 = __importDefault(require("../../utils/customError.js"));
+const notifications_1 = require("../../helpers/notifications.js");
 /**
  * Vendor payouts.
  *
@@ -143,7 +144,7 @@ const markPaid = async (payoutId, payload) => {
     if (payout.status === prisma_client_1.PayoutStatus.PAID) {
         throw new customError_1.default(400, "This payout is already marked as paid");
     }
-    return db_1.prisma.payout.update({
+    const paid = await db_1.prisma.payout.update({
         where: { id: payoutId },
         data: {
             status: prisma_client_1.PayoutStatus.PAID,
@@ -154,6 +155,8 @@ const markPaid = async (payoutId, payload) => {
             processedAt: new Date(),
         },
     });
+    await (0, notifications_1.notifyPayoutPaid)(payoutId);
+    return paid;
 };
 /**
  * Settlement failed at the bank. The attached earnings are released back to

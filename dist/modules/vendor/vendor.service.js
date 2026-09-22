@@ -13,6 +13,7 @@ const vendor_1 = require("../../helpers/vendor.js");
 const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 const cloudinary_1 = require("../../utils/cloudinary.js");
 const customError_1 = __importDefault(require("../../utils/customError.js"));
+const notifications_1 = require("../../helpers/notifications.js");
 /**
  * Promotes a Cloudinary temp upload into its final folder.
  *
@@ -269,7 +270,7 @@ const approveVendor = async (vendorId) => {
     if (vendor.status === prisma_client_1.VendorStatus.APPROVED) {
         throw new customError_1.default(400, "This store is already approved");
     }
-    return db_1.prisma.$transaction(async (tx) => {
+    const approved = await db_1.prisma.$transaction(async (tx) => {
         if (vendor.owner.auth && vendor.owner.auth.role !== prisma_client_1.Role.ADMIN) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
@@ -287,6 +288,11 @@ const approveVendor = async (vendorId) => {
             },
         });
     });
+    // After the commit. The seller can now reach their dashboard immediately —
+    // `authGuard` reads the role from the database (BE-07), so the mail is not
+    // promising something their old token cannot do.
+    await (0, notifications_1.notifyVendorApplicationDecision)(vendorId, true);
+    return approved;
 };
 /** Reject an application and hand the role back to CUSTOMER. */
 const rejectVendor = async (vendorId, payload) => {
@@ -297,7 +303,7 @@ const rejectVendor = async (vendorId, payload) => {
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
     }
-    return db_1.prisma.$transaction(async (tx) => {
+    const rejected = await db_1.prisma.$transaction(async (tx) => {
         if (vendor.owner.auth && vendor.owner.auth.role === prisma_client_1.Role.VENDOR) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
@@ -318,6 +324,9 @@ const rejectVendor = async (vendorId, payload) => {
             },
         });
     });
+    // After the commit, so the mail can quote the stored rejection reason.
+    await (0, notifications_1.notifyVendorApplicationDecision)(vendorId, false);
+    return rejected;
 };
 /**
  * Suspend a live store.

@@ -10,6 +10,7 @@ import { round2, toNumber } from "@/helpers/money";
 import { requireApprovedVendor } from "@/helpers/vendor";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import CustomError from "@/utils/customError";
+import { notifyPayoutPaid } from "@/helpers/notifications";
 import {
     TGeneratePayout,
     TMarkPayoutFailed,
@@ -191,7 +192,7 @@ const markPaid = async (payoutId: string, payload: TMarkPayoutPaid) => {
         throw new CustomError(400, "This payout is already marked as paid");
     }
 
-    return prisma.payout.update({
+    const paid = await prisma.payout.update({
         where: { id: payoutId },
         data: {
             status: PayoutStatus.PAID,
@@ -202,6 +203,10 @@ const markPaid = async (payoutId: string, payload: TMarkPayoutPaid) => {
             processedAt: new Date(),
         },
     });
+
+    await notifyPayoutPaid(payoutId);
+
+    return paid;
 };
 
 /**

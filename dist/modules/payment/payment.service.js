@@ -14,6 +14,7 @@ const checkout_1 = require("../../helpers/checkout.js");
 const refund_1 = require("../../helpers/refund.js");
 const money_1 = require("../../helpers/money.js");
 const create_order_1 = require("../../helpers/create-order.js");
+const notifications_1 = require("../../helpers/notifications.js");
 // Initialize Stripe
 const stripe = new stripe_1.default(env_config_1.envConfig.stripe_secret_key, {
     apiVersion: "2025-07-30.basil",
@@ -134,6 +135,10 @@ async function handleCheckoutSessionCompleted(session) {
             });
         });
         console.log(`Order ${order.orderNumber} created with ${order.vendorOrders.length} vendor order(s)`);
+        // Outside the transaction above. Non-fatal: a webhook that already
+        // created the order must not be retried by Stripe because an email
+        // bounced.
+        await (0, notifications_1.notifyOrderPlaced)(order.id);
     }
     catch (error) {
         // A concurrent delivery won the race — that is success, not failure.

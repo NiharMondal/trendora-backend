@@ -27,6 +27,10 @@ import {
 import { round2, toNumber } from "@/helpers/money";
 import { processRefund, recordRefundIntent } from "@/helpers/refund";
 import {
+	notifyRefundProcessed,
+	notifyVendorOrderStatusChanged,
+} from "@/helpers/notifications";
+import {
 	assertVendorOwnsVendorOrder,
 	requireApprovedVendor,
 } from "@/helpers/vendor";
@@ -716,7 +720,12 @@ const updateVendorOrderStatus = async (
 	// would tell the caller the cancel did not happen, which is false.
 	if (refundId) {
 		await processRefund(refundId);
+		// Only fires if the refund actually SUCCEEDED; the helper checks.
+		await notifyRefundProcessed(refundId);
 	}
+
+	// The parcel moved. Non-fatal, and outside the transaction above.
+	await notifyVendorOrderStatusChanged(vendorOrderId);
 
 	// Re-read so the caller sees the payment status the refund produced
 	// (PARTIALLY_REFUNDED / REFUNDED) rather than the pre-refund value.
