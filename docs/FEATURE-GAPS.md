@@ -32,8 +32,10 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-01~~ | ~~`forgot-password` hands a valid JWT to any caller~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | ~~BE-02~~ | ~~IDOR — any user can read/edit/delete any address~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | ~~BE-03~~ | ~~IDOR — any user can read/delete any wishlist row~~ | ✅ **FIXED** 2026-09-22 | — | security |
-| BE-04 | `POST /cloudinary/delete-temp` is unauthenticated | P0 | S | security |
-| BE-05 | No rate limiting, helmet, body cap or request logging | P0 | M | security |
+| BE-04 | `POST /cloudinary/delete-temp` is unauthenticated | P2 | S | security |
+| BE-41 | A failed temp promotion leaves a live image publicly deletable | P1 | M | media |
+| BE-42 | The unsigned Cloudinary preset is an open upload endpoint | P1 | M | media |
+| ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | BE-07 | `authGuard` trusts the role in the JWT, not the DB | P0 | S | security |
 | BE-08 | `PATCH /users/my-profile-update` has no validation | P0 | S | security |
@@ -207,43 +209,63 @@ visibility rule every other read applies.
 
 ---
 
-### BE-04 · `POST /cloudinary/delete-temp` is completely unauthenticated
-**P0 · S · security**
+### ~~BE-05~~ · No rate limiting, helmet, body-size cap or request logging
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/modules/cloudinary/cloudinary.route.ts:7` registers an inline handler with **no
-`authGuard` and no `validateRequest`**. The only check is `publicId.includes("/temp/")` at `:10`.
-The module has no controller, service or validation file — the logic lives in the route.
+**Was:** `src/app.ts` was the Stripe webhook, a bare `express.json()` and `cors`. No throttling on
+`/auth/login` or `/auth/forgot-password`, no security headers, no body cap, and no request log to
+investigate an incident with.
 
-**Gap:** Anyone on the internet can delete any Cloudinary asset whose public id contains `/temp/`.
-A path substring is a naming convention, not an authorization decision. Separately, `publicId` is
-read straight off `req.body`, so a request without it throws a TypeError on `.includes` and
-returns a 500.
+**Now:** the stack in `src/app.ts` is, in order — and the order is load-bearing:
 
-**Fix:** Guard it with `authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)` — only a signed-in user
-is mid-upload — and add a Zod schema requiring `publicId`. Keep the `/temp/` check as a second
-line of defence; the frontend relies on that guard too
-(`frontend/src/shared/lib/delete-temp-image.ts`). While here, give the module the standard
-route/controller/service/validation shape.
+| # | Middleware | Why it sits there |
+| --- | --- | --- |
+| 1 | `trust proxy` (only when `TRUST_PROXY > 0`) | per-IP limits need the real client address |
+| 2 | `helmet({ contentSecurityPolicy: false })` | CSP governs what a *document* may load; this process serves only JSON |
+| 3 | `cors` | **must precede the limiter** — a 429 is still cross-origin, and without these headers the browser reports an opaque CORS failure instead of the real message |
+| 4 | `morgan` | above everything it should see, including the webhook and rejected requests |
+| 5 | `/webhook` | unchanged: above `express.json()` for raw bytes, and **deliberately above the limiter** so Stripe retries are never throttled |
+| 6 | `express.json({ limit })` | body cap, default `1mb` |
+| 7 | `apiLimiter` + `/api/v1` | scoped to the API so the webhook stays exempt |
 
----
+Limiters live in `src/middleware/rateLimiter.ts`, all per-IP over a 15-minute window:
 
-### BE-05 · No rate limiting, helmet, body-size cap or request logging
-**P0 · M · security**
+- **`apiLimiter`** — 1000 req, whole API. Generous on purpose: this stops scraping and floods, it
+  is not there to shape normal browsing.
+- **`loginLimiter`** — 10, with `skipSuccessfulRequests`. Only **failed** attempts count, so a real
+  user is never locked out by their own logins while credential stuffing burns the budget in
+  seconds.
+- **`sensitiveAuthLimiter`** — 10, counting every request, on `/register`, `/forgot-password` and
+  `/reset-password`, where a *successful* call is itself the cost. This is the IP-level counterpart
+  to the per-account cooldown in `forgotPassword` (BE-01): that stops one address being mail-bombed,
+  this stops one client walking a list of addresses.
 
-**Now:** `src/app.ts:8-20` is the entire middleware stack: the Stripe webhook, `express.json()`
-with no options, and `cors`. There is no `express-rate-limit`, no `helmet`, no morgan/pino in
-`package.json:26-54`.
+**Applied per endpoint, not to the whole auth router.** `/refresh-token` is called by every
+signed-in browser roughly every 20 minutes and `/oauth-login` on every Google sign-in; throttling
+those at credential-guessing rates would break sessions for everyone behind one NAT. Only actual
+attack surface is limited — see the note in `src/modules/auth/auth.route.ts`.
 
-**Gap:**
-- `POST /auth/login`, `/auth/register` and `/auth/forgot-password` can be hit without limit —
-  credential stuffing and enumeration (BE-01) are unthrottled.
-- `express.json()` with no `{ limit }` accepts an arbitrarily large body.
-- No security headers.
-- No request log, so there is no way to investigate an incident after the fact.
+All budgets, the body cap and `TRUST_PROXY` are env-tunable (`.env.example` → `# security`).
 
-**Fix:** Add `helmet()`, `express.json({ limit: "1mb" })`, a global limiter plus a much tighter one
-on the `/auth` router, and a structured request logger. All four are middleware-stack additions in
-`src/app.ts` above `rootRouter` — the Stripe webhook at `:12` must stay first.
+**Verified** against the running server:
+- Headers present (`Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Cross-Origin-*`) plus `RateLimit-Policy` / `RateLimit`.
+- **12 consecutive successful logins all returned 200** and consumed no budget; failed logins then
+  tripped 429 on schedule. The 429 carries `Access-Control-Allow-Origin` and the standard
+  `{ success:false, message, errorDetails }` envelope.
+- `/forgot-password` blocked at 11; `/register` shares that budget; `/login` and `/refresh-token`
+  have their own and were unaffected; general API traffic unaffected.
+- 2 MB body → **413 "request entity too large"**; normal bodies unaffected.
+- `POST /webhook` reachable, carries **no** `RateLimit` header, and still fails signature
+  verification correctly — proof it is still receiving raw bytes.
+- Full smoke test (register, login, profile, products, categories, slides, vendors, address CRUD,
+  wishlist CRUD, 404, 401) all green.
+
+**Still open:** the limiter uses the default **in-memory store**, so budgets are per-process and
+reset on restart. Fine for one instance; behind more than one you need a shared store (Redis) or
+each instance enforces its own budget. `TRUST_PROXY` must be set correctly before deploying behind
+a load balancer — too low and one noisy client throttles everyone, too high and `X-Forwarded-For`
+can be spoofed to dodge the limit.
 
 ---
 
@@ -578,7 +600,108 @@ nested `{ user, auth }` either (XR-05), so both can be settled in one change.
 
 ---
 
+### BE-41 · A failed temp promotion leaves a live image publicly deletable
+**P1 · M · media**
+
+**This is the real problem behind BE-04.** Verified against the live dev database.
+
+Uploads land in `trendora/temp/<folder>/` and `moveFromTemp` (`src/utils/cloudinary.ts:14-25`)
+renames them out of `temp/` on save. When that rename does not happen, the product is still saved
+and can still be approved and published — with its image left in `temp/`:
+
+```
+product  : Nike White Beautiful eye catching shoes   (APPROVED, isPublished, not deleted)
+publicId : trendora/temp/products/nejm6r1gqmvtbfcf6bxt
+url      : https://res.cloudinary.com/coders-nihar/image/upload/v1776873625/
+           trendora/temp/products/nejm6r1gqmvtbfcf6bxt.jpg
+```
+
+**1 of the 11 app-uploaded product images is in this state.**
+
+The consequence is what makes BE-04 matter at all. The `/temp/` check is the only thing standing
+between an anonymous caller and `cloudinary.uploader.destroy` — and a stuck image is *served on the
+storefront*, so its publicId is sitting in plain sight inside the `<img src>`. Anyone who opens that
+product page can read it and POST it to `/cloudinary/delete-temp`, unauthenticated, and the live
+image is gone. The guard protects images whose promotion **worked**; it fails precisely for the ones
+that did not.
+
+Contributing bug: `moveFromTemp` does `tempPublicId.replace("/temp", "/")`, which turns
+`trendora/temp/products/x` into `trendora//products/x` — a double slash. It currently works only
+because Cloudinary normalises consecutive slashes on rename. It also replaces the *first* match of
+`/temp` rather than a bounded path segment.
+
+**Fix:**
+- Make a save fail loudly when promotion fails, instead of persisting a `temp/` publicId. A listing
+  should never reach APPROVED + published with an asset still in `temp/`.
+- Replace the string surgery with an explicit path rebuild (strip the `temp` **segment**, not the
+  first `/temp` substring).
+- Repair the existing row — re-upload through the product edit form, or rename it in the Cloudinary
+  console — and add a check that fails if any `ProductImage.publicId` still contains `/temp/`.
+
+---
+
+### BE-42 · The unsigned Cloudinary preset is an open upload endpoint
+**P1 · M · media**
+
+**Now:** the frontend uploads straight to Cloudinary with an unsigned preset
+(`frontend/src/shared/utils/upload-to-cloudinary.ts:1-23`). Both
+`NEXT_PUBLIC_CLOUDINARY_PRESET_NAME` and `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` are `NEXT_PUBLIC_`,
+so they ship in the client bundle and anyone can read them from devtools.
+
+**Gap:** that is an unauthenticated, unrate-limited upload endpoint into your Cloudinary account,
+open to the whole internet. It costs storage and bandwidth on your bill, and it means the account
+can be used to host arbitrary third-party content under your cloud name. This is a bigger exposure
+than BE-04 — upload is open to *everyone*, whereas the delete needs a publicId that is ~20 chars of
+Cloudinary randomness and is not published anywhere (except in the BE-41 case).
+
+**Fix, cheapest first:**
+1. In the Cloudinary console, constrain the preset: max file size, images-only formats, and a
+   folder restriction. Minutes of work, no code.
+2. Enable auto-delete on the preset so abandoned `temp/` uploads expire on their own — nothing in
+   `src/` ever sweeps them, so today every abandoned form leaves an orphan forever.
+3. The real fix is **signed uploads**: the backend issues a short-lived signature, the frontend
+   uploads with it. That closes this, and it also makes `/cloudinary/delete-temp` naturally
+   authenticated, which resolves BE-04 as a side effect.
+
+---
+
 ## P2 — cleanup, and features never started
+
+### BE-04 · `POST /cloudinary/delete-temp` is unauthenticated
+**P2 · S · security** — _downgraded from P0 on 2026-09-22 after re-assessment._
+
+**Now:** `src/modules/cloudinary/cloudinary.route.ts:7` registers an inline handler with no
+`authGuard` and no `validateRequest`. The only check is `publicId.includes("/temp/")` at `:10`.
+
+**Why this is P2, not P0.** The original rating assumed "unauthenticated delete of Cloudinary
+assets" meant live assets were reachable. They are not, in normal operation: only publicIds
+containing `/temp/` are accepted, temp assets are unsaved in-flight uploads, and their publicIds are
+~20 characters of Cloudinary randomness (`nejm6r1gqmvtbfcf6bxt`) that appear in no public URL. There
+is nothing to enumerate and nothing to discover, so an attacker would have to already know a
+publicId — which effectively means they uploaded it.
+
+The case where that breaks down is **BE-41**, where a stuck image is live on the storefront and its
+publicId is readable from the `<img src>`. Fix BE-41 and this endpoint's residual risk is close to
+nil.
+
+**Note that adding `authGuard` alone would break the app.** `deleteTempImage`
+(`frontend/src/shared/lib/delete-temp-image.ts:5-11`) is a raw `fetch` sending only
+`Content-Type` — it is one of the two deliberate exceptions to "all server data goes through RTK
+Query", so it never picks up the token injection in `base-api.ts`. Guarding the route without also
+sending `session.accessToken` from the frontend turns every image replace and remove into a silent
+401. This is a two-sided change or nothing.
+
+**Fix (worth doing, low urgency):**
+- `publicId` is read straight off `req.body` with no null check, so a request without it throws a
+  TypeError on `.includes` and returns a 500. Guard it, or give the route the `validateRequest`
+  schema the module never got.
+- Tighten `includes("/temp/")` to `startsWith("trendora/temp/")` — strictly narrower, costs nothing.
+- Give the module the standard route/controller/service/validation shape; today the logic is inline
+  in the route and there is no service file (BE-26).
+- Authentication itself is best handled by **BE-42**'s signed-upload migration rather than bolted on
+  here.
+
+---
 
 ### BE-23 · SSLCommerz is a dead dependency and dead config
 **P2 · S · cleanup**

@@ -43,7 +43,21 @@ Note the codebase is inconsistent here: `src/helpers/order.ts` imports `Prisma` 
 
 All feature routers are registered in **`src/routes/routes-array.ts`** as `{ path, element }` entries. To add a module, create it under `src/modules/<name>/` and add one line to this array. Multiple routers can share a base path (e.g. `/products` is served by `productRouter`, `variantRouter`, and `productImageRouter`).
 
-Middleware ordering in `app.ts` matters: the **Stripe webhook is mounted at `/webhook` before `express.json()`** so it receives the raw body (`express.raw`). Everything else parses JSON. `notFoundRoute` and `globalErrorHandler` are last.
+**Middleware ordering in `app.ts` is load-bearing.** In order: `trust proxy` → `helmet` → `cors` →
+`morgan` → `/webhook` → `express.json({ limit })` → `apiLimiter` + `/api/v1` → `notFoundRoute` →
+`globalErrorHandler`. Three of those positions are deliberate:
+
+- The **Stripe webhook is mounted at `/webhook` before `express.json()`** so it receives the raw
+  body (`express.raw`). It is also above `apiLimiter` and outside `/api/v1`, so **Stripe's retries
+  are never throttled** — a dropped retry loses an order or leaves a refund unreconciled.
+- **`cors` must precede the rate limiter.** A 429 is still a cross-origin response; without CORS
+  headers already attached the browser reports an opaque CORS failure instead of the real message.
+- **`morgan` sits above the webhook and the limiter**, so both appear in the log.
+
+Rate limiters are in `src/middleware/rateLimiter.ts` and are applied **per endpoint** in
+`auth.route.ts`, never to the whole router: `/refresh-token` fires for every signed-in browser every
+~20 minutes, so throttling it at credential-guessing rates would break sessions for everyone behind
+one NAT. `loginLimiter` uses `skipSuccessfulRequests` so only *failed* logins count.
 
 The webhook router serves **both `POST /webhook` and `POST /webhook/stripe`**. It is deliberately NOT in `routes-array.ts`: registering it under `/api/v1` would expose a second path whose body `express.json()` has already consumed, so every signature check on it would fail. (That duplicate existed at `/api/v1/payments/stripe` and has been removed.)
 

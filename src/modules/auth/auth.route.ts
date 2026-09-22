@@ -3,18 +3,33 @@ import { authControllers } from "./auth.controller";
 import { validateRequest } from "../../middleware/validateRequest";
 import { authSchema } from "./auth.validation";
 import { authGuard } from "../../middleware/authGuard";
+import {
+	loginLimiter,
+	sensitiveAuthLimiter,
+} from "../../middleware/rateLimiter";
 import { Role } from "../../../generated/prisma";
 
 const router = Router();
 
+/**
+ * The limiters are applied per endpoint rather than to the whole router on
+ * purpose. `/refresh-token` is called by every signed-in browser roughly every
+ * 20 minutes, and `/oauth-login` on every Google sign-in — throttling those at
+ * credential-guessing rates would break sessions for everyone behind one NAT.
+ * Only the endpoints that are actually attack surface are limited.
+ */
 router.post(
     "/register",
+    sensitiveAuthLimiter,
     validateRequest(authSchema.registerUser),
     authControllers.registerUser
 );
 
+// `loginLimiter` skips successful requests, so a real user is never locked out
+// by their own logins while a stuffing run burns the budget in seconds.
 router.post(
     "/login",
+    loginLimiter,
     validateRequest(authSchema.login),
     authControllers.loginUser
 );
@@ -46,12 +61,14 @@ router.post("/refresh-token", authControllers.refreshToken);
  */
 router.post(
 	"/forgot-password",
+	sensitiveAuthLimiter,
 	validateRequest(authSchema.forgotPassword),
 	authControllers.forgotPassword,
 );
 
 router.post(
 	"/reset-password",
+	sensitiveAuthLimiter,
 	validateRequest(authSchema.resetPassword),
 	authControllers.resetPassword,
 );
