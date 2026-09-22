@@ -23,6 +23,18 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
         data: slides,
     });
 });
+
+/** ADMIN listing — includes slides the operator has deactivated. */
+const findAllForAdmin = asyncHandler(async (req: Request, res: Response) => {
+    const { slides, meta } = await slideServices.findAllForAdmin(req.query);
+
+    sendResponse(res, {
+        statusCode: 200,
+        message: "Slide fetched successfully",
+        meta: meta,
+        data: slides,
+    });
+});
 const findById = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
     const data = await slideServices.findById(id);
@@ -58,6 +70,7 @@ const deleteData = asyncHandler(async (req: Request, res: Response) => {
 export const slideControllers = {
     createIntoDB,
     findAllFromDB,
+    findAllForAdmin,
     findById,
     updateData,
     deleteData,

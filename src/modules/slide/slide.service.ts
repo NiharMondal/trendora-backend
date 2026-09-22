@@ -20,18 +20,29 @@ const createIntoDB = async (payload: Slide) => {
  *
  * `isActive` and `sortOrder` are still not applied — that is BE-16.
  */
-const findAllFromDB = async (query: Record<string, unknown>) => {
+/**
+ * Runs a slide list query.
+ *
+ * `Slide` has no relations, so Prisma's `findMany` args have no `include` key
+ * at all — the builder's is destructured away.
+ */
+const listSlides = async (
+	query: Record<string, unknown>,
+	defaultFilter: Prisma.SlideWhereInput,
+) => {
 	const builder = new PrismaQueryBuilder<Prisma.SlideWhereInput>(query, {
 		model: "Slide",
 	});
 
-	// `Slide` has no relations, so Prisma's findMany args have no `include`
-	// key at all — drop the builder's before handing them over.
 	const { include: _include, ...prismaArgs } = builder
-		.withDefaultFilter({ isDeleted: false })
+		.withDefaultFilter(defaultFilter)
+		.search(["title", "subtitle"])
 		.filter()
 		.paginate()
-		.sort()
+		// `sortOrder` is the whole point of the column: it is the operator's
+		// chosen display order, so it is the default sort rather than
+		// `createdAt`. A caller can still override with `?sortBy=`.
+		.sort("sortOrder", "asc")
 		.build();
 
 	const [slides, meta] = await Promise.all([
@@ -41,6 +52,27 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 
 	return { meta, slides };
 };
+
+/**
+ * The storefront's slides. **Public**, so `isActive` is a hard filter rather
+ * than a default a caller could override — otherwise `?isActive=false` would
+ * hand anyone the banners an operator had deliberately taken down.
+ *
+ * Admins list the full set, including deactivated ones, via
+ * `findAllForAdmin` — the same split as `GET /products` vs
+ * `/products/admin/all`.
+ */
+const findAllFromDB = async (query: Record<string, unknown>) =>
+	listSlides(query, { isDeleted: false, isActive: true });
+
+/**
+ * ADMIN listing: every slide that has not been deleted, active or not.
+ *
+ * Without this, deactivating a slide would make it unreachable — the public
+ * list hides it and there would be no other way to find it again.
+ */
+const findAllForAdmin = async (query: Record<string, unknown>) =>
+	listSlides(query, { isDeleted: false });
 
 const findById = async (id: string) => {
 	const slide = await prisma.slide.findUniqueOrThrow({
@@ -81,6 +113,7 @@ const deleteData = async (id: string) => {
 export const slideServices = {
 	createIntoDB,
 	findAllFromDB,
+	findAllForAdmin,
 	findById,
 	updateData,
 	deleteData,

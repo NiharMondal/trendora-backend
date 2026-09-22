@@ -46,7 +46,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-13~~ | ~~`OrderStatusHistory` is written and never read~~ — **premise was wrong**; it leaked instead | ✅ **FIXED** 2026-09-22 | — | privacy |
 | ~~BE-14~~ | ~~`sortBy` is never validated against a column allowlist~~ | ✅ **FIXED** 2026-09-22 | — | query |
 | ~~BE-15~~ | ~~Four list endpoints have no pagination~~ | ✅ **FIXED** 2026-09-22 | — | query |
-| BE-16 | `GET /slides` ignores its own `isActive` / `sortOrder` | P1 | S | content |
+| ~~BE-16~~ | ~~`GET /slides` ignores its own `isActive` / `sortOrder`~~ | ✅ **FIXED** 2026-09-22 | — | content |
 | BE-17 | No health check endpoint | P1 | S | ops |
 | BE-18 | No graceful shutdown; server lies about the DB | P1 | S | ops |
 | BE-19 | No env validation at boot | P1 | S | ops |
@@ -740,18 +740,43 @@ an `include`. That half is **BE-20**; only the pagination half belonged here.
 
 ---
 
-### BE-16 · `GET /slides` ignores its own `isActive` and `sortOrder`
-**P1 · S · content**
+### ~~BE-16~~ · `GET /slides` ignores its own `isActive` and `sortOrder`
+**✅ FIXED — 2026-09-22 · content**
 
-**Now:** `src/modules/slide/slide.service.ts:13-22` hardcodes `take: 4` and applies neither
-`isActive`, `isDeleted` nor `sortOrder`, all of which exist on the model
-(`prisma/schema.prisma:652-654`).
+**Was:** `isActive` and `sortOrder` existed on the model and were applied by nothing, so an
+operator could neither hide nor reorder a hero slide. (The hardcoded `take: 4` and the missing
+`isDeleted` filter were dealt with in BE-15.)
 
-**Gap:** An operator cannot deactivate or reorder a hero slide; the columns are decorative. The
-storefront always gets the same arbitrary four.
+**Now:**
+- **Ordered by `sortOrder` ascending** by default rather than `createdAt`. That column is the
+  operator's chosen display order — it is the whole reason it exists. `?sortBy=` still overrides.
+- **`isActive: true` is a hard filter on the public list**, not an overridable default. `GET /slides`
+  has **no `authGuard`**, and the builder AND-s its default filter with query-param filters, so a
+  soft default would have let `?isActive=false` hand anyone the banners an operator had
+  deliberately taken down.
 
-**Fix:** Filter on `isActive: true, isDeleted: false` and order by `sortOrder`. Related frontend
-gap: there is no admin screen to manage slides at all (**FE-14**).
+**That created a trap, so it comes with an admin listing.** With `isActive` hard-filtered,
+deactivating a slide would make it unreachable — hidden from the public list with no other way to
+find it again. `GET /slides/admin/all` (ADMIN) lists every non-deleted slide, active or not. This
+is the same split the codebase already uses for `GET /products` vs `/products/admin/all`, and the
+route is registered **above `/:id`** or Express matches `"admin"` as an id.
+
+Both listings also gained `?search=` on title and subtitle.
+
+**Verified** against the dev database, with the three seeded slides given a `sortOrder` that
+deliberately **disagrees with `createdAt`** and one deactivated:
+- Public list returned `Everyday basics(10) | Built to run(20)` — the *reverse* of creation order,
+  which is what proves `sortOrder` is actually driving it rather than coinciding.
+- `?sortBy=sortOrder:desc` flipped it.
+- The deactivated slide was absent, and **`?isActive=false` returned nothing** — the public
+  endpoint cannot be coaxed into revealing it.
+- `GET /slides/admin/all` returned all three including the deactivated one; without a token it
+  returns 401; and `/admin/all` is not swallowed by `/:id`.
+- Slides restored to their seeded order afterwards.
+
+**Related:** there is still no admin screen to manage slides (**FE-14**) — the API it needs now
+exists, including the create/update/delete routes that were already there and the listing that was
+missing.
 
 ---
 
