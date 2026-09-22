@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.expireStaleCheckoutSessions = exports.cancelCheckoutSession = exports.consumeCheckoutSession = exports.attachStripeSession = exports.createCheckoutSession = void 0;
+exports.expireStaleCheckoutSessions = exports.consumeCheckoutSession = exports.attachStripeSession = exports.createCheckoutSession = void 0;
 const prisma_client_1 = require("../lib/prisma-client.js");
 const db_1 = require("../config/db.js");
 const env_config_1 = require("../config/env-config.js");
@@ -70,15 +70,9 @@ const consumeCheckoutSession = async (tx, checkoutSessionId) => {
     };
 };
 exports.consumeCheckoutSession = consumeCheckoutSession;
-/** Marks a draft as abandoned (buyer hit cancel on the Stripe page). */
-const cancelCheckoutSession = async (orderNumber) => db_1.prisma.checkoutSession.updateMany({
-    where: { orderNumber, status: prisma_client_1.CheckoutSessionStatus.PENDING },
-    data: { status: prisma_client_1.CheckoutSessionStatus.CANCELED },
-});
-exports.cancelCheckoutSession = cancelCheckoutSession;
 /**
- * Sweep drafts whose TTL has passed. Nothing schedules this yet — call it from
- * a cron/worker when one exists; expired drafts are otherwise harmless because
+ * Sweep drafts whose TTL has passed. Scheduled hourly by
+ * `src/scheduler/index.ts`; expired drafts are harmless either way, because
  * `consumeCheckoutSession` also refuses anything not PENDING.
  */
 const expireStaleCheckoutSessions = async () => db_1.prisma.checkoutSession.updateMany({

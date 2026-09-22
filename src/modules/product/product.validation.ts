@@ -34,8 +34,8 @@ export const productSchema = z.object({
 	discountPrice: decimalSchema.optional(),
 	stockQuantity: z.number().min(0),
 	gender: GenderEnum,
-	// Required, unlike the shared `uuidSchema` which is nullish — both are
-	// NOT NULL columns and a product with neither cannot be listed.
+	// Both are NOT NULL columns and a product with neither cannot be listed,
+	// so neither is optional here.
 	categoryId: z.uuid({ version: "v4", error: "Category is required" }),
 	brandId: z.uuid({ version: "v4", error: "Brand is required" }),
 	vendorId: z.uuid({ version: "v4" }).optional(),

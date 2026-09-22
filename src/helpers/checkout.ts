@@ -121,16 +121,9 @@ export const consumeCheckoutSession = async (
     };
 };
 
-/** Marks a draft as abandoned (buyer hit cancel on the Stripe page). */
-export const cancelCheckoutSession = async (orderNumber: string) =>
-    prisma.checkoutSession.updateMany({
-        where: { orderNumber, status: CheckoutSessionStatus.PENDING },
-        data: { status: CheckoutSessionStatus.CANCELED },
-    });
-
 /**
- * Sweep drafts whose TTL has passed. Nothing schedules this yet — call it from
- * a cron/worker when one exists; expired drafts are otherwise harmless because
+ * Sweep drafts whose TTL has passed. Scheduled hourly by
+ * `src/scheduler/index.ts`; expired drafts are harmless either way, because
  * `consumeCheckoutSession` also refuses anything not PENDING.
  */
 export const expireStaleCheckoutSessions = async () =>

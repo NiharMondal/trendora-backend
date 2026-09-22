@@ -1,9 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.capitalizeFirstLetter = exports.decimalSchema = exports.uuidSchema = void 0;
+exports.capitalizeFirstLetter = exports.decimalSchema = void 0;
 const zod_1 = require("zod");
 /** Common reusable validators */
-exports.uuidSchema = zod_1.z.uuid({ version: "v4" }).nullish();
 exports.decimalSchema = zod_1.z
     .number()
     .positive()

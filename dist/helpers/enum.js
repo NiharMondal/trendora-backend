@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GenderEnum = exports.CheckoutSessionStatusEnum = exports.RefundStatusEnum = exports.PayoutStatusEnum = exports.PaymentMethodEnum = exports.PaymentStatusEnum = exports.OrderStatusEnum = exports.ProductStatusEnum = exports.VendorStatusEnum = exports.RoleEnum = void 0;
+exports.AuthProviderEnum = exports.GenderEnum = exports.CheckoutSessionStatusEnum = exports.RefundStatusEnum = exports.PayoutStatusEnum = exports.PaymentMethodEnum = exports.PaymentStatusEnum = exports.OrderStatusEnum = exports.ProductStatusEnum = exports.VendorStatusEnum = exports.RoleEnum = void 0;
 const zod_1 = require("zod");
 /**
  * Zod mirrors of the Prisma enums in prisma/schema.prisma.
@@ -56,3 +56,11 @@ exports.CheckoutSessionStatusEnum = zod_1.z.enum([
     "CANCELED",
 ]);
 exports.GenderEnum = zod_1.z.enum(["MEN", "WOMEN", "KIDS", "UNISEX"]);
+/**
+ * The tenth mirror, and the only one that is not also the accepted input of
+ * some endpoint: `EMAIL` is the stored default for password accounts, so it is
+ * a valid *stored* provider but never a valid *OAuth* one. What
+ * `/auth/oauth-login` accepts is a deliberate subset — see `OAUTH_PROVIDERS`
+ * in `modules/auth/auth.validation.ts`.
+ */
+exports.AuthProviderEnum = zod_1.z.enum(["EMAIL", "GOOGLE", "FACEBOOK"]);

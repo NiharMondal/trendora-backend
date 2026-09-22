@@ -54,9 +54,9 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-21~~ | ~~Brand validation silently drops `logo`~~ | ✅ **FIXED** 2026-09-22 | — | catalogue |
 | BE-22 | No test runner, no CI, no Dockerfile | P1 | L | ops |
 | ~~BE-40~~ | ~~`POST /auth/register` returns the bcrypt password hash~~ | ✅ **FIXED** 2026-09-22 | — | security |
-| BE-23 | SSLCommerz is dead dependency + dead config | P2 | S | cleanup |
-| BE-24 | Six exported helpers have zero callers | P2 | S | cleanup |
-| BE-25 | Unreachable enum values (`KIDS`, `FACEBOOK`, `PROCESSING`) | P2 | S | cleanup |
+| ~~BE-23~~ | ~~SSLCommerz is dead dependency + dead config~~ | ✅ **FIXED** 2026-09-22 | — | cleanup |
+| ~~BE-24~~ | ~~Six exported helpers have zero callers~~ | ✅ **FIXED** 2026-09-22 | — | cleanup |
+| ~~BE-25~~ | ~~Unreachable enum values~~ — **premise partly wrong**; the mirror was the real gap | ✅ **FIXED** 2026-09-22 | — | cleanup |
 | BE-26 | `address`/`wishlist`/`variant`/`image` modules are half-built | P2 | M | structure |
 | BE-27 | `PrismaQueryBuilder` is entirely `any`-typed | P2 | M | types |
 | BE-28 | No `Payment` read endpoint | P2 | S | payments |
@@ -1138,47 +1138,94 @@ sending `session.accessToken` from the frontend turns every image replace and re
 
 ---
 
-### BE-23 · SSLCommerz is a dead dependency and dead config
-**P2 · S · cleanup**
+### ~~BE-23~~ · SSLCommerz is a dead dependency and dead config
+**✅ FIXED — 2026-09-22 · cleanup**
 
-`sslcommerz-lts` is a **production** dependency (`package.json:37`) with zero imports.
-`src/types/ssl-commerz.d.ts:1-44` is a full ambient declaration, never referenced.
-`envConfig.ssl` (`src/config/env-config.ts:15-19`) has zero consumers. Four env keys
-(`SSL_STORE_ID`, `SSL_STORE_PASSWORD`, `SSL_COMMERZ_API`, `SSL_VALIDATION_API`) are declared in
-`.env.example:31-34` and read by nothing; `SSL_VALIDATION_API` is not even in `env-config.ts`.
-`PaymentMethod` has no SSLCommerz member (`prisma/schema.prisma:706-709`).
+**Was:** `sslcommerz-lts` was a **production** dependency with zero imports, `src/types/
+ssl-commerz.d.ts` was a full ambient declaration for it that nothing referenced, and four env keys
+(`SSL_STORE_ID`, `SSL_STORE_PASSWORD`, `SSL_COMMERZ_API`, `SSL_VALIDATION_API`) sat in
+`.env.example` read by nothing. `PaymentMethod` never had an SSLCommerz member. The whole thing
+told every new contributor that SSLCommerz was a required integration.
 
-**Fix:** Remove all of it, or open a ticket to actually implement it. Today it is pure noise that
-tells every new contributor SSLCommerz is a required integration.
+**Now:** all of it is gone — the dependency, the `.d.ts`, and the four keys.
 
----
+`envConfig.ssl` had already disappeared in the BE-19 env-validation rewrite, so that part of the
+entry was stale.
 
-### BE-24 · Six exported helpers have zero callers
-**P2 · S · cleanup**
+**Removed alongside** (the tail of BE-24): `axios` and `@prisma/extension-accelerate`, neither of
+which is imported anywhere. Three dependencies out took **18 packages** with them.
 
-`cancelCheckoutSession` (`src/helpers/checkout.ts:125`), `retrieveStripeRefund`
-(`src/helpers/stripe.ts:142`), `outstandingRefundForOrder` (`src/helpers/refund.ts:454`),
-`expireStaleCheckoutSessions` (`src/helpers/checkout.ts:136`), `generateTransactionId` (the whole
-of `src/helpers/generateTransactionId.ts`) and `uuidSchema` (`src/utils/utils.ts:4`).
-
-Two of these are load-bearing for BE-11 and should be *wired up* rather than deleted;
-`generateTransactionId` and `uuidSchema` are genuinely dead. Also unused: the `axios` and
-`@prisma/extension-accelerate` dependencies.
+**Verified:** `pnpm lint` clean, `pnpm build` clean, and `src/app.ts` still imports and builds its
+full router tree with the packages uninstalled.
 
 ---
 
-### BE-25 · Unreachable enum values
-**P2 · S · cleanup**
+### ~~BE-24~~ · Six exported helpers have zero callers
+**✅ FIXED — 2026-09-22 · cleanup**
 
-- `Gender.KIDS` (`prisma/schema.prisma:740`) — zero references in `src/`, including the seed.
-- `AuthProvider.FACEBOOK` (`:747`) — appears only in a validation error string
-  (`src/modules/auth/auth.validation.ts:41-42`); no Facebook OAuth exists.
-- `PayoutStatus.PROCESSING` (`:714`) — `payout.service.ts` only ever writes `PENDING` (`:143`),
-  `PAID` (`:197`) and `FAILED` (`:234`).
-- **`AuthProvider` has no Zod mirror** in `src/helpers/enum.ts`, which mirrors the other nine.
-  The hand-rolled inline copy at `auth.validation.ts:37-43` accepts only `GOOGLE | FACEBOOK` and
-  drops `EMAIL` — the Prisma default. This breaks the "enums live in three places, all must
-  agree" rule stated at `prisma/schema.prisma:663-664`. See **XR-09**.
+Re-checked all six. **Two had already been wired up by the BE-11 scheduler fix** and are no longer
+dead: `expireStaleCheckoutSessions` (`scheduler/index.ts:72`, hourly) and `retrieveStripeRefund`
+(`refund.ts:498`, inside `reconcileProcessingRefunds`). That entry was written before BE-11 landed.
+
+**Deleted — three:**
+
+| helper | why it was safe to remove |
+| --- | --- |
+| `generateTransactionId` (whole file) | zero references; Stripe issues its own ids and `generateOrderNumber` covers our side |
+| `uuidSchema` (`utils/utils.ts`) | zero callers — the one mention was a *comment* in `product.validation.ts` saying its fields differ from it, which has been reworded |
+| `cancelCheckoutSession` (`helpers/checkout.ts`) | zero callers **and unreachable**: nothing can trigger it — `/payment-cancel` is a frontend-only redirect that never calls the backend, and abandonment is already handled twice over by the `checkout.session.expired` webhook and the hourly sweep. Two lines to re-add if a "cancel my checkout" endpoint is ever built |
+
+**Kept — one, deliberately:** `outstandingRefundForOrder` (`helpers/refund.ts:543`) still has no
+callers, but `CLAUDE.md` names it as the contract for how "what a buyer is owed" is computed —
+derived from the cancelled parcels, never stored, so it cannot go stale. It is not the same thing
+as `/refunds/admin/outstanding`, which is a queue of *stuck Refund rows* across all orders rather
+than a per-order balance. Deleting it would make the project doc wrong and the logic would have to
+be re-derived the day that balance is surfaced on an order. **Open sub-item:** either surface it on
+the admin order detail or drop it and amend `CLAUDE.md` — a product call, not a cleanup one.
+
+The `axios` and `@prisma/extension-accelerate` dependencies noted at the end of this entry were
+removed with BE-23.
+
+---
+
+### ~~BE-25~~ · Unreachable enum values
+**✅ FIXED — 2026-09-22 · cleanup — the fourth bullet was the real gap; the first three were
+mostly a mis-read**
+
+**The mirror (fixed).** `AuthProviderEnum` now exists in `src/helpers/enum.ts` as the tenth mirror,
+matching the Prisma enum member for member (`EMAIL | GOOGLE | FACEBOOK`), which restores the
+"enums live in three places, all must agree" rule.
+
+The inline copy in `auth.validation.ts` is gone. What replaces it is **explicitly a subset**,
+derived from the mirror rather than hand-copied:
+
+```ts
+const OAUTH_PROVIDERS = [AuthProviderEnum.enum.GOOGLE] as const;
+```
+
+The original entry read "drops `EMAIL`" as the bug. It is not — `EMAIL` is the stored default for
+password accounts and must **never** be accepted at `/auth/oauth-login`. The bug was the opposite
+one: the schema *advertised* `FACEBOOK` ("Provider must be GOOGLE or FACEBOOK") when no Facebook
+OAuth exists on either side, so a client could create an `OAuthAccount` row that nothing can ever
+authenticate against. `GOOGLE` is now the only accepted value, which is also the only one the
+frontend sends (`auth-options.ts` has exactly one `GoogleProvider`).
+
+**Verified:** `"google"` and `"GOOGLE"` both parse and normalise to `GOOGLE`; `"facebook"`,
+`"EMAIL"` and `"twitter"` all 400 with *"Provider must be one of: GOOGLE"*; the mirror's options
+compare equal to `Object.values(AuthProvider)` from the generated client.
+
+**The three enum values are deliberately NOT removed.** Dropping a value from a Postgres enum is a
+migration that fails outright if any row uses it, and per value the case for removal does not hold:
+
+| value | verdict |
+| --- | --- |
+| `Gender.KIDS` | **keep.** This is a clothing marketplace and the frontend already offers a *Kids* filter option (`shared/constants/mock-products.ts:129`). The real gap is that the seed lists no kids products — not that the taxonomy is wrong. Removing it would be a product regression |
+| `PayoutStatus.PROCESSING` | **keep.** A bank transfer in flight is exactly this state, and the mirror concept `RefundStatus.PROCESSING` is live and swept every 30 minutes. `payout.service.ts` not writing it yet is a missing transition, not a surplus enum value |
+| `AuthProvider.FACEBOOK` | **keep for now.** It is genuinely speculative, but nothing can write it any more now that validation rejects it, so it costs nothing where it sits. Dropping it is a one-line schema change plus a migration — worth folding into the next migration rather than raising one for a dead label |
+
+Confirmed against the dev database that no row uses any of the three
+(`Product.gender` is `UNISEX`/`WOMEN`/`MEN` only, the single `OAuthAccount` is `GOOGLE`, and
+`Payout` is empty), so that migration would apply cleanly here whenever it is wanted.
 
 ---
 
@@ -1397,8 +1444,10 @@ that would become a bogus column filter.** Two caveats:
 `prisma/schema.prisma:667-748` and `src/helpers/enum.ts:10-66` **agree on all nine mirrored
 enums**. The gaps are at the edges:
 
-- **`AuthProvider` has no Zod mirror**, and the inline copy at `auth.validation.ts:37-43` drops
-  `EMAIL` (BE-25).
+- ~~**`AuthProvider` has no Zod mirror**, and the inline copy at `auth.validation.ts:37-43` drops
+  `EMAIL`~~ — **fixed (BE-25)**: `AuthProviderEnum` is the tenth mirror, and `/auth/oauth-login`
+  now takes an explicit subset of it (`GOOGLE` only). Dropping `EMAIL` there was correct and is
+  now commented as such.
 - The frontend has **two copies of `PaymentStatus`**, and one of them —
   `frontend/src/features/orders/utils/payment-status.ts:3-8` — is **missing
   `PARTIALLY_REFUNDED`**, so a partially-refunded order renders with *Pending* styling. *(Frontend
