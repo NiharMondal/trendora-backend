@@ -210,12 +210,9 @@ async function handlePaymentIntentFailed(paymentIntent) {
  * `Payment.refundAmount` still reflect reality.
  */
 async function handleRefundEvent(stripeRefund) {
-    const status = stripeRefund.status === "succeeded"
-        ? prisma_client_1.RefundStatus.SUCCEEDED
-        : stripeRefund.status === "failed" ||
-            stripeRefund.status === "canceled"
-            ? prisma_client_1.RefundStatus.FAILED
-            : prisma_client_1.RefundStatus.PROCESSING;
+    // Shared with the reconciliation sweep in `helpers/refund.ts` — one
+    // definition, so the webhook and the sweep cannot disagree.
+    const status = (0, refund_1.mapStripeRefundStatus)(stripeRefund.status);
     const existing = await db_1.prisma.refund.findUnique({
         where: { gatewayRefundId: stripeRefund.id },
     });

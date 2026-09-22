@@ -3,12 +3,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.mapStripeRefundStatus = void 0;
 exports.recordRefundIntent = recordRefundIntent;
 exports.processRefund = processRefund;
 exports.recordManualRefund = recordManualRefund;
 exports.cancelRefund = cancelRefund;
 exports.recomputePaymentRefundState = recomputePaymentRefundState;
 exports.processPendingRefunds = processPendingRefunds;
+exports.reconcileProcessingRefunds = reconcileProcessingRefunds;
 exports.outstandingRefundForOrder = outstandingRefundForOrder;
 /* eslint-disable no-console */
 const prisma_client_1 = require("../lib/prisma-client.js");
@@ -353,6 +355,80 @@ async function processPendingRefunds(limit = 25) {
             results.succeeded++;
         else
             results.failed++;
+    }
+    return results;
+}
+/**
+ * Stripe's refund status, mapped to ours. One definition, shared by the webhook
+ * (`handleRefundEvent`) and the reconciliation sweep below — two copies would
+ * be two chances to disagree about what "canceled" means.
+ *
+ * `canceled` maps to FAILED, not CANCELED: our `RefundStatus.CANCELED` means an
+ * operator abandoned the refund and no money moved, whereas a gateway-cancelled
+ * refund is money that was owed and did not arrive. It belongs in the failure
+ * queue.
+ */
+const mapStripeRefundStatus = (status) => {
+    if (status === "succeeded")
+        return prisma_client_1.RefundStatus.SUCCEEDED;
+    if (status === "failed" || status === "canceled")
+        return prisma_client_1.RefundStatus.FAILED;
+    return prisma_client_1.RefundStatus.PROCESSING;
+};
+exports.mapStripeRefundStatus = mapStripeRefundStatus;
+/**
+ * Poll refunds stuck in PROCESSING and settle them from the gateway's view.
+ *
+ * `processPendingRefunds` deliberately does not touch these — PENDING and
+ * FAILED are safe to re-send, but a PROCESSING refund is already in flight and
+ * re-sending it would be a second refund attempt. Normally the `refund.updated`
+ * webhook finishes the story; this exists for when that webhook is missing or
+ * was dropped, which is the documented failure mode that leaves a refund
+ * PROCESSING forever.
+ *
+ * Read-only against Stripe (`retrieveStripeRefund`), so it can never move money.
+ */
+async function reconcileProcessingRefunds(limit = 25) {
+    const stuck = await db_1.prisma.refund.findMany({
+        where: {
+            status: prisma_client_1.RefundStatus.PROCESSING,
+            gateway: "stripe",
+            gatewayRefundId: { not: null },
+        },
+        orderBy: { createdAt: "asc" },
+        take: limit,
+        select: { id: true, gatewayRefundId: true, paymentId: true },
+    });
+    const results = { checked: 0, settled: 0, stillPending: 0, errored: 0 };
+    for (const refund of stuck) {
+        results.checked++;
+        try {
+            const gatewayRefund = await (0, stripe_1.retrieveStripeRefund)(refund.gatewayRefundId);
+            const status = (0, exports.mapStripeRefundStatus)(gatewayRefund.status);
+            if (status === prisma_client_1.RefundStatus.PROCESSING) {
+                results.stillPending++;
+                continue;
+            }
+            await db_1.prisma.refund.update({
+                where: { id: refund.id },
+                data: {
+                    status,
+                    gatewayResponse: gatewayRefund,
+                    processedAt: status === prisma_client_1.RefundStatus.SUCCEEDED ? new Date() : null,
+                    failureReason: status === prisma_client_1.RefundStatus.FAILED
+                        ? (gatewayRefund.failure_reason ??
+                            "Gateway reported the refund as failed")
+                        : null,
+                },
+            });
+            await recomputePaymentRefundState(refund.paymentId);
+            results.settled++;
+        }
+        catch (error) {
+            // One unreachable refund must not abort the rest of the sweep.
+            results.errored++;
+            console.error(`[refunds] could not reconcile ${refund.id}:`, error instanceof Error ? error.message : error);
+        }
     }
     return results;
 }

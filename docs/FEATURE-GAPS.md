@@ -41,7 +41,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-08~~ | ~~`PATCH /users/my-profile-update` has no validation~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | ~~BE-09~~ | ~~A customer cannot cancel their own order~~ | ✅ **FIXED** 2026-09-22 | — | orders |
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
-| BE-11 | Nothing schedules the refund / checkout sweeps | P1 | M | refunds |
+| ~~BE-11~~ | ~~Nothing schedules the refund / checkout sweeps~~ | ✅ **FIXED** 2026-09-22 | — | refunds |
 | BE-12 | No transactional email beyond password reset | P1 | L | notifications |
 | BE-13 | `OrderStatusHistory` is written and never read | P1 | M | orders |
 | BE-14 | `sortBy` is never validated against a column allowlist | P1 | S | query |
@@ -466,24 +466,58 @@ adding the same product twice still gets the 400.
 
 ---
 
-### BE-11 · Nothing schedules the refund and checkout sweeps
-**P1 · M · refunds**
+### ~~BE-11~~ · Nothing schedules the refund and checkout sweeps
+**✅ FIXED — 2026-09-22 · refunds**
 
-**Now:** `processPendingRefunds` (`src/helpers/refund.ts:427`) is reachable only from the manual
-`POST /refunds/retry-all` (`src/modules/refund/refund.service.ts:211`).
-`expireStaleCheckoutSessions` (`src/helpers/checkout.ts:136`) has **zero callers**. Both carry
-comments saying nothing schedules them yet. There is no `node-cron`, `bullmq`, `setInterval` or
-worker entrypoint anywhere in the repo.
+**Was:** `processPendingRefunds` was reachable only from the manual
+`POST /refunds/retry-all`; `expireStaleCheckoutSessions` had zero callers; and a refund stuck in
+`PROCESSING` was never polled at all. No scheduler of any kind existed.
 
-**Gap:** A refund that fails at the gateway sits `FAILED` until an admin notices `/admin/refunds`
-— that is a buyer who has not been paid back. A refund left `PROCESSING` is never polled at all
-(`retrieveStripeRefund`, `src/helpers/stripe.ts:142`, has zero callers), so if the
-`refund.updated` webhook is missing it stays `PROCESSING` forever. Expired checkout drafts
-accumulate harmlessly but indefinitely.
+**Now:** `src/scheduler/index.ts` runs three sweeps via `node-cron`, started from `server.ts` after
+the port is open (so a slow first sweep cannot delay the listen and fail a container health check).
 
-**Fix:** Add a scheduler entrypoint and run `processPendingRefunds()` and
-`expireStaleCheckoutSessions()` on a timer — both are idempotent and safe. Add a third sweep that
-polls `PROCESSING` refunds via `retrieveStripeRefund`.
+| job | cadence | why that cadence |
+| --- | --- | --- |
+| `process-pending-refunds` | every 10 min | a FAILED refund is a buyer who has not been paid back — retry promptly, but not so fast that a persistently failing refund hammers Stripe |
+| `reconcile-processing-refunds` | every 30 min | only needed when a `refund.updated` webhook was missed; read-only against Stripe, so a slow cadence costs only a little delay |
+| `expire-stale-checkout-sessions` | hourly | pure housekeeping — `consumeCheckoutSession` already refuses anything not PENDING |
+
+Three properties hold the design up, and each is tested:
+
+1. **A job never overlaps itself.** A sweep that outruns its interval is skipped rather than
+   re-entered — two copies of `processPendingRefunds` would attempt the same refund twice.
+2. **A job never crashes the process.** Every run is wrapped; an unhandled rejection in a timer
+   callback would take the server down.
+3. **It is per-instance.** The scheduler is in-process, so every instance with it enabled runs
+   every sweep. The jobs tolerate that (gateway calls are idempotency-keyed, sweeps are
+   `updateMany`) but it is duplicated work — set `SCHEDULER_ENABLED=false` on all but one instance.
+
+**New: `reconcileProcessingRefunds`** (`src/helpers/refund.ts`). `processPendingRefunds`
+deliberately retries only PENDING and FAILED; a PROCESSING refund is already in flight and
+re-sending it would be a second refund attempt. This one is **read-only against Stripe**
+(`retrieveStripeRefund`) so it can never move money — it settles the row from the gateway's view.
+A refund that cannot be reached is logged and counted, and the sweep continues to the next.
+
+While wiring it, the Stripe-status mapping was extracted to `mapStripeRefundStatus` and the webhook
+now shares it, so the webhook and the sweep cannot drift on what "canceled" means. (It maps to
+FAILED, not `RefundStatus.CANCELED`: our CANCELED means an operator abandoned the refund and no
+money moved, whereas a gateway-cancelled refund is money that was owed and did not arrive.)
+
+**Verified** against the dev database:
+- **Checkout sweep does real work** — a draft with `expiresAt` in the past flipped PENDING →
+  EXPIRED (`count: 1`) while a live draft was left alone; a second run was a no-op (`count: 0`).
+- **Refund sweeps contain failures** — a seeded FAILED refund was attempted and stayed FAILED
+  (`attempted: 1, failed: 1`); a PROCESSING refund pointing at a nonexistent Stripe id logged
+  `No such refund` and returned `checked: 1, errored: 1`. Neither crashed, and neither moved money
+  (both referenced Stripe objects that do not exist).
+- **Overlap guard** — firing the same job twice concurrently logged
+  `is still running from the last tick — skipping` and ran it once.
+- **`SCHEDULER_ENABLED=false`** starts nothing; `stopScheduler()` stops every task cleanly.
+- All probe data removed afterwards.
+
+**Still open:** `stopScheduler()` exists but nothing calls it, because there is no shutdown
+handler yet — that is **BE-18**. Until then a deploy can kill a sweep mid-flight, which is safe
+(every job is idempotent and re-runs on the next tick) but not tidy.
 
 ---
 
