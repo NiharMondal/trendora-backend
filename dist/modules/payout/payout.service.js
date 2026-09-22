@@ -191,7 +191,7 @@ const getMyPayouts = async (actor, query) => {
         ? String(query.vendorId)
         : (await (0, vendor_1.requireApprovedVendor)(actor.id)).id;
     const { vendorId: _ignored, ...rest } = query;
-    const builder = new PrismaQueryBuilder_1.default(rest);
+    const builder = new PrismaQueryBuilder_1.default(rest, { model: "Payout" });
     const prismaArgs = builder
         .withDefaultFilter({ vendorId })
         .filter()
@@ -213,7 +213,7 @@ const getMyPayouts = async (actor, query) => {
 };
 /** Every payout across all vendors. ADMIN only. */
 const findAllForAdmin = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Payout" });
     const prismaArgs = builder
         .filter()
         .paginate()

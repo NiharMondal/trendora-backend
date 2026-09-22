@@ -44,7 +44,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-11~~ | ~~Nothing schedules the refund / checkout sweeps~~ | ✅ **FIXED** 2026-09-22 | — | refunds |
 | ~~BE-12~~ | ~~No transactional email beyond password reset~~ | ✅ **FIXED** 2026-09-22 | — | notifications |
 | ~~BE-13~~ | ~~`OrderStatusHistory` is written and never read~~ — **premise was wrong**; it leaked instead | ✅ **FIXED** 2026-09-22 | — | privacy |
-| BE-14 | `sortBy` is never validated against a column allowlist | P1 | S | query |
+| ~~BE-14~~ | ~~`sortBy` is never validated against a column allowlist~~ | ✅ **FIXED** 2026-09-22 | — | query |
 | BE-15 | Four list endpoints have no pagination | P1 | S | query |
 | BE-16 | `GET /slides` ignores its own `isActive` / `sortOrder` | P1 | S | content |
 | BE-17 | No health check endpoint | P1 | S | ops |
@@ -634,21 +634,58 @@ a relation include — could hide other "never read" claims in this document. `O
 
 ---
 
-### BE-14 · `sortBy` is never validated against a column allowlist
-**P1 · S · query**
+### ~~BE-14~~ · `sortBy` is never validated against a column allowlist
+**✅ FIXED — 2026-09-22 · query**
 
-**Now:** `PrismaQueryBuilder` supports `allowedFields` (`src/lib/PrismaQueryBuilder.ts:52`) but
-**not one service passes it**, so `sort()` (`:288-305`) drops the raw field name straight into
-Prisma `orderBy`.
+**Correction to this entry:** it said an unknown sort field "produces a Prisma 500". **It did not.**
+Prisma throws `PrismaClientValidationError`, which `globalErrorHandler` already maps to **400** —
+but with `message: "PrismaClientValidationError"` and `errorDetails: null`, which tells the caller
+nothing. So the bug was a useless error, not a crash. Verified by calling Prisma directly with a
+bogus `orderBy`.
 
-**Gap:** Any sort option naming a non-column produces a Prisma 500 rather than a 400. The
-frontend already ships one: `userSortOptions` offers `email:asc`
-(`frontend/src/shared/constants/sort-options.ts:16-23`), and `email` lives on `Auth`, not `User`.
-It only escapes today because `GET /users` bypasses the query builder entirely (BE-20) — fixing
-BE-20 turns this into a live 500. See **XR-08**.
+**Was:** `PrismaQueryBuilder` supported `allowedFields` and **not one of the 19 construction sites
+passed it**, so `sortBy` went from the query string into Prisma's `orderBy` unchecked.
 
-**Fix:** Pass `allowedFields` from every service that calls `.sort()`, and have the builder reject
-an unknown field with a 400.
+**Now:** the builder derives the allowlist from the schema itself. `ModelConfig.model` is
+**required**, so the compiler rejects any new list endpoint that skips the check — that is the part
+that stops this regressing. It cannot be inferred, because the generic
+(`Prisma.ProductWhereInput`) is erased at runtime.
+
+```ts
+const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, {
+    model: "Product",
+});
+```
+
+`sortableFieldsFor(model)` reads `Prisma.dmmf` for that model's scalar and enum fields and caches
+the set. **Derived rather than hand-listed on purpose:** a hand-maintained allowlist goes stale the
+first time someone adds a column, and its failure mode is rejecting a field that legitimately
+exists. An explicit `allowedFields` still wins where a service wants to narrow further.
+
+An unknown field now throws a **400 naming the field and listing every sortable one**, rather than
+the builder's previous behaviour of silently falling back to the default — which returned a
+differently-ordered page with no hint why.
+
+```
+GET /products?sortBy=nonsense:asc
+400  Cannot sort by "nonsense". Sortable fields: approvedAt, averageRating, basePrice, brandId, …
+```
+
+**Verified** against the running server:
+- Valid sorts still work and **actually order the rows** — `basePrice:asc` returned
+  `15.99, 29.99, 49.99, 89` and `basePrice:desc` returned `190, 150, 93.99, 90.99`.
+- `createdAt`, `name`, `basePrice`, `rating` (the four the frontend offers) all pass on their
+  respective models; omitting `sortBy` still uses the default.
+- Rejected with a 400 and a useful message: an invented column, a column from the wrong model
+  (`basePrice` on `/brands`), and a **relation** name (`vendor` on `/reviews`) — relations are
+  excluded from the derived set because they are not sortable scalars.
+- All 19 sites were machine-checked: every declared `model` matches its `Prisma.<X>WhereInput`
+  generic.
+
+**Still open:** `GET /users?sortBy=email:asc` still returns 200 because that endpoint bypasses the
+query builder entirely (**BE-20**). When BE-20 lands it will correctly 400 — and the frontend's
+`userSortOptions` must drop its Email option first, since `email` lives on `Auth`, not `User`.
+See **XR-08**.
 
 ---
 
@@ -1153,7 +1190,10 @@ that would become a bogus column filter.** Two caveats:
 - `useTableFilters` defaults `limit` to `"20"` while `buildQueryParams` strips `"10"` as the
   default. Choosing "10" in the dropdown drops the param and this side falls back to 10 — the
   right answer by coincidence. If either default moves, the limit selector starts lying.
-- `sortBy` is unvalidated (BE-14), and `userSortOptions` already offers a non-column.
+- ~~`sortBy` is unvalidated~~ — **fixed (BE-14)**: every list endpoint now validates against the
+  model's real columns and returns a 400 naming the valid ones. The frontend's
+  `userSortOptions` still offers `email`, which is on `Auth` not `User`; it is inert only
+  because `GET /users` bypasses the builder (BE-20). **Remove that option before BE-20 lands.**
 
 ---
 

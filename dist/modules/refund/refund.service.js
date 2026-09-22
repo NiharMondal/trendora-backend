@@ -21,7 +21,7 @@ const customError_1 = __importDefault(require("../../utils/customError.js"));
  */
 /** Every refund, for the admin queue. `?status=FAILED` narrows it. */
 const findAllForAdmin = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Refund" });
     const prismaArgs = builder
         .filter()
         .paginate()
@@ -111,7 +111,7 @@ const findMine = async (actor, query) => {
     else {
         scope = { order: { userId: actor.id } };
     }
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Refund" });
     const prismaArgs = builder
         .withDefaultFilter(scope)
         .filter()

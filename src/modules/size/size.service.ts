@@ -12,7 +12,7 @@ const createIntoDB = async (payload: Size) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.SizeWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.SizeWhereInput>(query, { model: "Size" });
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
 		.search(["name"])

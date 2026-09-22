@@ -79,7 +79,7 @@ const findByVendorSlug = async (slug, query) => {
     if (!vendor) {
         throw new customError_1.default(404, "Store not found");
     }
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "VendorReview" });
     const prismaArgs = builder
         .withDefaultFilter({ vendorId: vendor.id, isDeleted: false })
         .search(["comment"])

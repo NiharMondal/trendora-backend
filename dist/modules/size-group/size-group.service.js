@@ -14,7 +14,7 @@ const createIntoDB = async (payload) => {
     return data;
 };
 const findAllFromDB = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "SizeGroup" });
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
         .search(["name"])
