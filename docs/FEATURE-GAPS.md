@@ -65,7 +65,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-31 | No shipping methods, zones or carrier integration | P2 | L | marketplace |
 | BE-32 | No stock reservation; no low-stock alerting | P2 | M | inventory |
 | BE-33 | No search facets or full-text index | P2 | L | catalogue |
-| BE-34 | Admin user management is one read-only list | P2 | M | users |
+| ~~BE-34~~ | ~~Admin user management is one read-only list~~ | ✅ **FIXED** 2026-09-22 | — | users |
 | BE-35 | No vendor moderation audit log | P2 | M | marketplace |
 | BE-36 | No support tickets, disputes or buyer↔vendor messaging | P2 | L | marketplace |
 | BE-37 | Reporting is two hand-rolled dashboard endpoints | P2 | L | analytics |
@@ -1390,7 +1390,7 @@ it already declares is now providable.
 | BE-31 | **Shipping methods, zones, carriers.** One flat fee + one threshold per store (`schema.prisma:123-124`). `VendorOrder.carrier` / `trackingNumber` (`:450-451`) are free text with no carrier registry or tracking API | flat per-vendor fee |
 | BE-32 | **Stock reservation and low-stock alerts.** Stock is deducted at COD creation or at the Stripe webhook, so the last unit can be sold twice between checkout and charge — the webhook then fails the stock guard and that charge needs refunding by hand | conditional `updateMany` guard |
 | BE-33 | **Search facets / full-text.** `.search()` is a naive `contains` over `name` and `description` (`product.service.ts:172`). No price/rating/colour/size/in-stock facet counts, no full-text index | `?search=` substring |
-| BE-34 | **Admin user management.** `GET /users` is the only admin user route. No get-by-id, no ban, no soft-delete, no role assignment — a `Role` can only change via vendor approval or a manual DB edit | `GET /users` |
+| ~~BE-34~~ | ~~**Admin user management.**~~ ✅ **FIXED 2026-09-22** — see its own section below | `GET /users` |
 | BE-35 | **Vendor moderation audit log.** `Vendor` keeps `rejectionReason`, `approvedAt`, `suspendedAt` (`schema.prisma:107-110`) but not *which* admin acted, nor the history. Copy the `OrderStatusHistory` pattern | three columns |
 | BE-36 | **Support tickets, disputes, buyer↔vendor messaging.** None. Refund `reason` is free text (`schema.prisma:557`) | — |
 | BE-37 | **Reporting.** Two hand-rolled endpoints: `GET /orders/analytics` and `GET /vendors/me/dashboard`. No date ranges, no export, no sales-by-period, no cohorts | two dashboards |
@@ -1400,6 +1400,70 @@ it already declares is now providable.
 Also absent: server-side cart (cart lives in frontend localStorage; only `CheckoutSession` exists
 server-side), product Q&A, comparison, recently-viewed, bundles, gift cards, loyalty,
 multi-currency, i18n.
+
+---
+
+### ~~BE-34~~ · Admin user management
+**✅ FIXED — 2026-09-22 · users**
+
+**Was:** `GET /users` was the only admin user route. No get-by-id, no ban, no soft-delete, no role
+assignment — a `Role` could only change through vendor approval or a manual database edit.
+
+**Now**, all ADMIN-only, declared after the `/my-profile*` literals so neither is matched as an id:
+
+| route | does |
+| --- | --- |
+| `GET /users/:id` | detail: flattened `email`/`role`, their store if they have one, and counts of orders / reviews / addresses |
+| `DELETE /users/:id` | **disable** the account (soft delete) |
+| `PATCH /users/:id/restore` | re-enable it |
+| `PATCH /users/:id/role` | assign `CUSTOMER` / `VENDOR` / `ADMIN` |
+
+`DELETE /users/:id` is the call the frontend's `useDeleteUserMutation` has been making into a 404
+all along — that half of **XR-02** is closed.
+
+#### The rules, and why each one is there
+
+**An admin may not act on their own account.** Disabling or demoting yourself locks you out with no
+way back, and `authGuard` reads the role from the database, so it lands on the very next request.
+
+That one rule is also what keeps the platform from losing its last admin. The obvious extra guard —
+*"refuse if this is the only active ADMIN"* — was written, then **removed as unreachable**: the
+caller has already passed `authGuard(Role.ADMIN)`, so they are themselves an active admin and
+cannot be the target, which means any admin target leaves at least two. It is documented in the
+service rather than shipped as a branch that can never run.
+
+**VENDOR is not freely assignable, in either direction.** Store approval is what makes someone a
+seller — `vendor.service.ts` flips `Auth.role` inside the same transaction that approves the store.
+A second, independent way to set it would let `Auth.role` disagree with `Vendor.status`, and the
+whole marketplace authorization layer (`requireApprovedVendor`, `resolveVendorScope`) reads both.
+So promoting to VENDOR requires an approved store, demoting away from it requires the store not be
+approved, and both errors name the endpoint that does the job properly.
+
+**Disabling a seller suspends their store,** in the same transaction. Leaving it APPROVED would
+keep their catalogue live and sellable while the account behind it cannot log in to fulfil
+anything. Restoring the account deliberately does **not** lift the suspension — that is a separate
+judgement with its own endpoint, and a seller whose store is still suspended gets an actionable 403
+from `requireApprovedVendor` rather than a half-working dashboard.
+
+#### A hole this closed on the way
+
+`POST /auth/refresh-token` did `findUniqueOrThrow` on `Auth` with **no `isDeleted` check**, so a
+banned account could keep minting fresh access tokens for the remaining 30 days of its refresh
+token. `authGuard` would reject each one, so nothing was actually reachable — but the refresh
+itself kept succeeding, which tells the client the session is healthy and renews it indefinitely. A
+ban that leaves the session alive is not a ban. It now 401s.
+
+**Verified against a running server — 55 assertions across two runs, all passing.** Role changes
+land on an *already-issued* token in both directions (promote → the old token reaches an admin
+route; demote → the same token 403s), which is BE-07's database-not-claim rule paying off. A
+disabled user's live token 401s, their login is refused, their refresh token 401s, they drop out of
+the admin list but stay reachable by id so they can be restored. Disabling a seller suspended
+*Urban Threads* and its storefront 404'd; restore left it suspended; `PATCH /vendors/:id/reinstate`
+brought both back. Every account and store was returned to its exact prior state afterwards — 8
+users, 0 disabled, all three stores APPROVED.
+
+**Still open:** the frontend has the `deleteUser` mutation and nothing else — no user detail
+screen, no role control, no restore. This is the backend half.
 
 ---
 
@@ -1437,8 +1501,9 @@ the env validation in BE-19 so it can never silently default. Settle on one port
 - `GET /auth/google` (`frontend/src/features/auth/api/auth.api.ts:38-43`) — wrong path *and*
   wrong verb; the real endpoint is `POST /auth/oauth-login` (`src/modules/auth/auth.route.ts:22`),
   which NextAuth correctly calls directly.
-- `DELETE /users/:id` (`frontend/src/features/users/api/user.api.ts:48-53`) — no such route
-  (`src/modules/user/user.route.ts`), no `deleteUser` in the controller or service.
+- ~~`DELETE /users/:id` (`frontend/src/features/users/api/user.api.ts:48-53`) — no such route~~
+  **✅ fixed (BE-34)**: the route exists and soft-deletes (disables) the account. The mutation
+  should now work as written; there is still no admin UI for restore or role assignment.
 
 **Routes here that no frontend code calls:** `POST /auth/forgot-password` and `POST /auth/reset-password` (both now correct and waiting on the frontend — XR-11);
 `GET /products/:productId/variants` and `GET /products/:productId/images` (variants and images

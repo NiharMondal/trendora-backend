@@ -1,5 +1,7 @@
 import z from "zod";
 
+import { RoleEnum } from "@/helpers/enum";
+
 /**
  * Body of `PATCH /users/my-profile-update`.
  *
@@ -33,3 +35,19 @@ export const userUpdateSchema = z.object({
 });
 
 export type TUserUpdateSchema = z.infer<typeof userUpdateSchema>;
+
+/**
+ * Body of `PATCH /users/:id/role`.
+ *
+ * `Role` is the only field an admin may set on someone else's account here.
+ * Everything else about another user is either theirs to change (profile) or
+ * derived (vendor status), and a wider schema would be a standing invitation to
+ * add something that is not.
+ */
+export const updateUserRoleSchema = z.object({
+	role: RoleEnum,
+});
+
+export type TUpdateUserRole = z.infer<typeof updateUserRoleSchema>;
+
+export const userValidation = { userUpdateSchema, updateUserRoleSchema };

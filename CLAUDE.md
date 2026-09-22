@@ -217,6 +217,19 @@ sends nothing, and a cancellation only promises a refund when a `Refund` row act
 `Vendor` (`Vendor.ownerId` is unique — **one store per account**); an admin
 approving that store is what flips the role to `VENDOR`.
 
+`PATCH /users/:id/role` exists for admin role assignment, but **VENDOR stays
+owned by store approval**: promoting to VENDOR requires an approved store and
+demoting away from it requires the store not be approved, so `Auth.role` and
+`Vendor.status` cannot disagree. An admin may never act on their own account
+there — that rule is also what guarantees the platform keeps an admin, since the
+caller is always an active admin who is not the target.
+
+`DELETE /users/:id` is a **soft delete and the ban primitive**: `authGuard` and
+`loginUser` both refuse an `isDeleted` user, and `refresh-token` now does too, so
+a banned session cannot renew itself. Disabling a seller **suspends their store
+in the same transaction** (otherwise their catalogue stays sellable); restoring
+the account does not lift the suspension — `PATCH /vendors/:id/reinstate` does.
+
 **A VENDOR is still a shopper.** Every buyer-facing route therefore guards with
 all three roles (`authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)`), not just
 `CUSTOMER` — writing `authGuard(Role.CUSTOMER)` on a cart/address/order/review
