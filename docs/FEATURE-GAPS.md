@@ -50,7 +50,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-17~~ | ~~No health check endpoint~~ | ✅ **FIXED** 2026-09-22 | — | ops |
 | ~~BE-18~~ | ~~No graceful shutdown; server lies about the DB~~ | ✅ **FIXED** 2026-09-22 | — | ops |
 | ~~BE-19~~ | ~~No env validation at boot~~ | ✅ **FIXED** 2026-09-22 | — | ops |
-| BE-20 | `GET /users` returns no email, role or pagination meta | P1 | S | users |
+| ~~BE-20~~ | ~~`GET /users` returns no email, role or pagination meta~~ | ✅ **FIXED** 2026-09-22 | — | users |
 | BE-21 | Brand validation silently drops `logo` | P1 | S | catalogue |
 | BE-22 | No test runner, no CI, no Dockerfile | P1 | L | ops |
 | BE-40 | `POST /auth/register` returns the bcrypt password hash | P1 | S | security |
@@ -682,10 +682,12 @@ GET /products?sortBy=nonsense:asc
 - All 19 sites were machine-checked: every declared `model` matches its `Prisma.<X>WhereInput`
   generic.
 
-**Still open:** `GET /users?sortBy=email:asc` still returns 200 because that endpoint bypasses the
-query builder entirely (**BE-20**). When BE-20 lands it will correctly 400 — and the frontend's
-`userSortOptions` must drop its Email option first, since `email` lives on `Auth`, not `User`.
-See **XR-08**.
+**~~Still open~~ — settled by BE-20 (same day).** This section was written before BE-15 put
+`GET /users` through the builder, at which point `?sortBy=email:asc` started returning a real
+`400 Cannot sort by "email"` — `email` is a column of `Auth`, not `User`, so the DMMF-derived
+allowlist could never contain it. Rather than delete the frontend's Email sort option, **BE-20
+taught the builder about declared relation aliases**, so `email` and `role` are now genuinely
+sortable on that endpoint. See **XR-08**.
 
 ---
 
@@ -873,30 +875,74 @@ webhook signature check, both probes and an unauthenticated 401 all behave as be
 
 ---
 
-### BE-20 · `GET /users` returns no email, role or pagination meta
-**P1 · S · users**
+### ~~BE-20~~ · `GET /users` returns no email, role or pagination meta
+**✅ FIXED — 2026-09-22 · users**
 
-**Now:** `src/modules/user/user.service.ts:6-10` is `prisma.user.findMany()` with no `auth`
-include — and email and role live on `Auth`, not `User` (`prisma/schema.prisma:49-59`). The
-controller (`src/modules/user/user.controller.ts:6-14`) sends no `meta`. The service is also
-missing an `await`; it happens to work because the controller awaits the returned promise, but it
-is misleading.
+**Was:** `prisma.user.findMany()` with no `auth` include — and email and role live on `Auth`, not
+`User` (`prisma/schema.prisma:49-59`) — so the admin user table rendered permanently blank Email
+and Role columns. The `meta` half was already dealt with in BE-15.
 
-**Gap:** The admin user table is permanently blank in its Email and Role columns and its
-pagination never appears, because the frontend types both fields as required and feeds `meta` to
-`DataTable`. See **XR-05**.
+**Now — the two columns are FLATTENED onto the user, not nested under `auth`.** That is the
+decision worth recording:
 
-**Partly done (BE-15, 2026-09-22):** the endpoint now routes through `PrismaQueryBuilder`, excludes
-soft-deleted users, supports `?search=`/`?page=`/`?limit=`, and **returns `meta`** — so the admin
-table's pagination is no longer dead on arrival.
+```jsonc
+{ "id": "…", "name": "Ayesha Rahman", "phone": "+880…",
+  "email": "vendor1@trendora.test", "role": "VENDOR" }
+```
 
-**Fix, remaining:** add `include: { auth: { select: { email: true, role: true } } }` so the Email
-and Role columns stop rendering blank. Decide with the frontend whether they arrive nested under
-`auth` or flattened — the frontend type currently expects them flat.
+- **The `User`/`Auth` split is a storage decision, not an API one.** It exists so a password hash
+  never shares a table with a profile. Email and role are attributes of the *person*; there is no
+  reason for a client to know they are stored one table over.
+- **It matches the type the frontend already declares.** `TUser` has `email` and `role` flat
+  (`frontend/src/features/users/types/user.types.ts`), so this side moved and the frontend needed
+  no change at all — which is what "backend first" is supposed to look like.
+- **Flattening is what keeps `password` out of the response.** `flattenAuth` destructures `auth`
+  away and re-adds exactly two named fields, so the payload cannot grow a credentials column by
+  someone later relaxing a `select`.
+- `email`/`role` are `null` when a user somehow has no `Auth` row. Such an account cannot sign in,
+  so it is a data problem rather than a normal state — but a missing row must not blank the row.
 
-**Do the frontend's `userSortOptions` first.** Now that this endpoint uses the query builder,
-`?sortBy=email:asc` returns a real `400 Cannot sort by "email"` (BE-14). That option is live and
-broken today.
+**Two things came with it that were not on the item, and both were already promised elsewhere in
+the UI:**
+
+1. **Search now covers email.** The admin table's own placeholder reads *"Search by name,
+   email…"* — it had only ever searched `name` and `phone`. Email is the identifier an admin
+   actually has when someone writes in about their account.
+2. **`?sortBy=email:asc` and `role:asc` work** instead of returning the 400 that BE-14 + BE-15
+   had (correctly) started producing. The alternative was deleting the frontend's Email sort
+   option; making the endpoint honest was better, and it leaves the frontend untouched.
+
+Both needed one small, general addition to `src/lib/PrismaQueryBuilder.ts` rather than a
+special case in the user service:
+
+| addition | shape | why it is general |
+| --- | --- | --- |
+| `search(fields, relationPaths)` | `search(["name","phone"], ["auth.email"])` → `{ auth: { is: { email: { contains } } } }` | a second parameter, so `fields` keeps its `keyof TWhereInput` typing — a dotted string is not a key, and widening the array to `string[]` would have dropped the compile-time check on all 15 existing callers |
+| `sortAliases` config | `{ email: "auth.email" }` → `orderBy: { auth: { email: "asc" } }` | aliases are declared in code, never read from the query string, so this widens what is *sortable* without widening what a caller can *inject* |
+
+The `is:` wrapper is deliberate: `User.auth` is optional (`Auth?`), and `is:` is the form that is
+valid for both optional and required to-one relations. The bare shorthand happens to work today.
+
+**Verified** against the live database:
+- Every row returns flat `email` + `role`; `password` appears nowhere in the payload; `meta`
+  present (`totalData: 8`, 3 pages at `limit=3`).
+- `sortBy=email:asc` / `:desc` order correctly across all 8 accounts; `sortBy=role:asc` works.
+- `search=vendor1` matches on **email alone** (1 hit), `search=Ayesha` on name, `search=+8801700000004`
+  on phone, `search=TRENDORA.TEST` is case-insensitive (4 hits), `search=zzz-nothing` returns 0 —
+  and `meta.totalData` tracks the filtered count, not the table count.
+- `sortBy=password:asc` is still a 400, and the message now lists `email` and `role` among the
+  sortable fields.
+- All 15 `.search()` call sites re-checked live: products, categories, brands, slides, size-groups,
+  sizes, reviews, addresses, vendors and both admin listings all still 200 and still filter.
+- `pnpm lint` 0 errors / 1 pre-existing warning; `pnpm build` clean.
+
+**Not done, deliberately:** `GET /users/my-profile` still omits `email`, so `TUser` remains
+optimistic for that one endpoint. It is a different endpoint with a different consumer (the
+profile form, which reads neither field), and no screen is broken by it.
+
+**Noticed while testing, unrelated:** `authorization: bogus` returns **500** with
+`errorDetails: { name: "JsonWebTokenError", message: "jwt malformed" }` — the raw thrown object.
+That is **BE-06**, still open; a missing header correctly returns 401.
 
 ---
 
@@ -1234,7 +1280,7 @@ closes it; doing both is cheap.
 
 | What the frontend expects | What this side returns |
 | --- | --- |
-| `TUser.email`, `TUser.role` required; `meta` for pagination | `GET /users` sends neither — BE-20 |
+| ~~`TUser.email`, `TUser.role` required; `meta` for pagination~~ | ~~`GET /users` sends neither~~ — **fixed (BE-15 + BE-20)**: `meta` is returned and both fields arrive **flat**, exactly as `TUser` declares them |
 | `TProductVariant.size` required | `findAllFromDB` (`product.service.ts:176-184`) and `findById` (`:266-276`) include `variants: true` with **no `size` relation**; only `findBySlug` (`:312-330`) and the vendor read do. `variant.size.name` throws off `/products` and `/products/:id` |
 | `TProductImage.productId`, `.publicId`, `.isDeleted` required | list reads select only `{id, url, isMain}` (`product.service.ts:178,220,247`) |
 | `TOrder.user.email` flat | nested as `user.auth.email` (`order.service.ts:194-205, 332-341`) — always `undefined` on the frontend |
@@ -1298,9 +1344,12 @@ that would become a bogus column filter.** Two caveats:
   default. Choosing "10" in the dropdown drops the param and this side falls back to 10 — the
   right answer by coincidence. If either default moves, the limit selector starts lying.
 - ~~`sortBy` is unvalidated~~ — **fixed (BE-14)**: every list endpoint now validates against the
-  model's real columns and returns a 400 naming the valid ones. The frontend's
-  `userSortOptions` still offers `email`, which is on `Auth` not `User`; it is inert only
-  because `GET /users` bypasses the builder (BE-20). **Remove that option before BE-20 lands.**
+  model's real columns and returns a 400 naming the valid ones. The frontend's `userSortOptions`
+  offers `email`, which is on `Auth` not `User` — **BE-20 made that option work** by declaring
+  `email`/`role` as relation aliases on the user list, so no frontend change is needed. Sorting by
+  `role` orders by the enum's **database** declaration order (`CUSTOMER < ADMIN < VENDOR`), which
+  is not alphabetical and does not match the order in `schema.prisma` (`CUSTOMER, VENDOR, ADMIN`) —
+  Prisma never reorders an existing enum type. Harmless, but surprising if you expect A–Z.
 
 ---
 

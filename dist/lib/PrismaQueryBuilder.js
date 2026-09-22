@@ -47,7 +47,9 @@ class PrismaQueryBuilder {
             defaultField: "createdAt",
             defaultOrder: "desc",
             allowedFields: [],
+            sortAliases: {},
         };
+        // `any` because a relation alias nests: { auth: { email: "asc" } }.
         this.orderByCondition = {};
         this.includeFields = {};
         this.selectFields = {};
@@ -58,6 +60,7 @@ class PrismaQueryBuilder {
             defaultField: config.defaultField || this.sortConfig.defaultField,
             defaultOrder: config.defaultOrder || this.sortConfig.defaultOrder,
             allowedFields: config.allowedFields || this.sortConfig.allowedFields,
+            sortAliases: config.sortAliases || this.sortConfig.sortAliases,
         };
     }
     /**
@@ -105,21 +108,40 @@ class PrismaQueryBuilder {
         return this;
     }
     /**
-     * Search across multiple fields with case-insensitive matching
-     * @example search(['name', 'email', 'description'])
+     * Search across multiple fields with case-insensitive matching.
+     *
+     * `relationPaths` reaches one level into a to-one relation using dotted
+     * notation — `"auth.email"` becomes
+     * `{ auth: { is: { email: { contains } } } }`. It is a second parameter
+     * rather than a dotted entry in `fields` so that `fields` keeps its
+     * `keyof TWhereInput` typing; a dotted string is not a key of the where
+     * input, and widening the array to `string[]` would drop the compile-time
+     * check on every existing caller.
+     *
+     * The `is:` wrapper is the form that works for an OPTIONAL to-one relation
+     * (`User.auth` is `Auth?`); the bare shorthand only happens to work today.
+     *
+     * @example search(['name', 'phone'], ['auth.email'])
      */
-    search(fields) {
+    search(fields, relationPaths = []) {
         const searchValue = this.getQueryParam("search");
-        if (!searchValue || fields.length === 0) {
+        if (!searchValue || (fields.length === 0 && relationPaths.length === 0)) {
             return this;
         }
+        const match = {
+            contains: String(searchValue),
+            mode: "insensitive",
+        };
+        const conditions = fields.map((field) => ({ [field]: match }));
+        for (const path of relationPaths) {
+            const [relation, column] = path.split(".");
+            if (!relation || !column) {
+                throw new Error(`search(): relation path "${path}" must be "relation.column"`);
+            }
+            conditions.push({ [relation]: { is: { [column]: match } } });
+        }
         this.whereConditions.push({
-            OR: fields.map((field) => ({
-                [field]: {
-                    contains: String(searchValue),
-                    mode: "insensitive",
-                },
-            })),
+            OR: conditions,
         });
         return this;
     }
@@ -236,10 +258,15 @@ class PrismaQueryBuilder {
         if (sortBy) {
             const [sortField, sortOrder] = String(sortBy).split(":");
             // An explicit `allowedFields` narrows further; otherwise every
-            // scalar column of the model is sortable.
-            const allowed = this.sortConfig.allowedFields.length > 0
-                ? new Set(this.sortConfig.allowedFields)
-                : sortableFieldsFor(this.model);
+            // scalar column of the model is sortable. Declared relation
+            // aliases are sortable on top of either.
+            const aliases = this.sortConfig.sortAliases;
+            const allowed = new Set([
+                ...(this.sortConfig.allowedFields.length > 0
+                    ? this.sortConfig.allowedFields
+                    : sortableFieldsFor(this.model)),
+                ...Object.keys(aliases),
+            ]);
             if (!allowed.has(sortField)) {
                 // 400, not a silent fallback. Quietly ignoring the caller's
                 // sort returns a differently-ordered page with no hint why,
@@ -249,9 +276,17 @@ class PrismaQueryBuilder {
                     .sort()
                     .join(", ")}`);
             }
-            this.orderByCondition = {
-                [sortField]: sortOrder === "desc" ? "desc" : "asc",
-            };
+            const direction = sortOrder === "desc" ? "desc" : "asc";
+            const alias = aliases[sortField];
+            if (alias) {
+                const [relation, column] = alias.split(".");
+                this.orderByCondition = {
+                    [relation]: { [column]: direction },
+                };
+            }
+            else {
+                this.orderByCondition = { [sortField]: direction };
+            }
         }
         else {
             this.orderByCondition = { [field]: order };
