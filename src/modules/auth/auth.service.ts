@@ -37,6 +37,13 @@ const registerUser = async (payload: TRegisterUser) => {
 			data: {
 				name: payload.name,
 			},
+			select: {
+				id: true,
+				name: true,
+				phone: true,
+				createdAt: true,
+				updatedAt: true,
+			},
 		});
 
 		const auth = await tx.auth.create({
@@ -45,9 +52,18 @@ const registerUser = async (payload: TRegisterUser) => {
 				password: hashPassword,
 				userId: user.id,
 			},
+			// Projection, not the row. `password` must never be selected here:
+			// the bcrypt hash would otherwise reach the response body and from
+			// there every access log, proxy log and client error reporter.
+			select: {
+				email: true,
+				role: true,
+			},
 		});
 
-		return { user, auth };
+		// Flat, like `GET /users` — `email` and `role` are attributes of the
+		// person even though they live one table over. See `flattenAuth`.
+		return { ...user, email: auth.email, role: auth.role };
 	});
 
 	return result;

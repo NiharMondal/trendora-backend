@@ -53,7 +53,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-20~~ | ~~`GET /users` returns no email, role or pagination meta~~ | ✅ **FIXED** 2026-09-22 | — | users |
 | ~~BE-21~~ | ~~Brand validation silently drops `logo`~~ | ✅ **FIXED** 2026-09-22 | — | catalogue |
 | BE-22 | No test runner, no CI, no Dockerfile | P1 | L | ops |
-| BE-40 | `POST /auth/register` returns the bcrypt password hash | P1 | S | security |
+| ~~BE-40~~ | ~~`POST /auth/register` returns the bcrypt password hash~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-23 | SSLCommerz is dead dependency + dead config | P2 | S | cleanup |
 | BE-24 | Six exported helpers have zero callers | P2 | S | cleanup |
 | BE-25 | Unreachable enum values (`KIDS`, `FACEBOOK`, `PROCESSING`) | P2 | S | cleanup |
@@ -996,25 +996,42 @@ need no database. Then a CI workflow running lint, build and test on push.
 
 ---
 
-### BE-40 · `POST /auth/register` returns the bcrypt password hash
-**P1 · S · security**
+### ~~BE-40~~ · `POST /auth/register` returns the bcrypt password hash
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `registerUser` (`src/modules/auth/auth.service.ts:16-46`) returns the raw
-`$transaction` result `{ user, auth }`, and `auth` is the whole row — including
-`auth.password`, the bcrypt hash. The controller passes it straight to `sendResponse`.
+**Was:** `registerUser` returned the raw `$transaction` result `{ user, auth }`, and `auth` was the
+whole row — including `auth.password`. The controller passed it straight to `sendResponse`, so a
+registration response body contained `"password":"$2b$10$ipSO4f3l...."` (confirmed live during the
+BE-01 verification).
 
-Confirmed live during the BE-01 verification: a registration response body contains
-`"password":"$2b$10$ipSO4f3l...."`.
+A password hash should never leave the server. It is only ever disclosed to the account holder who
+just chose that password, so the direct risk is limited — but it lands in access logs, proxy logs,
+browser devtools history and any client-side error reporting, which is exactly how hashes end up
+somewhere they can be attacked offline. `bcrypt` cost 10 is not a large barrier for a weak password.
 
-**Gap:** A password hash should never leave the server. It is only ever disclosed to the account
-holder who just chose that password, so the direct risk is limited — but it lands in access logs,
-proxy logs, browser devtools history and any client-side error reporting, which is exactly how
-hashes end up somewhere they can be attacked offline. `bcrypt` cost 10 is not a large barrier for
-a weak password.
+**Now:** both `create` calls in the transaction carry a `select`, so the hash is never read back
+out of the database at all rather than being read and then deleted — there is no intermediate
+object holding it for a later refactor to leak again. The response is flat, matching `GET /users`:
 
-**Fix:** Return a projection, not the row — `{ id, name, email, role }` is what the client needs.
-The frontend's `TAuthRegisterResponse` already expects a flat shape and does not match the current
-nested `{ user, auth }` either (XR-05), so both can be settled in one change.
+```json
+{ "id", "name", "phone", "email", "role", "createdAt", "updatedAt" }
+```
+
+`email` and `role` live on `Auth`, but they are attributes of the person, so they are lifted onto
+the user exactly as `flattenAuth` does for `GET /users`.
+
+**This also settles the register half of XR-05.** The shape now matches the frontend's
+`TAuthRegisterResponse` key for key; it previously matched neither that type nor anything else.
+`register-form.tsx` only reads `res.success` and `res.message`, so nothing on that side needed to
+change.
+
+**Verified** by running both creates with the new `select`s against the dev database inside a
+deliberately rolled-back transaction: the payload carries the seven keys above, contains no
+`password` key and no `$2` bcrypt prefix, and left no row behind.
+
+**Audited alongside:** `loginUser`, `oAuthLogin` and `generateTokenResponse` already return
+projections; `changePassword` returns nothing; `refreshToken` returns only `accessToken`.
+`registerUser` was the only leak.
 
 ---
 
