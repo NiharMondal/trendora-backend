@@ -30,7 +30,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ID | Title | Pri | Eff | Area |
 | --- | --- | --- | --- | --- |
 | ~~BE-01~~ | ~~`forgot-password` hands a valid JWT to any caller~~ | ✅ **FIXED** 2026-09-22 | — | security |
-| BE-02 | IDOR — any user can read/edit/delete any address | P0 | S | security |
+| ~~BE-02~~ | ~~IDOR — any user can read/edit/delete any address~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-03 | IDOR — any user can read/delete any wishlist row | P0 | S | security |
 | BE-04 | `POST /cloudinary/delete-temp` is unauthenticated | P0 | S | security |
 | BE-05 | No rate limiting, helmet, body cap or request logging | P0 | M | security |
@@ -117,25 +117,55 @@ issues a new token and retires the old one.
 
 ---
 
-### BE-02 · IDOR — any user can read, edit or delete any address
-**P0 · S · security**
+### ~~BE-02~~ · IDOR — any user can read, edit or delete any address
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/modules/address/address.service.ts:43` (`findById`), `:51` (`updateData`) and `:64`
-(`deleteData`) all look the row up by `id` alone. `src/modules/address/address.controller.ts:40`,
-`:51` and `:61` pass only `req.params.id` — `req.user.id` is never consulted. The routes *are*
-guarded (`src/modules/address/address.route.ts:21,25,30`), but `authGuard` only checks role, never
-ownership.
+**Was:** `findById`, `updateData` and `deleteData` looked the row up by `id` alone and the
+controller never passed `req.user.id`. Any signed-in account could read, overwrite or hard-delete
+any other user's address — the names, phone numbers and street addresses of the whole customer
+base. The delete was a hard `prisma.address.delete` despite `Address.isDeleted` existing and a
+required `Order.shippingAddressId` pointing at the row.
 
-**Gap:** Any signed-in account can read, overwrite or delete any other user's address — names,
-phone numbers and street addresses of the whole customer base. `deleteData` is additionally a
-**hard** `prisma.address.delete` (`address.service.ts:67`) even though `Address.isDeleted` exists
-(`prisma/schema.prisma:73`) and `Order.shippingAddressId` references the row
-(`prisma/schema.prisma:410`).
+**Now:** all three resolve through a single `findOwnedAddress(id, userId)` in
+`src/modules/address/address.service.ts:20-30`, which filters on `id + userId + isDeleted: false`
+and throws **404, not 403** — a 403 confirms the row exists, which is all an attacker needs to
+enumerate. Same convention as `assertVendorOwnsProduct` in `src/helpers/vendor.ts:157-170`. The
+controller passes `req.user.id` on each of the three
+(`src/modules/address/address.controller.ts:42-72`).
 
-**Fix:** Scope every one of the three by `userId`, the way `src/modules/review/review.service.ts:155`
-already does, and return **404 rather than 403** on a mismatch so another user's ids stay
-unguessable — the convention `src/helpers/vendor.ts` uses for `assertVendorOwnsProduct`. Switch
-the delete to `isDeleted: true`.
+`deleteData` is now a soft delete (`isDeleted: true`). A hard delete would have hit the required
+`Order.shippingAddressId` FK; order history is unaffected either way because `persistOrder` already
+snapshots the address into `Order.shippingSnapshot`
+(`src/helpers/create-order.ts:54-62`) precisely so a later edit or delete cannot rewrite what an
+order was shipped to.
+
+Two consequences of soft-delete that were handled in the same change:
+- `findAllFromDB` (the admin list) now filters `isDeleted: false`, or deleting an address would
+  have started surfacing it there.
+- `updateData` is typed `TAddressValues` rather than `Partial<Address>`, so the payload provably
+  cannot carry `userId` or `isDeleted` — an address cannot be reassigned to another account or
+  undeleted through the route.
+
+Also removed a dead duplicate `findMany` in `findMyAddress` (it ran the same query twice and
+discarded the first result).
+
+**Verified** with two real accounts against the dev database: user 2 GET/PATCH/DELETE on user 1's
+address id all return **404**, the row is unchanged afterwards, and the owner's own GET/PATCH still
+return 200. Unauthenticated returns 401. After the owner deletes: the row vanishes from
+`/address/my-address`, GET/PATCH/DELETE on it return 404, and the row is still in the database with
+`isDeleted=true` — soft, not hard. The admin list returns no soft-deleted rows.
+
+**Deliberate behaviour change:** `/address/:id` is now self-scoped for **every** role, including
+ADMIN — an admin reading another user's address there gets 404. Unlike a review, an address has no
+moderation use case, and an admin who needs the address for an order should read that order's
+`shippingSnapshot`, which is the correct source anyway (it is the address *as of* that order). The
+admin-only `GET /address` list is untouched and still available for a future admin screen.
+
+**Still open, unchanged by this fix:**
+- `GET /address` is still unpaginated and returns every customer's address in one response — BE-15.
+- `Address.isDefault` is accepted by the validation schema and read by **nothing**. Nothing enforces
+  a single default per user, and deleting the default promotes no replacement. Worth its own item
+  if a default-address UI is ever built.
 
 ---
 
@@ -148,7 +178,12 @@ the raw `id`; `src/modules/wishlist/wishlist.controller.ts:32,43` never pass the
 **Gap:** Same shape as BE-02 — one user can delete items out of another's wishlist. Lower impact
 (no PII), same root cause.
 
-**Fix:** As BE-02. Scope by `userId`, 404 on mismatch.
+**Fix:** Copy the pattern BE-02 now uses: a module-local
+`findOwnedWishlist(id, userId)` doing `findFirst({ where: { id, userId } })` and throwing 404, with
+the controller passing `req.user.id`. See `src/modules/address/address.service.ts:20-30`.
+`Wishlist` has no `isDeleted` column, so the delete stays hard — unlike the address case there is
+no order FK pointing at it. Fix BE-10 (the duplicate check that ignores `userId`) in the same
+pass; both are the same oversight in the same file.
 
 ---
 
@@ -375,8 +410,12 @@ an unknown field with a 400.
 arrival (see BE-20). Soft-deleted users are returned to the admin list.
 
 **Fix:** Route all three through `PrismaQueryBuilder` with `.withDefaultFilter({ isDeleted: false })`,
-as `src/modules/brand/brand.service.ts` does. While in `address.service.ts:27-34`, note
-`findMyAddress` runs the same `findMany` **twice** and discards the first result.
+as `src/modules/brand/brand.service.ts` does.
+
+Partly addressed by BE-02: `GET /address` now filters `isDeleted: false`, and the duplicate
+`findMany` that `findMyAddress` used to run has been removed. Both are still **unpaginated**, and
+`GET /address` still returns every customer's address in a single response — which for a PII table
+is the part that matters most here.
 
 ---
 

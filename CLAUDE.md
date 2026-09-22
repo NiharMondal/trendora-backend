@@ -151,6 +151,19 @@ vendor-scoped read and write goes through **`src/helpers/vendor.ts`**:
 Adding a vendor-scoped endpoint without one of these is the main way to leak
 one store's data into another's dashboard.
 
+**The same rule applies to any user-owned row, not just vendor-scoped ones.** A route guarded with
+`authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)` is guarded against *strangers*, not against
+*other customers* — if the handler then looks a row up by `req.params.id` alone, every signed-in
+account can reach every other account's data. `src/modules/address/address.service.ts`
+(`findOwnedAddress`) is the reference implementation for a per-user resource: filter on
+`id + userId`, throw **404 rather than 403**, and have the controller pass `req.user.id`. The
+wishlist module still has this bug — see `docs/FEATURE-GAPS.md` BE-03.
+
+**Soft-delete user-owned rows that an order can reference.** `Address` is the worked example:
+`Order.shippingAddressId` is a required column pointing at it, so a hard delete breaks past orders.
+Orders carry their own `shippingSnapshot` (written by `persistOrder`) precisely so the live row can
+be hidden without rewriting history.
+
 ### Product visibility has three independent gates
 
 A product is public only when **all three** hold, which is exactly what
