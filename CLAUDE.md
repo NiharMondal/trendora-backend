@@ -331,9 +331,14 @@ All environment access goes through **`src/config/env-config.ts`** (`envConfig` 
 - Soft deletes: most models have `isDeleted`; delete operations set `isDeleted: true` and list queries filter it out via `withDefaultFilter({ isDeleted: false })`.
 - Slugs are generated with `src/helpers/slug.ts` on create/update. Use `generateUniqueProductSlug` / `generateUniqueVendorSlug` for products and stores (they resolve collisions); bare `generateSlug` is for `Category`, whose names are admin-controlled and already unique.
 - Cloudinary uploads use a `/temp/` staging folder; `moveFromTemp` promotes images to their final folder on save, and `deleteFromCloudinary` cleans up removed images (see `src/modules/product/product.service.ts` and `src/utils/cloudinary.ts`).
-- ESLint uses `typescript-eslint` strict + stylistic; `no-console` is a warning (server bootstrap logs are `eslint-disable`d).
+- ESLint uses `typescript-eslint` strict + stylistic; `no-console` is a warning (server bootstrap logs are `eslint-disable`d). `pnpm lint` is currently
+  **0 errors, 1 warning** — a stray `console.log` at `src/middleware/globalErrorHandler.ts:41`.
 
 ## Known gaps in the marketplace layer (verified, not yet fixed)
+
+> The complete backend audit — including the P0 security items (`forgot-password` leaking a
+> token, two IDORs, an unguarded Cloudinary delete) that are **not** listed here — is in
+> `docs/FEATURE-GAPS.md`. Read it before starting work on auth, address or wishlist code.
 
 - **This Stripe test account is shared with another project.** The only
   registered webhook endpoint is `edu-sphere-backend-pi.vercel.app/webhook`
