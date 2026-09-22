@@ -56,6 +56,33 @@ model Auth {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  passwordResetTokens PasswordResetToken[]
+}
+
+/// A single password-reset attempt.
+///
+/// Only the SHA-256 hash of the token is stored, never the token itself — a
+/// reader of this table (a leaked backup, a careless log) still cannot reset
+/// anyone's password. The raw token exists only in the emailed link.
+///
+/// `usedAt` is what makes a token single-use: it is stamped when the reset
+/// succeeds, and also when a newer token supersedes this one, so only the most
+/// recent link ever works.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  authId    String
+  /// SHA-256 of the raw token. Unique so a lookup is a single indexed read.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  auth Auth @relation(fields: [authId], references: [id], onDelete: Cascade)
+
+  @@index([authId])
+  @@index([expiresAt])
 }
 
 model Address {

@@ -27,9 +27,26 @@ exports.envConfig = {
         api_secret: process.env.API_SECRET,
     },
     emailUtils: {
+        // SMTP user + password. For Gmail, PASSWORD must be an app password,
+        // not the account password.
         email: process.env.EMAIL,
         password: process.env.PASSWORD,
+        host: process.env.EMAIL_HOST || "smtp.gmail.com",
+        port: parseInt(process.env.EMAIL_PORT || "465", 10),
+        /** What recipients see in the From line. Defaults to the SMTP user. */
+        from: process.env.EMAIL_FROM || process.env.EMAIL,
     },
+    /**
+     * How long an emailed password-reset link stays redeemable, in minutes.
+     * Short on purpose: the link is a bearer credential sitting in an inbox.
+     */
+    password_reset_ttl_minutes: parseInt(process.env.PASSWORD_RESET_TTL_MINUTES || "30", 10),
+    /**
+     * Minimum gap between two reset emails for the same account, in seconds.
+     * Stops one address being used to mail-bomb another while there is still
+     * no global rate limiter (see docs/FEATURE-GAPS.md BE-05).
+     */
+    password_reset_cooldown_seconds: parseInt(process.env.PASSWORD_RESET_COOLDOWN_SECONDS || "60", 10),
     // dev seed (src/seed) — not used by the running server
     seed_password: process.env.SEED_PASSWORD || "Password123!",
     // order related
