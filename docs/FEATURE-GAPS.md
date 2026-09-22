@@ -45,7 +45,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-12~~ | ~~No transactional email beyond password reset~~ | ✅ **FIXED** 2026-09-22 | — | notifications |
 | ~~BE-13~~ | ~~`OrderStatusHistory` is written and never read~~ — **premise was wrong**; it leaked instead | ✅ **FIXED** 2026-09-22 | — | privacy |
 | ~~BE-14~~ | ~~`sortBy` is never validated against a column allowlist~~ | ✅ **FIXED** 2026-09-22 | — | query |
-| BE-15 | Four list endpoints have no pagination | P1 | S | query |
+| ~~BE-15~~ | ~~Four list endpoints have no pagination~~ | ✅ **FIXED** 2026-09-22 | — | query |
 | BE-16 | `GET /slides` ignores its own `isActive` / `sortOrder` | P1 | S | content |
 | BE-17 | No health check endpoint | P1 | S | ops |
 | BE-18 | No graceful shutdown; server lies about the DB | P1 | S | ops |
@@ -689,24 +689,54 @@ See **XR-08**.
 
 ---
 
-### BE-15 · Four list endpoints have no pagination
-**P1 · S · query**
+### ~~BE-15~~ · Four list endpoints have no pagination
+**✅ FIXED — 2026-09-22 · query**
 
-**Now:** `GET /users` (`src/modules/user/user.service.ts:6-10`), `GET /address`
-(`src/modules/address/address.service.ts:21-25`) and `GET /wishlists/my-wishlist`
-(`src/modules/wishlist/wishlist.service.ts:35`) are bare `findMany()` calls that never touch
-`PrismaQueryBuilder`. `GET /users` additionally has no `isDeleted` filter.
+All four now route through `PrismaQueryBuilder` and return `meta`. **They were not the same case**,
+and the default limit differs on purpose:
 
-**Gap:** These grow without bound and return no `meta`, so the frontend's pagination is dead on
-arrival (see BE-20). Soft-deleted users are returned to the admin list.
+| endpoint | why it needed it | default limit |
+| --- | --- | --- |
+| `GET /users` | admin list of the **entire user base** — unbounded | 10 |
+| `GET /address` | admin list of **every customer's address** — unbounded, and PII | 10 |
+| `GET /slides` | was a hardcoded `take: 4` that **ignored the caller's `limit` entirely** | 10 |
+| `GET /wishlists/my-wishlist` | already scoped to one person, so never unbounded — but nothing caps how many products someone wishlists | **100** |
 
-**Fix:** Route all three through `PrismaQueryBuilder` with `.withDefaultFilter({ isDeleted: false })`,
-as `src/modules/brand/brand.service.ts` does.
+**The wishlist default is 100, not 10, and that is the interesting decision.** The storefront calls
+`useMyWishlistQuery()` with **no pagination params**, so the standard default of 10 would have
+silently shown a shopper only the first ten items of their own wishlist — a data-loss bug dressed
+up as a fix. 100 gives a client that asks real pagination while truncating nobody in practice. Drop
+it to the standard default once the frontend pages properly.
 
-Partly addressed by BE-02: `GET /address` now filters `isDeleted: false`, and the duplicate
-`findMany` that `findMyAddress` used to run has been removed. Both are still **unpaginated**, and
-`GET /address` still returns every customer's address in a single response — which for a PII table
-is the part that matters most here.
+Also fixed while routing them through the builder:
+- `GET /users` now excludes soft-deleted users (it returned them) and supports `?search=` on name
+  and phone.
+- `GET /slides` now excludes soft-deleted slides and **honours `?limit=`** — the hero slider has
+  been asking for 5 and silently receiving 4.
+- `Slide` has no relations at all, so Prisma's `findMany` args have no `include` key; the builder's
+  is destructured away at that one call site.
+
+**Verified** against the dev database:
+- `/users`: 8 rows default, `?limit=3` → 3 with `totalPages: 3`, `?page=2&limit=3` → the second
+  page, `?search=Ayesha` → 1.
+- `/slides`: `?limit=5` now returns what was asked for with `pageSize: 5`; `?limit=2` pages
+  correctly with `hasNextPage: true`.
+- `/address`: paginates with `meta`.
+- **Wishlist truncation proved rather than assumed** — with 14 items seeded, no params returned all
+  14 (`pageSize: 100`), while `?limit=10` returned 10 and hid 4. That is exactly the bug a default
+  of 10 would have shipped.
+- `result` is still a plain array on every one of them, so no frontend read breaks.
+- Probe products and wishlist rows removed afterwards; database back to 9 products and the 2
+  pre-existing wishlist rows.
+
+**Now live from BE-14:** `GET /users?sortBy=email:asc` returns
+`400 Cannot sort by "email"` — `email` is on `Auth`, not `User`. It was inert while this endpoint
+bypassed the query builder; routing it through the builder has made the frontend's
+`userSortOptions` Email entries a **real, user-visible error**. Removing those two options is now
+the immediate frontend follow-up. See **XR-08**.
+
+**Still open:** `GET /users` still does not return `email` or `role` — those live on `Auth` and need
+an `include`. That half is **BE-20**; only the pagination half belonged here.
 
 ---
 
@@ -787,9 +817,17 @@ is misleading.
 pagination never appears, because the frontend types both fields as required and feeds `meta` to
 `DataTable`. See **XR-05**.
 
-**Fix:** Route through `PrismaQueryBuilder` (BE-15), `include: { auth: { select: { email: true, role: true } } }`,
-and return `meta`. Decide with the frontend whether email/role arrive nested under `auth` or
-flattened — the frontend type currently expects them flat.
+**Partly done (BE-15, 2026-09-22):** the endpoint now routes through `PrismaQueryBuilder`, excludes
+soft-deleted users, supports `?search=`/`?page=`/`?limit=`, and **returns `meta`** — so the admin
+table's pagination is no longer dead on arrival.
+
+**Fix, remaining:** add `include: { auth: { select: { email: true, role: true } } }` so the Email
+and Role columns stop rendering blank. Decide with the frontend whether they arrive nested under
+`auth` or flattened — the frontend type currently expects them flat.
+
+**Do the frontend's `userSortOptions` first.** Now that this endpoint uses the query builder,
+`?sortBy=email:asc` returns a real `400 Cannot sort by "email"` (BE-14). That option is live and
+broken today.
 
 ---
 

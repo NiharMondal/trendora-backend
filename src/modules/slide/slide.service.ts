@@ -1,5 +1,6 @@
-import { Slide } from "@/lib/prisma-client";
+import { Prisma, Slide } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import CustomError from "@/utils/customError";
 
 const createIntoDB = async (payload: Slide) => {
@@ -10,16 +11,35 @@ const createIntoDB = async (payload: Slide) => {
 	return data;
 };
 
-const findAllFromDB = async () => {
-	const slide = await prisma.slide.findMany({
-		take: 4,
-		orderBy: {
-			createdAt: "desc",
-		},
-        
+/**
+ * Hero slides.
+ *
+ * Was a hardcoded `take: 4` that ignored the caller's `limit` entirely — the
+ * storefront slider asks for 5 and silently got 4. Now paginated like every
+ * other list, so the request is honoured.
+ *
+ * `isActive` and `sortOrder` are still not applied — that is BE-16.
+ */
+const findAllFromDB = async (query: Record<string, unknown>) => {
+	const builder = new PrismaQueryBuilder<Prisma.SlideWhereInput>(query, {
+		model: "Slide",
 	});
 
-	return slide;
+	// `Slide` has no relations, so Prisma's findMany args have no `include`
+	// key at all — drop the builder's before handing them over.
+	const { include: _include, ...prismaArgs } = builder
+		.withDefaultFilter({ isDeleted: false })
+		.filter()
+		.paginate()
+		.sort()
+		.build();
+
+	const [slides, meta] = await Promise.all([
+		prisma.slide.findMany(prismaArgs),
+		builder.getMeta(prisma.slide),
+	]);
+
+	return { meta, slides };
 };
 
 const findById = async (id: string) => {

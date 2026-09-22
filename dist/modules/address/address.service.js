@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.addressServices = void 0;
 const db_1 = require("../../config/db.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 const customError_1 = __importDefault(require("../../utils/customError.js"));
 /**
  * Resolve one address *belonging to the caller*, or fail.
@@ -45,12 +46,29 @@ const createIntoDB = async (payload, userId) => {
     });
     return address;
 };
-/** Admin-only list. Soft-deleted rows stay hidden. */
-const findAllFromDB = async () => {
-    const addresses = await db_1.prisma.address.findMany({
-        where: { isDeleted: false },
+/**
+ * Admin-only list of every address. Paginated because this is a PII table that
+ * grows with the customer base — returning all of it in one response was the
+ * sharpest edge of BE-15.
+ *
+ * Soft-deleted rows stay hidden.
+ */
+const findAllFromDB = async (query) => {
+    const builder = new PrismaQueryBuilder_1.default(query, {
+        model: "Address",
     });
-    return addresses;
+    const prismaArgs = builder
+        .withDefaultFilter({ isDeleted: false })
+        .search(["fullName", "phone", "city"])
+        .filter()
+        .paginate()
+        .sort()
+        .build();
+    const [addresses, meta] = await Promise.all([
+        db_1.prisma.address.findMany(prismaArgs),
+        builder.getMeta(db_1.prisma.address),
+    ]);
+    return { meta, addresses };
 };
 const findMyAddress = async (userId) => {
     const addresses = await db_1.prisma.address.findMany({

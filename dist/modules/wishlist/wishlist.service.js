@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wishlistServices = void 0;
 const db_1 = require("../../config/db.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 const customError_1 = __importDefault(require("../../utils/customError.js"));
 /**
  * Resolve one wishlist row *belonging to the caller*, or fail.
@@ -64,25 +65,47 @@ const createIntoDB = async (payload, userId) => {
     });
     return data;
 };
-const findByUserId = async (id) => {
-    const myWishLists = await db_1.prisma.wishlist.findMany({
-        where: {
-            userId: id,
-        },
-        include: {
-            product: {
-                select: {
-                    name: true,
-                    id: true,
-                    slug: true,
-                    basePrice: true,
-                    discountPrice: true,
-                    images: true,
-                },
+/**
+ * One user's wishlist.
+ *
+ * Unlike the admin lists, this is already scoped to a single person, so it was
+ * never going to return the whole table. It is paginated anyway to put a
+ * ceiling on it — nothing stops someone wishlisting thousands of products.
+ *
+ * **The default limit is deliberately 100, not the usual 10.** The storefront
+ * calls this with no pagination params, so a default of 10 would silently show
+ * a shopper only the first ten items of their own wishlist. 100 supports paging
+ * for a client that asks while not truncating anyone in practice; drop it to
+ * the standard default once the frontend pages properly.
+ */
+const findByUserId = async (id, query = {}) => {
+    const builder = new PrismaQueryBuilder_1.default(query, {
+        model: "Wishlist",
+        limit: 100,
+    });
+    const prismaArgs = builder
+        .withDefaultFilter({ userId: id })
+        .filter()
+        .paginate()
+        .sort()
+        .include({
+        product: {
+            select: {
+                name: true,
+                id: true,
+                slug: true,
+                basePrice: true,
+                discountPrice: true,
+                images: true,
             },
         },
-    });
-    return myWishLists;
+    })
+        .build();
+    const [myWishLists, meta] = await Promise.all([
+        db_1.prisma.wishlist.findMany(prismaArgs),
+        builder.getMeta(db_1.prisma.wishlist),
+    ]);
+    return { meta, wishlists: myWishLists };
 };
 const findById = async (id, userId) => {
     return findOwnedWishlist(id, userId);

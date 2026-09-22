@@ -18,11 +18,12 @@ const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
 });
 const findByUserId = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const id = req.user.id;
-    const data = await wishlist_service_1.wishlistServices.findByUserId(id);
+    const { wishlists, meta } = await wishlist_service_1.wishlistServices.findByUserId(id, req.query);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Wishlist fetched successfully",
-        data: data,
+        meta: meta,
+        data: wishlists,
     });
 });
 const findById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {

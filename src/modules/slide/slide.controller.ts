@@ -14,12 +14,13 @@ const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-    const slide = await slideServices.findAllFromDB();
+    const { slides, meta } = await slideServices.findAllFromDB(req.query);
 
     sendResponse(res, {
         statusCode: 200,
         message: "Slide fetched successfully",
-        data: slide,
+        meta: meta,
+        data: slides,
     });
 });
 const findById = asyncHandler(async (req: Request, res: Response) => {

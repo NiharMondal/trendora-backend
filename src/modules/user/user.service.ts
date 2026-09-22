@@ -1,12 +1,35 @@
+import { Prisma } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
 import CustomError from "@/utils/customError";
 import { TUserUpdateSchema } from "./user.validation";
 
-const getAllFromDB = async () => {
-	const users = prisma.user.findMany();
+/**
+ * Admin-only list of every user. Paginated because it grows without bound —
+ * this is the one endpoint whose result set is the whole user base.
+ *
+ * Soft-deleted users are excluded; they were previously returned.
+ */
+const getAllFromDB = async (query: Record<string, unknown>) => {
+	const builder = new PrismaQueryBuilder<Prisma.UserWhereInput>(query, {
+		model: "User",
+	});
 
-	return users;
+	const prismaArgs = builder
+		.withDefaultFilter({ isDeleted: false })
+		.search(["name", "phone"])
+		.filter()
+		.paginate()
+		.sort()
+		.build();
+
+	const [users, meta] = await Promise.all([
+		prisma.user.findMany(prismaArgs),
+		builder.getMeta(prisma.user),
+	]);
+
+	return { meta, users };
 };
 
 const myProfile = async(userId: string)=> {

@@ -4,12 +4,13 @@ import { userServices } from "./user.service";
 import { sendResponse } from "@/utils/sendResponse";
 
 const getAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await userServices.getAllFromDB();
+	const { users, meta } = await userServices.getAllFromDB(req.query);
 
 	sendResponse(res, {
 		statusCode: 200,
 		message: "Users fetched successfully",
-		data: data,
+		meta: meta,
+		data: users,
 	});
 });
 const myProfile = asyncHandler(async (req: Request, res: Response) => {

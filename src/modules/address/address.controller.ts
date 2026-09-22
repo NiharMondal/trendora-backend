@@ -15,12 +15,13 @@ const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
 	});
 });
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
-	const data = await addressServices.findAllFromDB();
+	const { addresses, meta } = await addressServices.findAllFromDB(req.query);
 
 	sendResponse(res, {
 		statusCode: 200,
 		message: "Address fetched successfully",
-		data: data,
+		meta: meta,
+		data: addresses,
 	});
 });
 
