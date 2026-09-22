@@ -357,7 +357,7 @@ Per vendor group, in `validateAndCalculateOrder` (`src/helpers/order.ts`):
 ```
 subtotal     = sum(item.subtotal)           // priceAtPurchase x qty, discount already baked in
 shippingCost = subtotal >= vendor.freeShippingThreshold ? 0 : vendor.shippingFee
-tax          = round2(subtotal x TAX_RATE)
+tax          = round2(sum over items of item.subtotal x item.taxRate)
 totalAmount  = subtotal + tax + shippingCost
 
 commissionAmount = round2(subtotal x commissionRate)   // platform's cut
@@ -372,6 +372,16 @@ vendorEarning    = subtotal + shippingCost - commissionAmount
   Tax is the platform's to remit; **shipping belongs to the vendor who ships**.
 - **Shipping is per vendor**, evaluated against each store's own threshold — a
   two-store cart pays two shipping fees.
+- **Tax is per CATEGORY, resolved per line.** `item.taxRate` is
+  `Category.taxRate ?? TAX_RATE`, so two products in one parcel can be taxed
+  differently. `NULL` means "use the platform rate"; **`0` means zero-rated and
+  is not the same as NULL** — resolve with an explicit null check, never
+  falsiness. The rate is not inherited from a parent category. When every
+  category is NULL the sum collapses to exactly `round2(subtotal x TAX_RATE)`,
+  which is why adding this changed no existing total.
+- `OrderItem.taxRate` / `OrderItem.tax` are **snapshots**, like
+  `VendorOrder.commissionRate` — re-rating a category never rewrites a past
+  invoice, and `VendorOrder.tax` is the sum of its lines.
 - `VendorOrder.commissionRate` is a **snapshot**, so changing a store's rate
   never rewrites past orders.
 - Money helpers live in `src/helpers/money.ts` (`round2`, `toNumber`,
@@ -626,7 +636,10 @@ turns a brief DB blip into a restart loop across every instance.
 - **No per-vendor shipping methods/zones.** One flat fee plus one free-shipping
   threshold per store. A `ShippingMethod` model hanging off `Vendor` is the
   extension point.
-- Two pre-existing `onDelete: SetNull` warnings on required columns
-  (`Size.sizeGroupId`, `Order.shippingAddressId`) surface on every
-  `prisma validate`. Fixing them means making those columns optional, which is
-  a frontend contract change, so they were left as they were.
+- ~~Two pre-existing `onDelete: SetNull` warnings on required columns.~~
+  **Fixed** — both are now `Restrict`, and no column had to become optional:
+  `SET NULL` on a `NOT NULL` column could never execute in the first place. An
+  address an order points at, and a size group that still has sizes, must not be
+  hard-deleted — which is exactly what the soft-delete services already assumed.
+  `prisma validate` is warning-free, and `globalErrorHandler` maps the `P2003`
+  refusal to a 409.

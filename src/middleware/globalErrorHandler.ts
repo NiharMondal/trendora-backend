@@ -51,6 +51,16 @@ export const globalErrorHandler = (
             errorResponse.message = "Invalid UUID or not found";
             errorResponse.errorDetails = "No record was found";
         }
+        // A Restrict foreign key refusing a delete. Reachable since the two
+        // required FKs stopped claiming SetNull (BE-39): deleting a size group
+        // that still has sizes, or an address an order points at, is now a
+        // clean refusal instead of a 500.
+        if (error.code === "P2003") {
+            errorResponse.statusCode = 409;
+            errorResponse.message =
+                "This record is still referenced by other data and cannot be deleted";
+            errorResponse.errorDetails = "Foreign key constraint failed";
+        }
     }
 
     res.status(errorResponse.statusCode).json({

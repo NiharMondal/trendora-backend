@@ -153,6 +153,8 @@ export async function persistOrder(
                         originalPrice: item.originalPrice,
                         discount: item.discount,
                         subtotal: item.subtotal,
+                        taxRate: item.taxRate,
+                        tax: item.tax,
                     })),
                 },
             },

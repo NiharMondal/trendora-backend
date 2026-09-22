@@ -205,7 +205,7 @@ const findMyProducts = async (
 		.include({
 			images: { select: { id: true, url: true, isMain: true } },
 			variants: liveVariants,
-			category: { select: { id: true, name: true, slug: true } },
+			category: { select: { id: true, name: true, slug: true, taxRate: true } },
 			brand: { select: { id: true, name: true } },
 			_count: { select: { orderItems: true } },
 		})
@@ -232,7 +232,7 @@ const findAllForAdmin = async (query: Record<string, unknown>) => {
 		.include({
 			images: { select: { id: true, url: true, isMain: true } },
 			vendor: { select: vendorCardSelect },
-			category: { select: { id: true, name: true } },
+			category: { select: { id: true, name: true, taxRate: true } },
 			brand: { select: { id: true, name: true } },
 		})
 		.build();
@@ -733,7 +733,7 @@ const findByVendorSlug = async (
 		.include({
 			images: { select: { id: true, url: true, isMain: true } },
 			variants: liveVariants,
-			category: { select: { id: true, name: true, slug: true } },
+			category: { select: { id: true, name: true, slug: true, taxRate: true } },
 			brand: { select: { id: true, name: true } },
 		})
 		.build();

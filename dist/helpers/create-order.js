@@ -99,6 +99,8 @@ async function persistOrder(tx, input) {
                         originalPrice: item.originalPrice,
                         discount: item.discount,
                         subtotal: item.subtotal,
+                        taxRate: item.taxRate,
+                        tax: item.tax,
                     })),
                 },
             },
