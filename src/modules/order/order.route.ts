@@ -33,9 +33,18 @@ router.get(
 	orderControllers.getVendorOrderById,
 );
 
+/**
+ * Fulfilment AND buyer-side cancellation share this route, because they are the
+ * same state transition on the same row. The service works out whether the
+ * caller is the seller, the buyer or an admin and applies the matching
+ * transition table — a buyer may only take a PENDING parcel to CANCELED.
+ *
+ * CUSTOMER is in the guard for that reason; without it a buyer had no way to
+ * cancel their own order at all.
+ */
 router.patch(
 	"/vendor-orders/:vendorOrderId/status",
-	authGuard(Role.VENDOR, Role.ADMIN),
+	authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
 	validateRequest(orderValidation.updateVendorOrderStatusSchema),
 	orderControllers.updateVendorOrderStatus,
 );

@@ -39,7 +39,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | ~~BE-08~~ | ~~`PATCH /users/my-profile-update` has no validation~~ | ✅ **FIXED** 2026-09-22 | — | security |
-| BE-09 | A customer cannot cancel their own order | P1 | M | orders |
+| ~~BE-09~~ | ~~A customer cannot cancel their own order~~ | ✅ **FIXED** 2026-09-22 | — | orders |
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
 | BE-11 | Nothing schedules the refund / checkout sweeps | P1 | M | refunds |
 | BE-12 | No transactional email beyond password reset | P1 | L | notifications |
@@ -383,21 +383,68 @@ rather than a field-level message.
 
 ## P1 — a user or operator hits this
 
-### BE-09 · A customer cannot cancel their own order
-**P1 · M · orders**
+### ~~BE-09~~ · A customer cannot cancel their own order
+**✅ FIXED — 2026-09-22 · orders**
 
-**Now:** Fulfilment moves through `PATCH /orders/vendor-orders/:vendorOrderId/status`, guarded
-`authGuard(Role.VENDOR, Role.ADMIN)` (`src/modules/order/order.route.ts:36-40`). The old
-whole-order status route was deliberately removed (`:10-14`). No other cancel route exists.
+**Was:** the route was guarded `VENDOR, ADMIN`, and the service did
+`if (actor.role !== Role.ADMIN) requireApprovedVendor(actor.id)`. A buyer had no cancel route at
+all — and neither did a **VENDOR acting as a shopper**, since that call pinned them to their own
+store's parcels.
 
-**Gap:** A buyer has no way to cancel a parcel they just ordered. The refund ledger, the Stripe
-refund path and `ensureTransitionAllowedForRole` all exist and work — there is simply no door for
-a CUSTOMER to walk through. They must contact the seller.
+**Now:** the route accepts `CUSTOMER, VENDOR, ADMIN`, and the service resolves **capacity, not
+role** — `resolveOrderActorCapacity` asks "what is this caller to *this parcel*?" and returns
+`admin`, `seller` or `buyer`. That distinction is the point: role alone cannot answer it, because
+the same account is a seller on its own store's parcels and a buyer on parcels it ordered
+elsewhere.
 
-**Fix:** Either add `Role.CUSTOMER` to that guard and extend
-`ensureTransitionAllowedForRole` so a buyer may only move `PENDING|PROCESSING → CANCELED` on a
-parcel they own, or add a dedicated `POST /orders/vendor-orders/:id/cancel`. Reuse
-`assertVendorOwnsVendorOrder`'s 404-not-403 pattern for the ownership check.
+Each capacity gets its own transition table (`src/helpers/allowedTransition.ts`):
+
+| capacity | may do |
+| --- | --- |
+| `admin` | anything the state machine allows, including cancelling a SHIPPED parcel |
+| `seller` | move forward; cancel while nothing has shipped (unchanged) |
+| `buyer` | **`PENDING → CANCELED`, and nothing else** |
+
+**The gate is `OrderStatus`, never `PaymentStatus`.** This was the open design question, and the
+payment-status half of it is a trap: a cash-on-delivery order stays `paymentStatus: PENDING` right
+up until every parcel is delivered (`reconcilePayment`), so "allow cancel while payment is pending"
+would let a buyer cancel a parcel that had already **shipped**. Verified directly — a COD parcel
+sitting at `parcel=SHIPPED payment=PENDING` is correctly refused. Payment status decides what
+*happens* on cancel (whether `recordRefundIntent` owes money back), not whether cancel is allowed.
+
+Why `PENDING` only and not `PROCESSING`: once the seller has accepted and started packing, calling
+it off stops being a unilateral decision and becomes a request. The buyer gets an actionable 403
+naming the current status and telling them to contact the seller, rather than a bare "forbidden".
+Widening to `PROCESSING` is a one-line change to `buyerAllowedTransitions` if the window proves too
+tight in practice.
+
+Smaller points handled in the same change:
+- Shipping details are ignored when the caller is a buyer — no setting `trackingNumber` or
+  `carrier` by attaching them to a cancel.
+- `cancelReason` defaults to "Canceled by customer" / "Canceled by seller" / "Canceled by admin"
+  instead of always "Canceled by seller".
+- `requireApprovedVendor`'s precise pending/rejected/suspended errors are preserved: a caller who
+  owns the selling store still goes through it, so a suspended seller gets that message rather than
+  falling through to a 404.
+- A caller who is neither buyer nor seller of the parcel gets **404, not 403**, so order ids stay
+  unguessable.
+
+**Verified** end to end against the dev database with real COD orders:
+- Buyer cancels a PENDING parcel → 200; stock returned (297 → 299); `cancelReason` reads
+  "Canceled by customer".
+- Buyer → `PROCESSING` / `SHIPPED` → 403 / 400. Buyer → CANCELED after the seller moved it to
+  PROCESSING → 403 with the "contact the seller" message.
+- **Buyer → CANCELED on a SHIPPED COD parcel (`payment=PENDING`) → 403.** The case the
+  payment-status rule would have allowed.
+- A **VENDOR cancelling their own purchase** from another store → 200. Previously impossible.
+- An unrelated vendor targeting the parcel → 404.
+- Seller → CANCELED on SHIPPED still 403; **admin** → 200, so the override is intact.
+- `OrderStatusHistory` records the acting user and reason on every hop.
+- All test orders removed afterwards; product stock back to its original 300.
+
+**Note:** cancellation is per **parcel**, matching the architecture — `Order.orderStatus` is a
+derived rollup. A buyer with a two-store cart cancels each parcel separately; there is deliberately
+no whole-order cancel endpoint.
 
 ---
 
