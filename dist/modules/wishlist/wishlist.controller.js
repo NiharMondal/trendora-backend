@@ -4,13 +4,12 @@ exports.wishlistControllers = void 0;
 const asyncHandler_1 = require("../../utils/asyncHandler");
 const sendResponse_1 = require("../../utils/sendResponse");
 const wishlist_service_1 = require("./wishlist.service");
+// The owner always comes from the verified JWT, never from the body — see the
+// note in wishlist.validation.ts. The two single-row handlers below pass it to
+// the service for the same reason; dropping that argument reopens the IDOR
+// these routes used to have (docs/FEATURE-GAPS.md BE-03).
 const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const userId = req.user.id;
-    const payload = {
-        userId,
-        productId: req.body.productId,
-    };
-    const data = await wishlist_service_1.wishlistServices.createIntoDB(payload);
+    const data = await wishlist_service_1.wishlistServices.createIntoDB(req.body, req.user.id);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 201,
         message: "Wishlist added successfully",
@@ -28,7 +27,7 @@ const findByUserId = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
 });
 const findById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const id = req.params.id;
-    const data = await wishlist_service_1.wishlistServices.findById(id);
+    const data = await wishlist_service_1.wishlistServices.findById(id, req.user.id);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Wishlist fetched successfully",
@@ -37,7 +36,7 @@ const findById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
 });
 const deleteData = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const id = req.params.id;
-    const data = await wishlist_service_1.wishlistServices.deleteData(id);
+    const data = await wishlist_service_1.wishlistServices.deleteData(id, req.user.id);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Wishlist deleted successfully",

@@ -155,9 +155,10 @@ one store's data into another's dashboard.
 `authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)` is guarded against *strangers*, not against
 *other customers* — if the handler then looks a row up by `req.params.id` alone, every signed-in
 account can reach every other account's data. `src/modules/address/address.service.ts`
-(`findOwnedAddress`) is the reference implementation for a per-user resource: filter on
-`id + userId`, throw **404 rather than 403**, and have the controller pass `req.user.id`. The
-wishlist module still has this bug — see `docs/FEATURE-GAPS.md` BE-03.
+(`findOwnedAddress`) and `src/modules/wishlist/wishlist.service.ts` (`findOwnedWishlist`) are the
+reference implementations for a per-user resource: filter on `id + userId`, throw **404 rather than
+403**, and have the controller pass `req.user.id`. Never take the owner from the request body —
+`wishlist.validation.ts` carries the note on why that schema deliberately omits `userId`.
 
 **Soft-delete user-owned rows that an order can reference.** `Address` is the worked example:
 `Order.shippingAddressId` is a required column pointing at it, so a hard delete breaks past orders.

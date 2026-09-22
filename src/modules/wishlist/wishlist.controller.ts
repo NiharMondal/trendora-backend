@@ -3,13 +3,12 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { sendResponse } from "../../utils/sendResponse";
 import { wishlistServices } from "./wishlist.service";
 
+// The owner always comes from the verified JWT, never from the body — see the
+// note in wishlist.validation.ts. The two single-row handlers below pass it to
+// the service for the same reason; dropping that argument reopens the IDOR
+// these routes used to have (docs/FEATURE-GAPS.md BE-03).
 const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
-	const userId = req.user.id;
-	const payload = {
-		userId,
-		productId: req.body.productId,
-	};
-	const data = await wishlistServices.createIntoDB(payload);
+	const data = await wishlistServices.createIntoDB(req.body, req.user.id);
 
 	sendResponse(res, {
 		statusCode: 201,
@@ -30,7 +29,7 @@ const findByUserId = asyncHandler(async (req: Request, res: Response) => {
 });
 const findById = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await wishlistServices.findById(id);
+	const data = await wishlistServices.findById(id, req.user.id);
 
 	sendResponse(res, {
 		statusCode: 200,
@@ -41,7 +40,7 @@ const findById = asyncHandler(async (req: Request, res: Response) => {
 
 const deleteData = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await wishlistServices.deleteData(id);
+	const data = await wishlistServices.deleteData(id, req.user.id);
 
 	sendResponse(res, {
 		statusCode: 200,

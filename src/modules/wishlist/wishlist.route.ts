@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { wishlistControllers } from "./wishlist.controller";
 import { authGuard } from "../../middleware/authGuard";
+import { validateRequest } from "../../middleware/validateRequest";
 import { Role } from "../../../generated/prisma";
+import { createWishList } from "./wishlist.validation";
 
 const router = Router();
 
@@ -19,6 +21,11 @@ router
 	.get(anySignedInUser, wishlistControllers.findById)
 	.delete(anySignedInUser, wishlistControllers.deleteData);
 
-router.post("/", anySignedInUser, wishlistControllers.createIntoDB);
+router.post(
+	"/",
+	anySignedInUser,
+	validateRequest(createWishList),
+	wishlistControllers.createIntoDB,
+);
 
 export const wishlistRouter = router;

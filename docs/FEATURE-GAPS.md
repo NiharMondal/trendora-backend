@@ -31,14 +31,14 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | --- | --- | --- | --- | --- |
 | ~~BE-01~~ | ~~`forgot-password` hands a valid JWT to any caller~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | ~~BE-02~~ | ~~IDOR — any user can read/edit/delete any address~~ | ✅ **FIXED** 2026-09-22 | — | security |
-| BE-03 | IDOR — any user can read/delete any wishlist row | P0 | S | security |
+| ~~BE-03~~ | ~~IDOR — any user can read/delete any wishlist row~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-04 | `POST /cloudinary/delete-temp` is unauthenticated | P0 | S | security |
 | BE-05 | No rate limiting, helmet, body cap or request logging | P0 | M | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | BE-07 | `authGuard` trusts the role in the JWT, not the DB | P0 | S | security |
 | BE-08 | `PATCH /users/my-profile-update` has no validation | P0 | S | security |
 | BE-09 | A customer cannot cancel their own order | P1 | M | orders |
-| BE-10 | Wishlist duplicate check ignores `userId` | P1 | S | wishlist |
+| ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
 | BE-11 | Nothing schedules the refund / checkout sweeps | P1 | M | refunds |
 | BE-12 | No transactional email beyond password reset | P1 | L | notifications |
 | BE-13 | `OrderStatusHistory` is written and never read | P1 | M | orders |
@@ -169,21 +169,41 @@ admin-only `GET /address` list is untouched and still available for a future adm
 
 ---
 
-### BE-03 · IDOR — any user can read or delete any wishlist row
-**P0 · S · security**
+### ~~BE-03~~ · IDOR — any user can read or delete any wishlist row
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/modules/wishlist/wishlist.service.ts:57` (`findById`) and `:65` (`deleteData`) use
-the raw `id`; `src/modules/wishlist/wishlist.controller.ts:32,43` never pass the caller.
+**Was:** `findById` and `deleteData` used the raw `id` and the controller never passed the caller,
+so any signed-in account could read or delete items out of anyone else's wishlist.
 
-**Gap:** Same shape as BE-02 — one user can delete items out of another's wishlist. Lower impact
-(no PII), same root cause.
+**Now:** both resolve through `findOwnedWishlist(id, userId)`
+(`src/modules/wishlist/wishlist.service.ts:17-27`), which filters on `id + userId` and throws
+**404, not 403** — the same convention as `findOwnedAddress` (BE-02) and
+`assertVendorOwnsProduct`. The controller passes `req.user.id`
+(`src/modules/wishlist/wishlist.controller.ts:32,43`).
 
-**Fix:** Copy the pattern BE-02 now uses: a module-local
-`findOwnedWishlist(id, userId)` doing `findFirst({ where: { id, userId } })` and throwing 404, with
-the controller passing `req.user.id`. See `src/modules/address/address.service.ts:20-30`.
-`Wishlist` has no `isDeleted` column, so the delete stays hard — unlike the address case there is
-no order FK pointing at it. Fix BE-10 (the duplicate check that ignores `userId`) in the same
-pass; both are the same oversight in the same file.
+The delete stays **hard**, unlike the address case: `Wishlist` has no `isDeleted` column and
+nothing references the row, so there is no history to preserve.
+
+**BE-10 was fixed in the same pass** — same file, same oversight. See its entry.
+
+**Also closed here:** `POST /wishlists` had no `validateRequest`, and could not simply be given one.
+The schema required `userId` in the body, which the frontend has never sent, so wiring it up as-is
+would have 400'd every request. `createWishList` now validates **only `productId`**
+(`src/modules/wishlist/wishlist.validation.ts:12-14`) and the route applies it
+(`src/modules/wishlist/wishlist.route.ts:24-29`). The owner comes from the verified JWT and is
+never accepted from the body.
+
+**Verified** with two real accounts against the dev database: user 2 GET and DELETE on user 1's
+wishlist row both return **404** and the row survives; the owner's GET returns 200; deleting twice
+returns 200 then 404; unauthenticated returns 401. A POST carrying another user's `userId` in the
+body creates the row for **the caller**, not the named user. A POST with a missing or non-UUID
+`productId` now returns a 400 validation error instead of reaching Prisma.
+
+**Still open:** `GET /wishlists/my-wishlist` remains unpaginated (BE-15), and `createIntoDB` checks
+only `product.isDeleted` — a shopper can still wishlist a DRAFT, PENDING or REJECTED listing, or
+one from a suspended store, because it does not compose `publicProductFilter`
+(`src/helpers/vendor.ts`). Low impact (the storefront will not render it), but it is the same
+visibility rule every other read applies.
 
 ---
 
@@ -300,20 +320,21 @@ parcel they own, or add a dedicated `POST /orders/vendor-orders/:id/cancel`. Reu
 
 ---
 
-### BE-10 · Wishlist duplicate check ignores `userId`
-**P1 · S · wishlist**
+### ~~BE-10~~ · Wishlist duplicate check ignores `userId`
+**✅ FIXED — 2026-09-22 · wishlist**
 
-**Now:** `src/modules/wishlist/wishlist.service.ts:21-26` guards with
-`findFirst({ where: { productId: payload.productId } })` — no `userId`.
+**Was:** the guard was `findFirst({ where: { productId } })` with no `userId`, so once *any* user
+wishlisted a product, **every other user** got `400 "Sorry, This product already exist"` for it.
+Popular products became un-wishlistable platform-wide.
 
-**Gap:** Once *any* user wishlists a product, **every other user** gets
-`400 "Sorry, This product already exist"` for it. The Prisma model has the correct
-`@@unique([userId, productId])` (`prisma/schema.prisma:323`); only the application-level guard is
-wrong. Popular products become un-wishlistable platform-wide.
+**Now:** the check reads through the model's own `@@unique([userId, productId])` index —
+`findUnique({ where: { userId_productId: { userId, productId } } })`
+(`src/modules/wishlist/wishlist.service.ts:54-58`) — so it is a single keyed lookup scoped to the
+caller. That constraint is also the backstop for the race where two concurrent requests both pass
+the check: the loser surfaces as a `P2002`, which `globalErrorHandler` already maps.
 
-**Fix:** Add `userId` to the `where`. Better: drop the pre-check entirely and let the unique
-constraint raise `P2002`, which `globalErrorHandler` already maps. `POST /wishlists` also has no
-`validateRequest` despite `wishlist.validation.ts:3` existing.
+**Verified:** two different users can now wishlist the same product (both 201), while the same user
+adding the same product twice still gets the 400.
 
 ---
 
