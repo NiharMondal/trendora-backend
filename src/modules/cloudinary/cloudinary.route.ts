@@ -1,24 +1,22 @@
-import { Request, Response, Router } from "express";
-import CustomError from "@/utils/customError";
-import { deleteFromCloudinary } from "@/utils/cloudinary";
+import { Router } from "express";
+
+import { validateRequest } from "@/middleware/validateRequest";
+
+import { cloudinaryControllers } from "./cloudinary.controller";
+import { cloudinaryValidation } from "./cloudinary.validation";
 
 const router = Router();
 
-router.post("/delete-temp", async (req: Request, res: Response) => {
-    const { publicId } = req.body;
-
-    if (!publicId.includes("/temp/")) {
-        throw new CustomError(400, "Not a temp image")
-    };
-
-    await deleteFromCloudinary(publicId);
-
-    return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        message: "Temp image deleted successfully",
-    })
-})
-
+/**
+ * Deliberately unauthenticated: the frontend's `deleteTempImage` is a raw
+ * `fetch` with no token, one of the two exceptions to "all server data goes
+ * through RTK Query". Adding `authGuard` here alone turns every image replace
+ * into a silent 401 — it is a two-sided change (BE-04 / BE-42).
+ */
+router.post(
+    "/delete-temp",
+    validateRequest(cloudinaryValidation.deleteTempSchema),
+    cloudinaryControllers.deleteTempImage,
+);
 
 export const cloudinaryRouter = router;
