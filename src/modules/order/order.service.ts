@@ -45,6 +45,51 @@ export type TBasicInfo = {
 type TActor = { id: string; role: string };
 
 /** Store identity shown next to each slice of an order. */
+/**
+ * What `OrderStatusHistory` may leave the server as.
+ *
+ * The rows carry `ipAddress` and the acting `userId`. Both endpoints that
+ * return history are reachable by the **buyer and by any vendor with a slice**
+ * of the order, so returning the raw row let a seller read the buyer's IP
+ * address off their own order — and let a buyer read the seller's. The trail is
+ * fetched with everything and then narrowed per caller.
+ */
+const statusHistorySelect = {
+	id: true,
+	oldStatus: true,
+	newStatus: true,
+	note: true,
+	createdAt: true,
+	ipAddress: true,
+	user: { select: { id: true, name: true } },
+} satisfies Prisma.OrderStatusHistorySelect;
+
+type TRawStatusHistory = {
+	id: string;
+	oldStatus: OrderStatus;
+	newStatus: OrderStatus;
+	note: string | null;
+	createdAt: Date;
+	ipAddress: string | null;
+	user: { id: string; name: string } | null;
+};
+
+/**
+ * Everyone sees the timeline; only an ADMIN sees who did it and from where.
+ *
+ * A buyer does not need the seller's personal name (the store name is already
+ * on the parcel), a seller does not need the buyer's, and nobody outside the
+ * platform needs an IP address — that field exists for abuse investigation,
+ * which is an admin activity.
+ */
+const sanitizeStatusHistory = (
+	history: TRawStatusHistory[],
+	isAdmin: boolean,
+) =>
+	history.map(({ ipAddress, user, ...event }) =>
+		isAdmin ? { ...event, ipAddress, actor: user } : event,
+	);
+
 const vendorCardSelect = {
 	id: true,
 	storeName: true,
@@ -325,7 +370,10 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 							},
 						},
 					},
-					statusHistory: { orderBy: { createdAt: "asc" } },
+					statusHistory: {
+						select: statusHistorySelect,
+						orderBy: { createdAt: "asc" },
+					},
 					// Whether the money for a cancelled parcel actually went
 					// back — a cancelled parcel with a FAILED refund is a
 					// buyer who has not been paid.
@@ -353,8 +401,17 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 		throw new CustomError(404, "Order not found");
 	}
 
-	if (actor.role === Role.ADMIN || order.userId === actor.id) {
-		return order;
+	const isAdmin = actor.role === Role.ADMIN;
+
+	/** Re-attach each parcel's history, narrowed for this caller. */
+	const withSafeHistory = (slices: typeof order.vendorOrders) =>
+		slices.map((slice) => ({
+			...slice,
+			statusHistory: sanitizeStatusHistory(slice.statusHistory, isAdmin),
+		}));
+
+	if (isAdmin || order.userId === actor.id) {
+		return { ...order, vendorOrders: withSafeHistory(order.vendorOrders) };
 	}
 
 	if (actor.role === Role.VENDOR) {
@@ -371,7 +428,7 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 		// describe the whole basket.
 		return {
 			...order,
-			vendorOrders: mine,
+			vendorOrders: withSafeHistory(mine),
 			subtotal: undefined,
 			tax: undefined,
 			shippingCost: undefined,
@@ -455,7 +512,10 @@ const getVendorOrderById = async (actor: TActor, vendorOrderId: string) => {
 					},
 				},
 			},
-			statusHistory: { orderBy: { createdAt: "asc" } },
+			statusHistory: {
+				select: statusHistorySelect,
+				orderBy: { createdAt: "asc" },
+			},
 			order: {
 				select: {
 					id: true,
@@ -475,7 +535,15 @@ const getVendorOrderById = async (actor: TActor, vendorOrderId: string) => {
 		throw new CustomError(404, "Order not found");
 	}
 
-	return vendorOrder;
+	// Vendor-facing, so the seller must not read the buyer's IP off their own
+	// parcel's trail. Admins keep the full audit view.
+	return {
+		...vendorOrder,
+		statusHistory: sanitizeStatusHistory(
+			vendorOrder.statusHistory,
+			actor.role === Role.ADMIN,
+		),
+	};
 };
 
 /**
