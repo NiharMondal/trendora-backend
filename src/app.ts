@@ -6,6 +6,7 @@ import rootRouter from "./routes/rootRouter";
 import { notFoundRoute } from "./middleware/notFoundRoute";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
 import { stripeWebhookRouter } from "./modules/payment/payment.route";
+import { healthRouter } from "./routes/health.route";
 import { apiLimiter } from "./middleware/rateLimiter";
 import { envConfig } from "./config/env-config";
 
@@ -47,9 +48,18 @@ app.use(
 app.use(
 	morgan(envConfig.node_env === "production" ? "combined" : "dev", {
 		// Health probes would otherwise dominate the log.
-		skip: (req) => req.path === "/health",
+		// `originalUrl`, not `path`: morgan's skip runs on the response's
+		// `finish` event, by which point a mounted router has rewritten
+		// `req.path` to be relative to its mount point ("/" for /health).
+		// `originalUrl` is never rewritten.
+		skip: (req) => req.originalUrl.startsWith("/health"),
 	}),
 );
+
+// Probes live outside /api/v1 and above the rate limiter: an orchestrator
+// polling health must never be throttled, or a busy instance gets restarted
+// for looking unhealthy.
+app.use("/health", healthRouter);
 
 // MUST stay above express.json(): Stripe signature verification needs the raw
 // request bytes. Serves POST /webhook and POST /webhook/stripe.

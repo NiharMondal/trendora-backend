@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.notifyPayoutPaid = exports.notifyVendorApplicationDecision = exports.notifyRefundProcessed = exports.notifyVendorOrderStatusChanged = exports.notifyOrderPlaced = void 0;
 /* eslint-disable no-console */
 const db_1 = require("../config/db.js");
+const env_config_1 = require("../config/env-config.js");
 const prisma_client_1 = require("../lib/prisma-client.js");
 const money_1 = require("./money");
 const sendEmail_1 = require("../utils/sendEmail.js");
@@ -197,7 +198,7 @@ const notifyVendorApplicationDecision = (vendorId, approved) => notify(`vendor-d
             approved,
             rejectionReason: vendor.rejectionReason,
             storeUrl: approved
-                ? `${process.env.FRONTEND_URL ?? ""}/stores/${vendor.slug}`
+                ? `${env_config_1.envConfig.front_end_url}/stores/${vendor.slug}`
                 : undefined,
         }),
     });
