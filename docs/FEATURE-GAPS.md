@@ -29,7 +29,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 
 | ID | Title | Pri | Eff | Area |
 | --- | --- | --- | --- | --- |
-| BE-01 | `forgot-password` hands a valid JWT to any caller | P0 | M | security |
+| ~~BE-01~~ | ~~`forgot-password` hands a valid JWT to any caller~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-02 | IDOR — any user can read/edit/delete any address | P0 | S | security |
 | BE-03 | IDOR — any user can read/delete any wishlist row | P0 | S | security |
 | BE-04 | `POST /cloudinary/delete-temp` is unauthenticated | P0 | S | security |
@@ -40,7 +40,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-09 | A customer cannot cancel their own order | P1 | M | orders |
 | BE-10 | Wishlist duplicate check ignores `userId` | P1 | S | wishlist |
 | BE-11 | Nothing schedules the refund / checkout sweeps | P1 | M | refunds |
-| BE-12 | No email or notification of any kind | P1 | L | notifications |
+| BE-12 | No transactional email beyond password reset | P1 | L | notifications |
 | BE-13 | `OrderStatusHistory` is written and never read | P1 | M | orders |
 | BE-14 | `sortBy` is never validated against a column allowlist | P1 | S | query |
 | BE-15 | Four list endpoints have no pagination | P1 | S | query |
@@ -51,6 +51,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-20 | `GET /users` returns no email, role or pagination meta | P1 | S | users |
 | BE-21 | Brand validation silently drops `logo` | P1 | S | catalogue |
 | BE-22 | No test runner, no CI, no Dockerfile | P1 | L | ops |
+| BE-40 | `POST /auth/register` returns the bcrypt password hash | P1 | S | security |
 | BE-23 | SSLCommerz is dead dependency + dead config | P2 | S | cleanup |
 | BE-24 | Six exported helpers have zero callers | P2 | S | cleanup |
 | BE-25 | Unreachable enum values (`KIDS`, `FACEBOOK`, `PROCESSING`) | P2 | S | cleanup |
@@ -73,28 +74,46 @@ uses `FE-nn` and the same `XR-nn` numbers.
 
 ## P0 — unsafe
 
-### BE-01 · `forgot-password` hands a valid JWT to any caller
-**P0 · M · security**
+### ~~BE-01~~ · `forgot-password` hands a valid JWT to any caller
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/modules/auth/auth.service.ts:294-312` looks the email up and returns
-`{ token, email }`, where `token` is a real access token minted by `generateAccessToken` with the
-live `ACCESS_TOKEN_SECRET`. The route is public (`src/modules/auth/auth.route.ts:34`). The
-controller's message claims "Forgot password email sent Successfully"
-(`src/modules/auth/auth.controller.ts:61`) but nothing sends mail.
+**Was:** `auth.service.ts` returned `{ token, email }`, where `token` was a real access token
+minted with the live `ACCESS_TOKEN_SECRET`, to any unauthenticated caller for any registered
+email. It 404'd on an unknown address, sent no mail, and had no `/auth/reset-password` to redeem
+against.
 
-**Gap:** Three defects in one endpoint.
-1. **Account takeover.** Any unauthenticated caller can POST any registered email and receive a
-   token that `authGuard` will accept. This is the single most serious issue in the repo.
-2. **User enumeration.** A missing email throws `404 "Email not found"` (`:300`) while a known one
-   returns 200 — an oracle for which addresses hold accounts.
-3. **The flow is a dead end anyway.** There is no `/auth/reset-password` route anywhere in
-   `src/`, so even the legitimate holder of that token has nothing to redeem it against.
+**Now:** the flow is two public steps and the token never appears in a response.
 
-**Fix:** Do not return the token. Mint a short-lived, single-use, purpose-scoped reset token
-(separate secret or a `type: "reset"` claim so it cannot be replayed against `authGuard`),
-persist its hash with an expiry, mail the link, and always respond 200 with the same body whether
-or not the email exists. Add the matching `POST /auth/reset-password` that consumes and
-invalidates it. This depends on BE-12 (there is no mail transport yet).
+1. `POST /auth/forgot-password { email }` — generates 32 bytes of CSPRNG output, stores only its
+   **SHA-256 hash** in the new `PasswordResetToken` table, and emails
+   `${FRONTEND_URL}/reset-password?token=<raw>`. It returns the **same generic 200 for every
+   input** — unknown address, deleted user, social-only account, or a request inside the
+   per-account cooldown all look identical, so the endpoint is no longer an enumeration oracle.
+2. `POST /auth/reset-password { token, newPassword }` — hashes the supplied token, requires an
+   unused and unexpired row, updates the password and retires **every** outstanding token for that
+   account in one transaction. Unknown, expired, used and malformed tokens all return the same
+   message.
+
+Supporting pieces: `src/utils/sendEmail.ts` (the reusable transport, BE-12),
+`src/utils/email-templates.ts`, the `PasswordResetToken` model
+(migration `20260922094138_password_reset_tokens`), and `PASSWORD_RESET_TTL_MINUTES` /
+`PASSWORD_RESET_COOLDOWN_SECONDS` in `.env.example`.
+
+**Verified end to end** against the dev database: unknown / social-only / real addresses return
+byte-identical bodies; exactly one token row is created and only for an account that has a
+password; the SHA-256 hash is 64 hex chars; a valid token resets the password (old password stops
+working, new one logs in); replay, expiry and unknown tokens all fail closed; a second request
+inside the cooldown issues no new token and sends no second mail; a request after the cooldown
+issues a new token and retires the old one.
+
+**Still open, deliberately out of scope here:**
+- **No rate limiting** on either endpoint beyond the per-account cooldown — BE-05.
+- **A social-only (Google) account cannot set a password this way.** It is skipped silently, which
+  is consistent with `changePassword` refusing for the same reason, but it is a UX dead end: the
+  user gets the generic "link sent" and no mail arrives. Letting them *set* a first password would
+  need its own deliberate flow.
+- `processPendingRefunds`-style housekeeping: used and expired `PasswordResetToken` rows are never
+  swept. Harmless — a used row can never be redeemed again — but they accumulate. Fold into BE-11.
 
 ---
 
@@ -284,23 +303,31 @@ polls `PROCESSING` refunds via `retrieveStripeRefund`.
 
 ---
 
-### BE-12 · No email or notification of any kind
+### BE-12 · No transactional email beyond password reset
 **P1 · L · notifications**
 
-**Now:** `envConfig.emailUtils` (`src/config/env-config.ts:25-28`) reads `EMAIL` and `PASSWORD`
-and has **zero consumers**. No mail library is in `package.json`. Grep for `notification` across
-`src/` returns nothing.
+**Now:** the transport exists and is reusable — **this half is done.**
+`src/utils/sendEmail.ts` owns the single pooled nodemailer transport and exposes
+`sendEmail` (throws) and `sendEmailSafely` (logs and returns `false`), plus `isEmailConfigured`
+so an environment with no SMTP credentials skips mail instead of failing the request that
+triggered it. Bodies live in `src/utils/email-templates.ts`, one exported function per message
+returning `{ subject, html, text }`, so a caller cannot forget the plain-text fallback.
 
-**Gap:** Nothing is ever sent: no order confirmation, no shipping notice, no refund
-confirmation, no vendor application decision, no password reset (which is what blocks BE-01), no
-payout notice. For a marketplace this is a large hole — a seller learns about a new order only by
-opening the dashboard.
+Two templates exist, both wired into the password-reset flow (BE-01): `passwordResetEmail` and
+`passwordChangedEmail`.
 
-**Fix:** Add a mail transport and a `notification` module with a template per event, then call it
-from the existing hook points: `persistOrder` (`src/helpers/create-order.ts`), the vendor-order
-status transition, `processRefund`, the vendor approve/reject handlers, and the payout
-mark-paid path. Make sends fire-and-forget so a mail outage cannot roll back a transaction — the
-same reasoning that keeps the gateway call outside the transaction in `src/helpers/refund.ts`.
+**Gap:** every *other* notification is still missing. No order confirmation, no shipping notice,
+no refund confirmation, no vendor application decision, no payout notice. A seller still learns
+about a new order only by opening the dashboard.
+
+**Fix:** Add a template per event and call `sendEmailSafely` from the existing hook points:
+`persistOrder` (`src/helpers/create-order.ts`), the vendor-order status transition,
+`processRefund`, the vendor approve/reject handlers, and the payout mark-paid path. Keep using
+`sendEmailSafely` rather than `sendEmail` — a mail outage must not roll back a committed
+transaction, the same reasoning that keeps the gateway call outside the transaction in
+`src/helpers/refund.ts`.
+
+There is still no *in-app* notification model; that remains unstarted.
 
 ---
 
@@ -469,6 +496,28 @@ need no database. Then a CI workflow running lint, build and test on push.
 
 ---
 
+### BE-40 · `POST /auth/register` returns the bcrypt password hash
+**P1 · S · security**
+
+**Now:** `registerUser` (`src/modules/auth/auth.service.ts:16-46`) returns the raw
+`$transaction` result `{ user, auth }`, and `auth` is the whole row — including
+`auth.password`, the bcrypt hash. The controller passes it straight to `sendResponse`.
+
+Confirmed live during the BE-01 verification: a registration response body contains
+`"password":"$2b$10$ipSO4f3l...."`.
+
+**Gap:** A password hash should never leave the server. It is only ever disclosed to the account
+holder who just chose that password, so the direct risk is limited — but it lands in access logs,
+proxy logs, browser devtools history and any client-side error reporting, which is exactly how
+hashes end up somewhere they can be attacked offline. `bcrypt` cost 10 is not a large barrier for
+a weak password.
+
+**Fix:** Return a projection, not the row — `{ id, name, email, role }` is what the client needs.
+The frontend's `TAuthRegisterResponse` already expects a flat shape and does not match the current
+nested `{ user, auth }` either (XR-05), so both can be settled in one change.
+
+---
+
 ## P2 — cleanup, and features never started
 
 ### BE-23 · SSLCommerz is a dead dependency and dead config
@@ -605,7 +654,7 @@ the env validation in BE-19 so it can never silently default. Settle on one port
 - `DELETE /users/:id` (`frontend/src/features/users/api/user.api.ts:48-53`) — no such route
   (`src/modules/user/user.route.ts`), no `deleteUser` in the controller or service.
 
-**Routes here that no frontend code calls:** `POST /auth/forgot-password`;
+**Routes here that no frontend code calls:** `POST /auth/forgot-password` and `POST /auth/reset-password` (both now correct and waiting on the frontend — XR-11);
 `GET /products/:productId/variants` and `GET /products/:productId/images` (variants and images
 always arrive nested); `GET /wishlists/:id`; `PATCH`/`DELETE /vendor-reviews/:id`;
 `GET /vendor-reviews/my-reviews`; `GET /address` (admin list); the whole slide write CRUD;
@@ -743,6 +792,46 @@ of its six required variables are documented anywhere but `CLAUDE.md`.
 
 **Fix:** Read the origin from `envConfig.front_end_url` (accept a comma-separated list). Add
 `frontend/.env.example`.
+
+---
+
+### XR-11 · Password reset — backend done, frontend pending
+**P1 · M · auth**
+
+**Updated 2026-09-22.** The backend half is complete (BE-01); the frontend half is not.
+
+| Piece | State |
+| --- | --- |
+| `POST /auth/forgot-password` | ✅ emails a single-use link, returns a generic 200, never returns the token |
+| `POST /auth/reset-password` | ✅ redeems the token and sets the new password |
+| Email delivery | ✅ `src/utils/sendEmail.ts` + `passwordResetEmail` template |
+| Token storage | ✅ `PasswordResetToken`, SHA-256 hashed, TTL + single-use + supersede |
+| Forgot-password form (frontend) | ❌ still `console.log(data)` — never calls the API (FE-04) |
+| `/reset-password` page (frontend) | ❌ does not exist |
+
+**The contract the frontend must meet:**
+
+```
+POST /auth/forgot-password   { email }
+  -> 200 { success: true, message: "If an account exists…", result: null }   ALWAYS
+     Render that message verbatim. Do NOT branch on whether the account exists —
+     the endpoint is deliberately identical for every input.
+
+POST /auth/reset-password    { token, newPassword }
+  -> 200 { success: true, message: "Password has been reset successfully…", result: null }
+  -> 400 "This password reset link is invalid or has expired. Please request a new one."
+     Covers unknown, expired, already-used and malformed tokens, deliberately
+     indistinguishable. Surface it as-is and offer a link back to /forgot-password.
+```
+
+The emailed link is **`${FRONTEND_URL}/reset-password?token=<raw>`**, so the frontend must serve
+that exact path and read `?token=`. `FRONTEND_URL` is `http://localhost:3000` in dev.
+`newPassword` must satisfy the shared `passwordRule` in `auth.validation.ts`: 6–30 chars, at least
+one letter and one number.
+
+**Note:** a social-only (Google) account is skipped silently — it has no password to reset, so the
+generic "link sent" is returned and no mail arrives. Consistent with `changePassword`, but a UX
+dead end worth handling on the frontend copy eventually.
 
 ---
 

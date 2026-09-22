@@ -2,29 +2,26 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authSchema = void 0;
 const zod_1 = require("zod");
+/**
+ * The one definition of what a password may be. Registration, change-password
+ * and reset-password all share it — three copies is how the rules drift.
+ */
+const passwordRule = (label = "Password") => zod_1.z
+    .string({ error: `${label} is required` })
+    .min(6, { error: `${label} must be at least 6 characters long` })
+    .max(30, { error: `${label} must not exceed 30 characters` })
+    .regex(/[A-Za-z]/, {
+    error: `${label} must contain at least one letter`,
+})
+    .regex(/[0-9]/, { error: `${label} must contain at least one number` })
+    .trim();
 const registerUser = zod_1.z.object({
     name: zod_1.z
         .string({ error: "Name is required" })
         .nonempty("Name is required")
         .trim(),
     email: zod_1.z.email({ error: "Provide valid email" }),
-    password: zod_1.z
-        .string({
-        error: "Password is required",
-    })
-        .min(6, {
-        error: "Password must be at least 6 characters long",
-    })
-        .max(30, {
-        error: "Password must not exceed 30 characters",
-    })
-        .regex(/[A-Za-z]/, {
-        error: "Password must contain at least one letter",
-    })
-        .regex(/[0-9]/, {
-        error: "Password must contain at least one number",
-    })
-        .trim(),
+    password: passwordRule(),
 });
 const login = zod_1.z.object({
     email: zod_1.z
@@ -59,22 +56,29 @@ const changePassword = zod_1.z.object({
     oldPassword: zod_1.z
         .string("Old password is required")
         .min(6, "Old password is required"),
-    newPassword: zod_1.z
-        .string({
-        error: "New password is required",
-    })
-        .min(6, {
-        error: "Password must be at least 6 characters long",
-    })
-        .max(30, {
-        error: "Password must not exceed 30 characters",
-    })
-        .regex(/[A-Za-z]/, {
-        error: "Password must contain at least one letter",
-    })
-        .regex(/[0-9]/, {
-        error: "Password must contain at least one number",
-    })
-        .trim(),
+    newPassword: passwordRule("New password"),
 });
-exports.authSchema = { registerUser, login, oauthLogin, changePassword };
+const forgotPassword = zod_1.z.object({
+    email: zod_1.z
+        .email({ error: "Provide valid email" })
+        .nonempty("Email is required"),
+});
+/**
+ * `token` is the raw value from the emailed link's `?token=` param. The server
+ * only ever stores its hash, so this is the one moment it exists in a request.
+ */
+const resetPassword = zod_1.z.object({
+    token: zod_1.z
+        .string({ error: "Reset token is required" })
+        .nonempty("Reset token is required")
+        .trim(),
+    newPassword: passwordRule("New password"),
+});
+exports.authSchema = {
+    registerUser,
+    login,
+    oauthLogin,
+    changePassword,
+    forgotPassword,
+    resetPassword,
+};

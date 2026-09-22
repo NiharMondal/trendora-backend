@@ -89,6 +89,39 @@ Keep DB/business logic in services, not controllers.
 - User identity is split across two models: **`User`** (profile) and **`Auth`** (email/password/role, one-to-one). OAuth accounts link via `OAuthAccount`. Social users have `Auth.password = null`.
 - JWT payload shape is `{ id: userId, role, email }`.
 
+### Password reset is a two-step, email-only flow
+
+`POST /auth/forgot-password { email }` → `POST /auth/reset-password { token, newPassword }`, both
+public. The rules that hold it together, none of which are optional:
+
+- **The token never appears in a response.** It exists in exactly two places: the emailed URL
+  (`${FRONTEND_URL}/reset-password?token=<raw>`) and, as a **SHA-256 hash**, in
+  `PasswordResetToken.tokenHash`. SHA-256 rather than bcrypt because the token is 32 bytes of
+  CSPRNG output with no guessable structure, and the lookup must be one indexed read.
+- **`forgot-password` answers identically for every input.** Unknown address, deleted user,
+  social-only account, or a repeat inside `PASSWORD_RESET_COOLDOWN_SECONDS` — all return the same
+  generic 200. Every early return in that service is silent on purpose; adding a distinguishing
+  error turns it back into an account-enumeration oracle, which is what it used to be.
+- **Mail failures must not surface.** `sendEmailSafely` swallows them into a log, because mail is
+  attempted only for addresses that exist — letting an SMTP error reach the client would leak
+  exactly what the generic response hides.
+- **Issuing a token retires every outstanding one**, and redeeming one retires the rest, so only
+  the newest link can ever work and it works once.
+- `reset-password` returns **no tokens**. The user logs in afterwards.
+
+### Sending email
+
+**`src/utils/sendEmail.ts` is the only place a mail transport is built.** It exports
+`sendEmail` (throws), `sendEmailSafely` (logs and returns `false`) and `isEmailConfigured`.
+Bodies live in `src/utils/email-templates.ts` — one exported function per message returning
+`{ subject, html, text }`, so no caller can forget the plain-text fallback or invent a subject.
+
+Adding a notification is a template plus one `sendEmailSafely` call. **Prefer
+`sendEmailSafely` for anything that reports on already-committed work** — an order confirmation
+must not fail the order. Same reasoning as keeping the gateway call outside the refund
+transaction. Requires `EMAIL` / `PASSWORD` (a Gmail *app password*); with them unset, mail is
+skipped and logged rather than throwing.
+
 ## The marketplace model
 
 ### Three actors, one role enum
