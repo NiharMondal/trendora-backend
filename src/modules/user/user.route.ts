@@ -1,13 +1,16 @@
 import { Router } from "express";
 import { userControllers } from "./user.controller";
 import { authGuard } from "@/middleware/authGuard";
+import { validateRequest } from "@/middleware/validateRequest";
 import { Role } from "@/lib/prisma-client";
+import { userUpdateSchema } from "./user.validation";
 
 const router = Router();
 
 router.patch(
 	"/my-profile-update",
 	authGuard(Role.ADMIN, Role.CUSTOMER, Role.VENDOR),
+	validateRequest(userUpdateSchema),
 	userControllers.updateData,
 );
 router.get(
