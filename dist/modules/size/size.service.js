@@ -4,9 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sizeServices = void 0;
-const db_1 = require("../../config/db");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const customError_1 = __importDefault(require("../../utils/customError"));
+const db_1 = require("../../config/db.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 const createIntoDB = async (payload) => {
     const data = await db_1.prisma.size.create({
         data: payload,

@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.orderControllers = void 0;
 const order_service_1 = require("./order.service");
-const asyncHandler_1 = require("../../utils/asyncHandler");
-const sendResponse_1 = require("../../utils/sendResponse");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const actorOf = (req) => ({
     id: req.user.id,
     role: req.user.role,

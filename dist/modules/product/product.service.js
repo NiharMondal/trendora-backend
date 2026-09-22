@@ -4,13 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productServices = void 0;
-const prisma_1 = require("../../../generated/prisma");
-const db_1 = require("../../config/db");
-const slug_1 = require("../../helpers/slug");
-const vendor_1 = require("../../helpers/vendor");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const cloudinary_1 = require("../../utils/cloudinary");
-const customError_1 = __importDefault(require("../../utils/customError"));
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const db_1 = require("../../config/db.js");
+const slug_1 = require("../../helpers/slug.js");
+const vendor_1 = require("../../helpers/vendor.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const cloudinary_1 = require("../../utils/cloudinary.js");
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 /** Store identity attached to every product read, so cards can link to it. */
 const vendorCardSelect = {
     id: true,
@@ -85,8 +85,8 @@ const createIntoDB = async (actor, payload) => {
         ? null
         : discountPrice;
     const status = submitForReview
-        ? prisma_1.ProductStatus.PENDING
-        : prisma_1.ProductStatus.DRAFT;
+        ? prisma_client_1.ProductStatus.PENDING
+        : prisma_client_1.ProductStatus.DRAFT;
     const data = await db_1.prisma.product.create({
         data: {
             ...others,
@@ -219,7 +219,7 @@ const findById = async (id) => {
 };
 /** Owner/admin single-product read, in any moderation state. */
 const findMyProductById = async (actor, id) => {
-    if (actor.role === prisma_1.Role.ADMIN) {
+    if (actor.role === prisma_client_1.Role.ADMIN) {
         const product = await db_1.prisma.product.findFirst({
             where: { id, isDeleted: false },
             include: {
@@ -273,7 +273,7 @@ const updateData = async (actor, id, payload) => {
     const { variants = [], images = [], submitForReview: _ignoredSubmitFlag, ...rest } = payload;
     // Ownership first: a vendor may only touch their own listing, and the
     // 404 (not 403) keeps another store's product ids unguessable.
-    const isAdmin = actor.role === prisma_1.Role.ADMIN;
+    const isAdmin = actor.role === prisma_client_1.Role.ADMIN;
     const product = isAdmin
         ? await db_1.prisma.product.findFirst({
             where: { id, isDeleted: false },
@@ -336,7 +336,7 @@ const updateData = async (actor, id, payload) => {
         return (payload[field] !== undefined &&
             payload[field] !== product[field]);
     });
-    const needsReReview = changedMaterially && product.status === prisma_1.ProductStatus.APPROVED;
+    const needsReReview = changedMaterially && product.status === prisma_client_1.ProductStatus.APPROVED;
     // Begin transaction to ensure atomicity
     const updatedProduct = await db_1.prisma.$transaction(async (tx) => {
         // Delete removed variants/images
@@ -406,7 +406,7 @@ const updateData = async (actor, id, payload) => {
                 slug,
                 ...(needsReReview
                     ? {
-                        status: prisma_1.ProductStatus.PENDING,
+                        status: prisma_client_1.ProductStatus.PENDING,
                         submittedAt: new Date(),
                         approvedAt: null,
                         rejectionReason: null,
@@ -425,22 +425,22 @@ const updateData = async (actor, id, payload) => {
 };
 /** Vendor sends a DRAFT or REJECTED listing to the moderation queue. */
 const submitForReview = async (actor, id) => {
-    const product = actor.role === prisma_1.Role.ADMIN
+    const product = actor.role === prisma_client_1.Role.ADMIN
         ? await db_1.prisma.product.findFirst({ where: { id, isDeleted: false } })
         : await (0, vendor_1.assertVendorOwnsProduct)(await (0, vendor_1.resolveVendorScope)(actor), id);
     if (!product) {
         throw new customError_1.default(404, "Product not found");
     }
-    if (product.status === prisma_1.ProductStatus.PENDING) {
+    if (product.status === prisma_client_1.ProductStatus.PENDING) {
         throw new customError_1.default(400, "This product is already awaiting review");
     }
-    if (product.status === prisma_1.ProductStatus.APPROVED) {
+    if (product.status === prisma_client_1.ProductStatus.APPROVED) {
         throw new customError_1.default(400, "This product is already approved");
     }
     return db_1.prisma.product.update({
         where: { id },
         data: {
-            status: prisma_1.ProductStatus.PENDING,
+            status: prisma_client_1.ProductStatus.PENDING,
             submittedAt: new Date(),
             rejectionReason: null,
         },
@@ -448,13 +448,13 @@ const submitForReview = async (actor, id) => {
 };
 /** Vendor's own show/hide switch. Independent of admin moderation. */
 const setPublished = async (actor, id, isPublished) => {
-    const product = actor.role === prisma_1.Role.ADMIN
+    const product = actor.role === prisma_client_1.Role.ADMIN
         ? await db_1.prisma.product.findFirst({ where: { id, isDeleted: false } })
         : await (0, vendor_1.assertVendorOwnsProduct)(await (0, vendor_1.resolveVendorScope)(actor), id);
     if (!product) {
         throw new customError_1.default(404, "Product not found");
     }
-    if (isPublished && product.status !== prisma_1.ProductStatus.APPROVED) {
+    if (isPublished && product.status !== prisma_client_1.ProductStatus.APPROVED) {
         throw new customError_1.default(400, "Only an approved product can be published. Submit it for review first.");
     }
     return db_1.prisma.product.update({
@@ -470,13 +470,13 @@ const approveProduct = async (id) => {
     if (!product) {
         throw new customError_1.default(404, "Product not found");
     }
-    if (product.status === prisma_1.ProductStatus.APPROVED) {
+    if (product.status === prisma_client_1.ProductStatus.APPROVED) {
         throw new customError_1.default(400, "This product is already approved");
     }
     return db_1.prisma.product.update({
         where: { id },
         data: {
-            status: prisma_1.ProductStatus.APPROVED,
+            status: prisma_client_1.ProductStatus.APPROVED,
             approvedAt: new Date(),
             rejectionReason: null,
         },
@@ -492,7 +492,7 @@ const rejectProduct = async (id, payload) => {
     return db_1.prisma.product.update({
         where: { id },
         data: {
-            status: prisma_1.ProductStatus.REJECTED,
+            status: prisma_client_1.ProductStatus.REJECTED,
             rejectionReason: payload.reason,
             approvedAt: null,
             // A rejected listing must not stay on the storefront.
@@ -501,7 +501,7 @@ const rejectProduct = async (id, payload) => {
     });
 };
 const deleteData = async (actor, id) => {
-    if (actor.role !== prisma_1.Role.ADMIN) {
+    if (actor.role !== prisma_client_1.Role.ADMIN) {
         const vendorId = await (0, vendor_1.resolveVendorScope)(actor);
         await (0, vendor_1.assertVendorOwnsProduct)(vendorId, id);
     }

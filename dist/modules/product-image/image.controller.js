@@ -1,9 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productImageController = void 0;
-const asyncHandler_1 = require("../../utils/asyncHandler");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
 const image_service_1 = require("./image.service");
-const sendResponse_1 = require("../../utils/sendResponse");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const findByProductId = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const productId = req.params.productId;
     const data = await image_service_1.productImageServices.findByProductId(productId);

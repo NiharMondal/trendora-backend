@@ -4,13 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.refundServices = void 0;
-const prisma_1 = require("../../../generated/prisma");
-const db_1 = require("../../config/db");
-const money_1 = require("../../helpers/money");
-const refund_1 = require("../../helpers/refund");
-const vendor_1 = require("../../helpers/vendor");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const customError_1 = __importDefault(require("../../utils/customError"));
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const db_1 = require("../../config/db.js");
+const money_1 = require("../../helpers/money.js");
+const refund_1 = require("../../helpers/refund.js");
+const vendor_1 = require("../../helpers/vendor.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 /**
  * Refund administration.
  *
@@ -63,9 +63,9 @@ const getOutstanding = async () => {
         where: {
             status: {
                 in: [
-                    prisma_1.RefundStatus.PENDING,
-                    prisma_1.RefundStatus.PROCESSING,
-                    prisma_1.RefundStatus.FAILED,
+                    prisma_client_1.RefundStatus.PENDING,
+                    prisma_client_1.RefundStatus.PROCESSING,
+                    prisma_client_1.RefundStatus.FAILED,
                 ],
             },
         },
@@ -104,7 +104,7 @@ const getOutstanding = async () => {
  */
 const findMine = async (actor, query) => {
     let scope;
-    if (actor.role === prisma_1.Role.VENDOR) {
+    if (actor.role === prisma_client_1.Role.VENDOR) {
         const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
         scope = { vendorOrder: { vendorId: vendor.id } };
     }

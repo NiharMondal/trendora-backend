@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.categoryControllers = void 0;
-const asyncHandler_1 = require("../../utils/asyncHandler");
-const sendResponse_1 = require("../../utils/sendResponse");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const category_service_1 = require("./category.service");
 const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const data = await category_service_1.categoryServices.createIntoDB(req.body);

@@ -1,7 +1,7 @@
-import { OrderStatus, Prisma } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import CustomError from "../../utils/customError";
+import { OrderStatus, Prisma } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import CustomError from "@/utils/customError";
 import {
     TCreateVendorReview,
     TUpdateVendorReview,

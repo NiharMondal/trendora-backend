@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { addressControllers } from "./address.controller";
-import { validateRequest } from "../../middleware/validateRequest";
+import { validateRequest } from "@/middleware/validateRequest";
 import { addressSchema } from "./address.validation";
-import { authGuard } from "../../middleware/authGuard";
-import { Role } from "../../../generated/prisma";
+import { authGuard } from "@/middleware/authGuard";
+import { Role } from "@/lib/prisma-client";
 
 const router = Router();
 

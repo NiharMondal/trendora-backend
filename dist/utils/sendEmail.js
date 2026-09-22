@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendEmailSafely = exports.sendEmail = exports.isEmailConfigured = void 0;
 const nodemailer_1 = __importDefault(require("nodemailer"));
-const env_config_1 = require("../config/env-config");
+const env_config_1 = require("../config/env-config.js");
 /**
  * Built once and reused. nodemailer pools the underlying connection, so
  * creating a transport per message would open a new SMTP session every time.

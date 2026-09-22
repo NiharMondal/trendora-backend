@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sensitiveAuthLimiter = exports.loginLimiter = exports.apiLimiter = void 0;
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
-const env_config_1 = require("../config/env-config");
+const env_config_1 = require("../config/env-config.js");
 /**
  * Rate limiters.
  *

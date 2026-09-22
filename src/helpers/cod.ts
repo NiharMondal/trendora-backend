@@ -2,9 +2,9 @@ import {
 	OrderStatus,
 	PaymentMethod,
 	PaymentStatus,
-} from "../../generated/prisma";
-import { prisma } from "../config/db";
-import { OrderCalculation } from "../types/common.types";
+} from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { OrderCalculation } from "@/types/common.types";
 import { persistOrder } from "./create-order";
 
 /**

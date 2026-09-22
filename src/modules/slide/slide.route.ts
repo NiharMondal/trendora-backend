@@ -1,9 +1,9 @@
 import { Router } from "express";
 
-import { validateRequest } from "../../middleware/validateRequest";
+import { validateRequest } from "@/middleware/validateRequest";
 
-import { authGuard } from "../../middleware/authGuard";
-import { Role } from "../../../generated/prisma";
+import { authGuard } from "@/middleware/authGuard";
+import { Role } from "@/lib/prisma-client";
 import { slideControllers } from "./slide.controller";
 import { slideSchema } from "./slide.validation";
 

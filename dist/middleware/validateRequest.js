@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.validateRequest = void 0;
-const asyncHandler_1 = require("../utils/asyncHandler");
+const asyncHandler_1 = require("../utils/asyncHandler.js");
 const validateRequest = (schema) => {
     return (0, asyncHandler_1.asyncHandler)(async (req, res, next) => {
         const result = await schema.safeParseAsync(req.body);

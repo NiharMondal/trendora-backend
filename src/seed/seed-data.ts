@@ -1,4 +1,4 @@
-import { Gender, Role, VendorStatus } from "../../generated/prisma";
+import { Gender, Role, VendorStatus } from "@/lib/prisma-client";
 
 /**
  * Fixture data for the development seed.

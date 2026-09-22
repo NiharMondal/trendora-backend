@@ -5,14 +5,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authServices = void 0;
 const crypto_1 = __importDefault(require("crypto"));
-const db_1 = require("../../config/db");
-const password_1 = require("../../helpers/password");
-const customError_1 = __importDefault(require("../../utils/customError"));
-const jwt_1 = require("../../helpers/jwt");
-const env_config_1 = require("../../config/env-config");
+const db_1 = require("../../config/db.js");
+const password_1 = require("../../helpers/password.js");
+const customError_1 = __importDefault(require("../../utils/customError.js"));
+const jwt_1 = require("../../helpers/jwt.js");
+const env_config_1 = require("../../config/env-config.js");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const email_templates_1 = require("../../utils/email-templates");
-const sendEmail_1 = require("../../utils/sendEmail");
+const email_templates_1 = require("../../utils/email-templates.js");
+const sendEmail_1 = require("../../utils/sendEmail.js");
 const registerUser = async (payload) => {
     const existed = await db_1.prisma.auth.findUnique({
         where: { email: payload.email },

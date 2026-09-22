@@ -1,6 +1,6 @@
-import { Slide } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import CustomError from "../../utils/customError";
+import { Slide } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import CustomError from "@/utils/customError";
 
 const createIntoDB = async (payload: Slide) => {
 	const data = await prisma.slide.create({

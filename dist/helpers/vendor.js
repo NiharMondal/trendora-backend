@@ -4,9 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.assertVendorOwnsVendorOrder = exports.assertVendorOwnsProduct = exports.vendorListScope = exports.resolveVendorScope = exports.requireApprovedVendor = exports.findVendorByOwner = exports.publicProductFilter = exports.publicVendorSelect = void 0;
-const prisma_1 = require("../../generated/prisma");
-const db_1 = require("../config/db");
-const customError_1 = __importDefault(require("../utils/customError"));
+const prisma_client_1 = require("../lib/prisma-client.js");
+const db_1 = require("../config/db.js");
+const customError_1 = __importDefault(require("../utils/customError.js"));
 /**
  * Vendor scoping and ownership.
  *
@@ -44,7 +44,7 @@ const publicProductFilter = (extra = {}) => ({
     isDeleted: false,
     isPublished: true,
     status: "APPROVED",
-    vendor: { status: prisma_1.VendorStatus.APPROVED, isDeleted: false },
+    vendor: { status: prisma_client_1.VendorStatus.APPROVED, isDeleted: false },
     ...extra,
 });
 exports.publicProductFilter = publicProductFilter;
@@ -65,15 +65,15 @@ const requireApprovedVendor = async (userId) => {
         throw new customError_1.default(403, "You do not have a vendor account. Apply for one to start selling.");
     }
     switch (vendor.status) {
-        case prisma_1.VendorStatus.APPROVED:
+        case prisma_client_1.VendorStatus.APPROVED:
             return vendor;
-        case prisma_1.VendorStatus.PENDING:
+        case prisma_client_1.VendorStatus.PENDING:
             throw new customError_1.default(403, "Your vendor application is still under review");
-        case prisma_1.VendorStatus.REJECTED:
+        case prisma_client_1.VendorStatus.REJECTED:
             throw new customError_1.default(403, vendor.rejectionReason
                 ? `Your vendor application was rejected: ${vendor.rejectionReason}`
                 : "Your vendor application was rejected");
-        case prisma_1.VendorStatus.SUSPENDED:
+        case prisma_client_1.VendorStatus.SUSPENDED:
             throw new customError_1.default(403, "Your store is suspended. Contact support to restore it.");
         default:
             throw new customError_1.default(403, "Your store is not active");
@@ -88,7 +88,7 @@ exports.requireApprovedVendor = requireApprovedVendor;
  * `targetVendorId` they send is ignored rather than trusted.
  */
 const resolveVendorScope = async (user, targetVendorId) => {
-    if (user.role === prisma_1.Role.ADMIN) {
+    if (user.role === prisma_client_1.Role.ADMIN) {
         if (!targetVendorId) {
             throw new customError_1.default(400, "vendorId is required when acting as an admin");
         }
@@ -113,7 +113,7 @@ exports.resolveVendorScope = resolveVendorScope;
  * `GET /products/vendor/my-products` from leaking another vendor's catalogue.
  */
 const vendorListScope = async (user, requestedVendorId) => {
-    if (user.role === prisma_1.Role.ADMIN) {
+    if (user.role === prisma_client_1.Role.ADMIN) {
         return requestedVendorId ? { vendorId: requestedVendorId } : {};
     }
     const vendor = await (0, exports.requireApprovedVendor)(user.id);

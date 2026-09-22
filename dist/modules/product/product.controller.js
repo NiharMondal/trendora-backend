@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productControllers = void 0;
-const asyncHandler_1 = require("../../utils/asyncHandler");
-const sendResponse_1 = require("../../utils/sendResponse");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const product_service_1 = require("./product.service");
 /** The authenticated caller, in the shape the vendor scoping helpers expect. */
 const actorOf = (req) => ({

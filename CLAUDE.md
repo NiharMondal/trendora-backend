@@ -25,15 +25,44 @@ There is **no test runner configured** in this repo.
 
 After changing `prisma/schema.prisma`, always run `pnpm prisma:generate` — the client is consumed from a non-standard path (see below) and stale generation causes type errors.
 
-## Prisma client location (important)
+## Path aliases
 
-The Prisma client is generated to **`generated/prisma`** (repo root, gitignored), not `node_modules/@prisma/client`. Import model types and enums from the relative path:
+`src/` is aliased to **`@/`**. Use it for anything outside the current directory; keep
+same-directory imports as `./relative`.
 
 ```ts
-import { Prisma, Product, OrderStatus, Role } from "../../generated/prisma";
+import { prisma } from "@/config/db";
+import { authGuard } from "@/middleware/authGuard";
+import { Role } from "@/lib/prisma-client";
+import { authControllers } from "./auth.controller";   // same dir — stays relative
 ```
 
-Note the codebase is inconsistent here: `src/helpers/order.ts` imports `Prisma` from `@prisma/client` while importing enums from `../../generated/prisma`. Prefer the `generated/prisma` path for new code. The shared client singleton is `src/config/db.ts` (`export const prisma`) — always import from there, never instantiate `PrismaClient` directly.
+**Aliases are compile-time only, and three things keep them working at runtime.** Breaking any one
+of them produces `Cannot find module "@/..."` at boot, not a type error:
+
+| | |
+| --- | --- |
+| `tsconfig.json` | `baseUrl` + `paths` — type checking only |
+| `pnpm dev` | `ts-node-dev -r tsconfig-paths/register` |
+| `pnpm build` | `tsc && tsc-alias` — `tsc-alias` rewrites `dist/` back to relative paths |
+| `pnpm seed` | `tsx` resolves `paths` natively, nothing to add |
+
+## Prisma client location (important)
+
+The Prisma client is generated to **`generated/prisma`** (repo root, gitignored), not
+`node_modules/@prisma/client`. Because that is **outside `src/`**, it cannot be aliased directly —
+`tsc-alias` can only rewrite paths that land inside the compiled tree, so an alias pointing at it
+type-checks and then fails at runtime.
+
+`src/lib/prisma-client.ts` re-exports it, and that file holds the only relative path to it. Import
+model types, enums and the `Prisma` namespace from the alias:
+
+```ts
+import { Prisma, Product, OrderStatus, Role } from "@/lib/prisma-client";
+```
+
+The shared client *instance* is `src/config/db.ts` (`export const prisma`) — always import from
+there, never instantiate `PrismaClient` directly.
 
 ## Architecture
 

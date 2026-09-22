@@ -1,5 +1,5 @@
-import { OrderStatus, Role } from "../../generated/prisma";
-import CustomError from "../utils/customError";
+import { OrderStatus, Role } from "@/lib/prisma-client";
+import CustomError from "@/utils/customError";
 
 /**
  * The fulfilment state machine. Applies to a VendorOrder — the parent Order's

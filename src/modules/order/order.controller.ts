@@ -1,7 +1,7 @@
 import { orderServices } from "./order.service";
 import { Request, Response } from "express";
-import { asyncHandler } from "../../utils/asyncHandler";
-import { sendResponse } from "../../utils/sendResponse";
+import { asyncHandler } from "@/utils/asyncHandler";
+import { sendResponse } from "@/utils/sendResponse";
 
 const actorOf = (req: Request) => ({
 	id: req.user.id as string,

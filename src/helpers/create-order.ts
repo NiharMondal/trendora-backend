@@ -3,9 +3,9 @@ import {
     PaymentMethod,
     PaymentStatus,
     Prisma,
-} from "../../generated/prisma";
-import { OrderCalculation } from "../types/common.types";
-import CustomError from "../utils/customError";
+} from "@/lib/prisma-client";
+import { OrderCalculation } from "@/types/common.types";
+import CustomError from "@/utils/customError";
 import { buildVendorOrderNumber, logStatusChange } from "./order";
 import { deriveOrderStatus } from "./order";
 

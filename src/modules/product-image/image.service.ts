@@ -1,4 +1,4 @@
-import { prisma } from "../../config/db";
+import { prisma } from "@/config/db";
 
 const findByProductId = async (productId: string) => {
 	const variants = await prisma.productImage.findMany({

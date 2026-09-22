@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateUniqueVendorSlug = exports.generateUniqueProductSlug = exports.generateSlug = void 0;
 const slugify_1 = __importDefault(require("slugify"));
-const db_1 = require("../config/db");
+const db_1 = require("../config/db.js");
 const generateSlug = (title) => {
     const slug = (0, slugify_1.default)(title, { lower: true });
     return slug;

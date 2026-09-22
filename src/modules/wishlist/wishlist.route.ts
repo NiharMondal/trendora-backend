@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { wishlistControllers } from "./wishlist.controller";
-import { authGuard } from "../../middleware/authGuard";
-import { validateRequest } from "../../middleware/validateRequest";
-import { Role } from "../../../generated/prisma";
+import { authGuard } from "@/middleware/authGuard";
+import { validateRequest } from "@/middleware/validateRequest";
+import { Role } from "@/lib/prisma-client";
 import { createWishList } from "./wishlist.validation";
 
 const router = Router();

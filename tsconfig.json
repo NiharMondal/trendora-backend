@@ -106,6 +106,27 @@
 		/* Completeness */
 		// "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
 		"skipLibCheck": true /* Skip type checking all .d.ts files. */,
-		"typeRoots": ["./src/types", "./node_modules/@types"]
+		"typeRoots": ["./src/types", "./node_modules/@types"],
+
+		/* Path aliases.
+		 *
+		 * These are COMPILE-TIME ONLY — `tsc` emits `require("@/config/db")`
+		 * verbatim and Node cannot resolve that. Two pieces make them work at
+		 * runtime, and both must stay wired up in package.json:
+		 *   - dev  : `ts-node-dev -r tsconfig-paths/register`
+		 *   - build: `tsc && tsc-alias`  (rewrites dist/ back to relative paths)
+		 * `tsx` (used by `pnpm seed`) understands these natively.
+		 *
+		 * Same-directory imports stay `./relative` — aliasing those adds noise.
+		 *
+		 * There is deliberately NO alias for the generated Prisma client: it
+		 * lives outside src/, and an alias pointing outside the compiled tree
+		 * cannot be rewritten by tsc-alias (it type-checks, then throws
+		 * `Cannot find module` at runtime). Import it from
+		 * `@/lib/prisma-client` instead, which re-exports it from inside src/. */
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["./src/*"]
+		}
 	}
 }

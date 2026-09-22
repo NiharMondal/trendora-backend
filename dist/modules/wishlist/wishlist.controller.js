@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wishlistControllers = void 0;
-const asyncHandler_1 = require("../../utils/asyncHandler");
-const sendResponse_1 = require("../../utils/sendResponse");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const wishlist_service_1 = require("./wishlist.service");
 // The owner always comes from the verified JWT, never from the body — see the
 // note in wishlist.validation.ts. The two single-row handlers below pass it to

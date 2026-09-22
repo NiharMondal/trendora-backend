@@ -4,9 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.userServices = void 0;
-const db_1 = require("../../config/db");
-const cloudinary_1 = require("../../utils/cloudinary");
-const customError_1 = __importDefault(require("../../utils/customError"));
+const db_1 = require("../../config/db.js");
+const cloudinary_1 = require("../../utils/cloudinary.js");
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 const getAllFromDB = async () => {
     const users = db_1.prisma.user.findMany();
     return users;

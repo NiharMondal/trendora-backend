@@ -1,5 +1,5 @@
 import nodemailer, { Transporter } from "nodemailer";
-import { envConfig } from "../config/env-config";
+import { envConfig } from "@/config/env-config";
 
 /**
  * The one place this app sends mail from.

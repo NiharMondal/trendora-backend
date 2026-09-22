@@ -3,9 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.wishlistRouter = void 0;
 const express_1 = require("express");
 const wishlist_controller_1 = require("./wishlist.controller");
-const authGuard_1 = require("../../middleware/authGuard");
-const validateRequest_1 = require("../../middleware/validateRequest");
-const prisma_1 = require("../../../generated/prisma");
+const authGuard_1 = require("../../middleware/authGuard.js");
+const validateRequest_1 = require("../../middleware/validateRequest.js");
+const prisma_client_1 = require("../../lib/prisma-client.js");
 const wishlist_validation_1 = require("./wishlist.validation");
 const router = (0, express_1.Router)();
 /**
@@ -13,7 +13,7 @@ const router = (0, express_1.Router)();
  * roles — otherwise approving a seller would break their own wishlist and
  * checkout.
  */
-const anySignedInUser = (0, authGuard_1.authGuard)(prisma_1.Role.CUSTOMER, prisma_1.Role.VENDOR, prisma_1.Role.ADMIN);
+const anySignedInUser = (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN);
 router.get("/my-wishlist", anySignedInUser, wishlist_controller_1.wishlistControllers.findByUserId);
 router
     .route("/:id")

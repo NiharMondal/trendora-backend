@@ -5,9 +5,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authGuard = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const customError_1 = __importDefault(require("../utils/customError"));
-const env_config_1 = require("../config/env-config");
-const db_1 = require("../config/db");
+const customError_1 = __importDefault(require("../utils/customError.js"));
+const env_config_1 = require("../config/env-config.js");
+const db_1 = require("../config/db.js");
 const authGuard = (...roles) => {
     return async (req, res, next) => {
         const token = req.headers.authorization;

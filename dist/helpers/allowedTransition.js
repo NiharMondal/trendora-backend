@@ -6,17 +6,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.allowedTransitions = void 0;
 exports.ensureTransitionAllowed = ensureTransitionAllowed;
 exports.ensureTransitionAllowedForRole = ensureTransitionAllowedForRole;
-const prisma_1 = require("../../generated/prisma");
-const customError_1 = __importDefault(require("../utils/customError"));
+const prisma_client_1 = require("../lib/prisma-client.js");
+const customError_1 = __importDefault(require("../utils/customError.js"));
 /**
  * The fulfilment state machine. Applies to a VendorOrder — the parent Order's
  * status is derived from its slices (see deriveOrderStatus in ./order.ts) and
  * is never transitioned directly.
  */
 exports.allowedTransitions = {
-    PENDING: [prisma_1.OrderStatus.PROCESSING, prisma_1.OrderStatus.CANCELED],
-    PROCESSING: [prisma_1.OrderStatus.SHIPPED, prisma_1.OrderStatus.CANCELED],
-    SHIPPED: [prisma_1.OrderStatus.DELIVERED, prisma_1.OrderStatus.CANCELED],
+    PENDING: [prisma_client_1.OrderStatus.PROCESSING, prisma_client_1.OrderStatus.CANCELED],
+    PROCESSING: [prisma_client_1.OrderStatus.SHIPPED, prisma_client_1.OrderStatus.CANCELED],
+    SHIPPED: [prisma_client_1.OrderStatus.DELIVERED, prisma_client_1.OrderStatus.CANCELED],
     DELIVERED: [],
     CANCELED: [],
 };
@@ -29,9 +29,9 @@ exports.allowedTransitions = {
  * goods the buyer has already received.
  */
 const vendorAllowedTransitions = {
-    PENDING: [prisma_1.OrderStatus.PROCESSING, prisma_1.OrderStatus.CANCELED],
-    PROCESSING: [prisma_1.OrderStatus.SHIPPED, prisma_1.OrderStatus.CANCELED],
-    SHIPPED: [prisma_1.OrderStatus.DELIVERED],
+    PENDING: [prisma_client_1.OrderStatus.PROCESSING, prisma_client_1.OrderStatus.CANCELED],
+    PROCESSING: [prisma_client_1.OrderStatus.SHIPPED, prisma_client_1.OrderStatus.CANCELED],
+    SHIPPED: [prisma_client_1.OrderStatus.DELIVERED],
     DELIVERED: [],
     CANCELED: [],
 };
@@ -47,7 +47,7 @@ function ensureTransitionAllowed(current, next) {
  */
 function ensureTransitionAllowedForRole(current, next, role) {
     ensureTransitionAllowed(current, next);
-    if (role === prisma_1.Role.ADMIN)
+    if (role === prisma_client_1.Role.ADMIN)
         return;
     const nexts = vendorAllowedTransitions[current] ?? [];
     if (!nexts.includes(next)) {

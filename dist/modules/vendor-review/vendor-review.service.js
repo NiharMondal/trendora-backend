@@ -4,10 +4,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.vendorReviewServices = void 0;
-const prisma_1 = require("../../../generated/prisma");
-const db_1 = require("../../config/db");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const customError_1 = __importDefault(require("../../utils/customError"));
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const db_1 = require("../../config/db.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 /**
  * Store reviews, as opposed to product reviews (see modules/review).
  *
@@ -42,7 +42,7 @@ const createIntoDB = async (userId, payload) => {
     if (vendorOrder.order.userId !== userId) {
         throw new customError_1.default(403, "You can only review your own orders");
     }
-    if (vendorOrder.orderStatus !== prisma_1.OrderStatus.DELIVERED) {
+    if (vendorOrder.orderStatus !== prisma_client_1.OrderStatus.DELIVERED) {
         throw new customError_1.default(400, "You can review a store once your order has been delivered");
     }
     const existing = await db_1.prisma.vendorReview.findUnique({

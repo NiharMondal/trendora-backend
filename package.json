@@ -6,12 +6,12 @@
     "scripts": {
         "postinstall": "prisma generate",
         "start": "node dist/server.js",
-        "build": "tsc",
+        "build": "tsc && tsc-alias",
         "lint": "eslint ./src",
         "lint:fix": "eslint ./src --fix",
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
-        "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+        "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/server.ts",
         "stripe:listen": "stripe listen --forward-to localhost:5001/webhook --events checkout.session.completed,checkout.session.expired,payment_intent.succeeded,payment_intent.payment_failed,refund.created,refund.updated,refund.failed,charge.refunded",
         "seed": "tsx src/seed/index.ts",
         "studio": "npx prisma studio"
@@ -54,6 +54,8 @@
         "eslint": "^9.39.2",
         "prisma": "^6.13.0",
         "ts-node-dev": "^2.0.0",
+        "tsc-alias": "^1.9.5",
+        "tsconfig-paths": "^4.2.0",
         "tsx": "^4.20.3",
         "typescript": "^5.9.2",
         "typescript-eslint": "^8.52.0"

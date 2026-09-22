@@ -3,12 +3,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.reviewRouter = void 0;
 const express_1 = require("express");
 const review_controller_1 = require("./review.controller");
-const validateRequest_1 = require("../../middleware/validateRequest");
+const validateRequest_1 = require("../../middleware/validateRequest.js");
 const review_validation_1 = require("./review.validation");
-const authGuard_1 = require("../../middleware/authGuard");
-const prisma_1 = require("../../../generated/prisma");
+const authGuard_1 = require("../../middleware/authGuard.js");
+const prisma_client_1 = require("../../lib/prisma-client.js");
 const router = (0, express_1.Router)();
-const anySignedInUser = (0, authGuard_1.authGuard)(prisma_1.Role.CUSTOMER, prisma_1.Role.VENDOR, prisma_1.Role.ADMIN);
+const anySignedInUser = (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN);
 router.get("/my-reviews", anySignedInUser, review_controller_1.reviewControllers.findByUserId);
 router.get("/product/:productId", review_controller_1.reviewControllers.findAllReviewsByProductId);
 router

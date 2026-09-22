@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { asyncHandler } from "../../utils/asyncHandler";
-import { sendResponse } from "../../utils/sendResponse";
+import { asyncHandler } from "@/utils/asyncHandler";
+import { sendResponse } from "@/utils/sendResponse";
 import { productServices } from "./product.service";
 
 /** The authenticated caller, in the shape the vendor scoping helpers expect. */

@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sizeControllers = void 0;
-const asyncHandler_1 = require("../../utils/asyncHandler");
-const sendResponse_1 = require("../../utils/sendResponse");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const size_service_1 = require("./size.service");
 const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const data = await size_service_1.sizeServices.createIntoDB(req.body);

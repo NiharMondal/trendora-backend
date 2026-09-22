@@ -1,6 +1,6 @@
-import { Prisma, Role, VendorStatus } from "../../generated/prisma";
-import { prisma } from "../config/db";
-import CustomError from "../utils/customError";
+import { Prisma, Role, VendorStatus } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import CustomError from "@/utils/customError";
 
 /**
  * Vendor scoping and ownership.

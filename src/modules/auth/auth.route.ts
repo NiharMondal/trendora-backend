@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { authControllers } from "./auth.controller";
-import { validateRequest } from "../../middleware/validateRequest";
+import { validateRequest } from "@/middleware/validateRequest";
 import { authSchema } from "./auth.validation";
-import { authGuard } from "../../middleware/authGuard";
+import { authGuard } from "@/middleware/authGuard";
 import {
 	loginLimiter,
 	sensitiveAuthLimiter,
-} from "../../middleware/rateLimiter";
-import { Role } from "../../../generated/prisma";
+} from "@/middleware/rateLimiter";
+import { Role } from "@/lib/prisma-client";
 
 const router = Router();
 

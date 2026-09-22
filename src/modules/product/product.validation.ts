@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { decimalSchema } from "../../utils/utils";
-import { GenderEnum } from "../../helpers/enum";
+import { decimalSchema } from "@/utils/utils";
+import { GenderEnum } from "@/helpers/enum";
 
 export const productImageSchema = z.object({
 	id: z.string().optional(),

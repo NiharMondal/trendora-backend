@@ -1,5 +1,5 @@
 import z from "zod";
-import { OrderStatusEnum } from "../../helpers/enum";
+import { OrderStatusEnum } from "@/helpers/enum";
 
 const orderItems = z.array(
     z.object({

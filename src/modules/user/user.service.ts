@@ -1,6 +1,6 @@
-import { prisma } from "../../config/db";
-import { deleteFromCloudinary, moveFromTemp } from "../../utils/cloudinary";
-import CustomError from "../../utils/customError";
+import { prisma } from "@/config/db";
+import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
+import CustomError from "@/utils/customError";
 import { TUserUpdateSchema } from "./user.validation";
 
 const getAllFromDB = async () => {

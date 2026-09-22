@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.vendorControllers = void 0;
-const asyncHandler_1 = require("../../utils/asyncHandler");
-const sendResponse_1 = require("../../utils/sendResponse");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const vendor_service_1 = require("./vendor.service");
 const applyForVendor = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const data = await vendor_service_1.vendorServices.applyForVendor(req.user.id, req.body);

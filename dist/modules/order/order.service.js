@@ -4,18 +4,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.orderServices = void 0;
-const prisma_1 = require("../../../generated/prisma");
-const db_1 = require("../../config/db");
-const allowedTransition_1 = require("../../helpers/allowedTransition");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const customError_1 = __importDefault(require("../../utils/customError"));
-const stripe_1 = require("../../helpers/stripe");
-const order_1 = require("../../helpers/order");
-const cod_1 = require("../../helpers/cod");
-const checkout_1 = require("../../helpers/checkout");
-const money_1 = require("../../helpers/money");
-const refund_1 = require("../../helpers/refund");
-const vendor_1 = require("../../helpers/vendor");
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const db_1 = require("../../config/db.js");
+const allowedTransition_1 = require("../../helpers/allowedTransition.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const customError_1 = __importDefault(require("../../utils/customError.js"));
+const stripe_1 = require("../../helpers/stripe.js");
+const order_1 = require("../../helpers/order.js");
+const cod_1 = require("../../helpers/cod.js");
+const checkout_1 = require("../../helpers/checkout.js");
+const money_1 = require("../../helpers/money.js");
+const refund_1 = require("../../helpers/refund.js");
+const vendor_1 = require("../../helpers/vendor.js");
 /** Store identity shown next to each slice of an order. */
 const vendorCardSelect = {
     id: true,
@@ -79,7 +79,7 @@ const createOrder = async (payload) => {
     // 4. Generate unique order number
     const orderNumber = await (0, order_1.generateOrderNumber)();
     // 5. Handle payment method specific logic
-    if (payload.paymentMethod === prisma_1.PaymentMethod.STRIPE) {
+    if (payload.paymentMethod === prisma_client_1.PaymentMethod.STRIPE) {
         // Persist the priced split first: the webhook, not this request,
         // creates the order, and Stripe metadata is far too small to carry a
         // multi-vendor cart.
@@ -87,7 +87,7 @@ const createOrder = async (payload) => {
             orderNumber,
             userId: payload.userId,
             shippingAddressId: shippingAddress.id,
-            paymentMethod: prisma_1.PaymentMethod.STRIPE,
+            paymentMethod: prisma_client_1.PaymentMethod.STRIPE,
             calculation,
             notes: payload.notes,
             ipAddress: payload.ipAddress,
@@ -109,7 +109,7 @@ const createOrder = async (payload) => {
             totalAmount: calculation.totalAmount,
         };
     }
-    else if (payload.paymentMethod === prisma_1.PaymentMethod.CASH_ON_DELIVERY) {
+    else if (payload.paymentMethod === prisma_client_1.PaymentMethod.CASH_ON_DELIVERY) {
         // For COD, create order immediately
         const order = await (0, cod_1.createCODOrder)({
             userId: payload.userId,
@@ -291,10 +291,10 @@ const getOrderById = async (orderId, actor) => {
     if (!order) {
         throw new customError_1.default(404, "Order not found");
     }
-    if (actor.role === prisma_1.Role.ADMIN || order.userId === actor.id) {
+    if (actor.role === prisma_client_1.Role.ADMIN || order.userId === actor.id) {
         return order;
     }
-    if (actor.role === prisma_1.Role.VENDOR) {
+    if (actor.role === prisma_client_1.Role.VENDOR) {
         const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
         const mine = order.vendorOrders.filter((vendorOrder) => vendorOrder.vendorId === vendor.id);
         if (mine.length === 0) {
@@ -319,7 +319,7 @@ const getOrderById = async (orderId, actor) => {
  * The vendor's order queue — their slices only, never the parent orders.
  */
 const getMyVendorOrders = async (actor, query) => {
-    const scope = actor.role === prisma_1.Role.ADMIN && query.vendorId
+    const scope = actor.role === prisma_client_1.Role.ADMIN && query.vendorId
         ? { vendorId: String(query.vendorId) }
         : { vendorId: (await (0, vendor_1.requireApprovedVendor)(actor.id)).id };
     const { vendorId: _ignored, ...rest } = query;
@@ -351,7 +351,7 @@ const getMyVendorOrders = async (actor, query) => {
     return { meta, vendorOrders };
 };
 const getVendorOrderById = async (actor, vendorOrderId) => {
-    if (actor.role !== prisma_1.Role.ADMIN) {
+    if (actor.role !== prisma_client_1.Role.ADMIN) {
         const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
         await (0, vendor_1.assertVendorOwnsVendorOrder)(vendor.id, vendorOrderId);
     }
@@ -406,7 +406,7 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
     const newStatus = payload.orderStatus;
     // Ownership check happens outside the transaction so a 404 for someone
     // else's order costs nothing.
-    if (actor.role !== prisma_1.Role.ADMIN) {
+    if (actor.role !== prisma_client_1.Role.ADMIN) {
         const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
         await (0, vendor_1.assertVendorOwnsVendorOrder)(vendor.id, vendorOrderId);
     }
@@ -430,16 +430,16 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
         // 1. State machine + role permissions
         (0, allowedTransition_1.ensureTransitionAllowedForRole)(previousStatus, newStatus, actor.role);
         const order = vendorOrder.order;
-        const isStripe = order.paymentMethod === prisma_1.PaymentMethod.STRIPE;
+        const isStripe = order.paymentMethod === prisma_client_1.PaymentMethod.STRIPE;
         // 2. A prepaid order must actually be paid before it moves goods.
         if (isStripe &&
-            order.paymentStatus !== prisma_1.PaymentStatus.PAID &&
-            (newStatus === prisma_1.OrderStatus.SHIPPED ||
-                newStatus === prisma_1.OrderStatus.DELIVERED)) {
+            order.paymentStatus !== prisma_client_1.PaymentStatus.PAID &&
+            (newStatus === prisma_client_1.OrderStatus.SHIPPED ||
+                newStatus === prisma_client_1.OrderStatus.DELIVERED)) {
             throw new customError_1.default(400, "Cannot ship or deliver until payment is completed");
         }
         // 3. Cancelling returns this slice's stock — and only this slice's.
-        if (newStatus === prisma_1.OrderStatus.CANCELED) {
+        if (newStatus === prisma_client_1.OrderStatus.CANCELED) {
             for (const item of vendorOrder.items) {
                 if (item.variantId) {
                     await tx.productVariant.update({
@@ -465,12 +465,12 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
                 orderStatus: newStatus,
                 trackingNumber: payload.trackingNumber ?? undefined,
                 carrier: payload.carrier ?? undefined,
-                cancelReason: newStatus === prisma_1.OrderStatus.CANCELED
+                cancelReason: newStatus === prisma_client_1.OrderStatus.CANCELED
                     ? (payload.cancelReason ?? "Canceled by seller")
                     : undefined,
-                shippedAt: newStatus === prisma_1.OrderStatus.SHIPPED ? now : undefined,
-                deliveredAt: newStatus === prisma_1.OrderStatus.DELIVERED ? now : undefined,
-                canceledAt: newStatus === prisma_1.OrderStatus.CANCELED ? now : undefined,
+                shippedAt: newStatus === prisma_client_1.OrderStatus.SHIPPED ? now : undefined,
+                deliveredAt: newStatus === prisma_client_1.OrderStatus.DELIVERED ? now : undefined,
+                canceledAt: newStatus === prisma_client_1.OrderStatus.CANCELED ? now : undefined,
             },
         });
         await (0, order_1.logStatusChange)(tx, {
@@ -479,7 +479,7 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
             oldStatus: previousStatus,
             newStatus,
             userId: actor.id,
-            note: newStatus === prisma_1.OrderStatus.CANCELED
+            note: newStatus === prisma_client_1.OrderStatus.CANCELED
                 ? (payload.cancelReason ?? "Canceled by seller")
                 : undefined,
             ipAddress,
@@ -494,7 +494,7 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
         //    Returns null for the cases with nothing to refund (unpaid order,
         //    cash on delivery, parcel already refunded).
         let pendingRefundId = null;
-        if (newStatus === prisma_1.OrderStatus.CANCELED) {
+        if (newStatus === prisma_client_1.OrderStatus.CANCELED) {
             pendingRefundId = await (0, refund_1.recordRefundIntent)(tx, {
                 orderId: order.id,
                 vendorOrderId,
@@ -572,26 +572,26 @@ const reconcilePayment = async (tx, orderId) => {
     if (!order.payment)
         return;
     const slices = order.vendorOrders;
-    const live = slices.filter((slice) => slice.orderStatus !== prisma_1.OrderStatus.CANCELED);
-    const wasPaid = order.paymentStatus === prisma_1.PaymentStatus.PAID ||
-        order.paymentStatus === prisma_1.PaymentStatus.PARTIALLY_REFUNDED ||
-        order.payment.status === prisma_1.PaymentStatus.PAID ||
-        order.payment.status === prisma_1.PaymentStatus.PARTIALLY_REFUNDED;
+    const live = slices.filter((slice) => slice.orderStatus !== prisma_client_1.OrderStatus.CANCELED);
+    const wasPaid = order.paymentStatus === prisma_client_1.PaymentStatus.PAID ||
+        order.paymentStatus === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED ||
+        order.payment.status === prisma_client_1.PaymentStatus.PAID ||
+        order.payment.status === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED;
     let paymentStatus = order.paymentStatus;
     if (live.length === 0 && !wasPaid) {
         // Everything cancelled on an order that was never paid: the charge
         // will never land. A PAID order that is fully cancelled is left to
         // the refund ledger, which flips it to REFUNDED once the money is
         // actually back with the buyer.
-        paymentStatus = prisma_1.PaymentStatus.FAILED;
+        paymentStatus = prisma_client_1.PaymentStatus.FAILED;
     }
-    else if (order.paymentMethod === prisma_1.PaymentMethod.CASH_ON_DELIVERY &&
+    else if (order.paymentMethod === prisma_client_1.PaymentMethod.CASH_ON_DELIVERY &&
         live.length > 0 &&
-        live.every((slice) => slice.orderStatus === prisma_1.OrderStatus.DELIVERED)) {
+        live.every((slice) => slice.orderStatus === prisma_client_1.OrderStatus.DELIVERED)) {
         // Cash collected on the doorstep for every parcel that shipped.
-        paymentStatus = prisma_1.PaymentStatus.PAID;
+        paymentStatus = prisma_client_1.PaymentStatus.PAID;
     }
-    const paidAt = paymentStatus === prisma_1.PaymentStatus.PAID && !order.payment.paidAt
+    const paidAt = paymentStatus === prisma_client_1.PaymentStatus.PAID && !order.payment.paidAt
         ? new Date()
         : order.payment.paidAt;
     await tx.payment.update({
@@ -627,7 +627,7 @@ const getDashboardAnalytics = async (startDate, endDate) => {
         db_1.prisma.order.aggregate({
             where: {
                 ...dateFilter,
-                paymentStatus: prisma_1.PaymentStatus.PAID,
+                paymentStatus: prisma_client_1.PaymentStatus.PAID,
             },
             _sum: { totalAmount: true },
         }),
@@ -635,8 +635,8 @@ const getDashboardAnalytics = async (startDate, endDate) => {
         db_1.prisma.vendorOrder.aggregate({
             where: {
                 ...dateFilter,
-                orderStatus: { not: prisma_1.OrderStatus.CANCELED },
-                order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+                orderStatus: { not: prisma_client_1.OrderStatus.CANCELED },
+                order: { paymentStatus: prisma_client_1.PaymentStatus.PAID },
             },
             _sum: { commissionAmount: true, vendorEarning: true },
         }),
@@ -667,8 +667,8 @@ const getDashboardAnalytics = async (startDate, endDate) => {
             by: ["vendorId"],
             where: {
                 ...dateFilter,
-                orderStatus: { not: prisma_1.OrderStatus.CANCELED },
-                order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+                orderStatus: { not: prisma_client_1.OrderStatus.CANCELED },
+                order: { paymentStatus: prisma_client_1.PaymentStatus.PAID },
             },
             _sum: {
                 totalAmount: true,

@@ -4,20 +4,20 @@ import {
     Prisma,
     Role,
     VendorStatus,
-} from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import { envConfig } from "../../config/env-config";
-import { toNumber } from "../../helpers/money";
-import { generateUniqueVendorSlug } from "../../helpers/slug";
+} from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { envConfig } from "@/config/env-config";
+import { toNumber } from "@/helpers/money";
+import { generateUniqueVendorSlug } from "@/helpers/slug";
 import {
     findVendorByOwner,
     publicProductFilter,
     publicVendorSelect,
     requireApprovedVendor,
-} from "../../helpers/vendor";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import { deleteFromCloudinary, moveFromTemp } from "../../utils/cloudinary";
-import CustomError from "../../utils/customError";
+} from "@/helpers/vendor";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
+import CustomError from "@/utils/customError";
 import {
     TRejectVendor,
     TSuspendVendor,

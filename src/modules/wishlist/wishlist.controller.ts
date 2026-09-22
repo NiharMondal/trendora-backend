@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { asyncHandler } from "../../utils/asyncHandler";
-import { sendResponse } from "../../utils/sendResponse";
+import { asyncHandler } from "@/utils/asyncHandler";
+import { sendResponse } from "@/utils/sendResponse";
 import { wishlistServices } from "./wishlist.service";
 
 // The owner always comes from the verified JWT, never from the body — see the
