@@ -257,6 +257,15 @@ model Category {
   /// platform rate, not to its parent's. Inheritance would make the effective
   /// rate depend on where a category sits in a tree an admin can re-parent.
   taxRate     Decimal? @db.Decimal(5, 4)
+  /// Merchandising artwork for the storefront's "shop by category" tiles.
+  ///
+  /// Nullable because the taxonomy predates it and a category is perfectly
+  /// usable without one — the tile falls back to a typographic treatment
+  /// rather than a broken image. `imagePublicId` is the Cloudinary handle,
+  /// kept so replacing or clearing the picture can destroy the old asset
+  /// instead of orphaning it (same pairing as `User.avatarPublicId`).
+  image          String?
+  imagePublicId  String?
   isDeleted   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

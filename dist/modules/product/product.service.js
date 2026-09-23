@@ -150,6 +150,127 @@ const findAllFromDB = async (query) => {
     ]);
     return { meta, data: products };
 };
+/**
+ * How far back "best selling" looks. A lifetime ranking ossifies — the same
+ * products sit at the top forever because they had a head start — so the
+ * storefront rail reflects a rolling window instead.
+ */
+const BEST_SELLER_WINDOW_DAYS = 90;
+/**
+ * The storefront's best-sellers rail.
+ *
+ * Ranked by units actually sold, not by views or by rating. Two deliberate
+ * narrowings:
+ *
+ * - **Cancelled parcels do not count.** A seller could otherwise order their
+ *   own stock and cancel it to climb the rail. Only parcels that are still
+ *   live (anything but CANCELED) on an order whose payment is PAID count, so
+ *   an abandoned Stripe checkout contributes nothing either.
+ * - **The winners are re-filtered through `publicProductFilter`.** A product
+ *   that sold well and has since been unpublished, rejected, or whose store
+ *   was suspended must not reappear here — `groupBy` runs on OrderItem, which
+ *   knows nothing about visibility.
+ *
+ * Because of that second pass the result can be shorter than `limit`; it is a
+ * merchandising rail, not a paginated list, so that is acceptable and far
+ * safer than leaking a hidden listing.
+ */
+const bestSellingProducts = async (query) => {
+    const limit = Math.min(Number(query.limit) || 10, 50);
+    const windowDays = Number(query.days) || BEST_SELLER_WINDOW_DAYS;
+    const since = new Date();
+    since.setDate(since.getDate() - windowDays);
+    // Over-fetch: some winners will be filtered out by the visibility gates
+    // below, and asking for exactly `limit` ids would return a short rail
+    // every time one of them is hidden.
+    const ranked = await db_1.prisma.orderItem.groupBy({
+        by: ["productId"],
+        where: {
+            order: { paymentStatus: "PAID", createdAt: { gte: since } },
+            vendorOrder: { orderStatus: { not: "CANCELED" } },
+        },
+        _sum: { quantity: true },
+        orderBy: { _sum: { quantity: "desc" } },
+        take: limit * 3,
+    });
+    if (ranked.length === 0)
+        return [];
+    const rankedIds = ranked.map((row) => row.productId);
+    const products = await db_1.prisma.product.findMany({
+        where: (0, vendor_1.publicProductFilter)({ id: { in: rankedIds } }),
+        include: {
+            images: { select: { id: true, url: true, isMain: true } },
+            variants: product_1.liveVariants,
+            category: { select: { id: true, name: true, slug: true, taxRate: true } },
+            brand: { select: { id: true, name: true } },
+            vendor: { select: vendorCardSelect },
+        },
+    });
+    // `findMany` returns them in its own order, so re-impose the ranking and
+    // carry the figure that produced it — the rail wants to say "120 sold".
+    const soldByProduct = new Map(ranked.map((row) => [row.productId, row._sum.quantity ?? 0]));
+    return products
+        .map((product) => ({
+        ...product,
+        unitsSold: soldByProduct.get(product.id) ?? 0,
+    }))
+        .sort((a, b) => b.unitsSold - a.unitsSold)
+        .slice(0, limit);
+};
+/**
+ * Products hang off LEAF categories, so a raw group-by never produces a row
+ * for "Footwear" — only for "Sneakers" and "Shoe". The storefront's category
+ * tiles link to the parents, so the panel has to offer them too, with a count
+ * that includes everything underneath.
+ *
+ * Summed here rather than in SQL because Prisma's filtered relation count only
+ * counts the direct relation; reaching a child's products would need a raw
+ * query for a list that is small by construction — the taxonomy is
+ * admin-owned, not user-generated.
+ */
+const rollUpCategoryFacets = (rows) => {
+    const facets = new Map();
+    for (const row of rows) {
+        facets.set(row.id, {
+            id: row.id,
+            name: row.name,
+            slug: row.slug,
+            image: row.image,
+            parentId: row.parentId,
+            count: row._count.products,
+        });
+    }
+    for (const row of rows) {
+        if (!row.parent)
+            continue;
+        const existing = facets.get(row.parent.id);
+        if (existing) {
+            // The parent sells directly too; its own products are already
+            // counted, so only add the child's.
+            existing.count += row._count.products;
+            continue;
+        }
+        facets.set(row.parent.id, {
+            id: row.parent.id,
+            name: row.parent.name,
+            slug: row.parent.slug,
+            image: row.parent.image,
+            parentId: null,
+            count: row._count.products,
+        });
+    }
+    // Each parent immediately followed by its own children, so the panel can
+    // indent them without a second pass.
+    const all = [...facets.values()];
+    const nameOf = (id) => (id && facets.get(id)?.name) || "";
+    return all.sort((a, b) => {
+        const rootA = a.parentId ? nameOf(a.parentId) : a.name;
+        const rootB = b.parentId ? nameOf(b.parentId) : b.name;
+        return (rootA.localeCompare(rootB) ||
+            Number(Boolean(a.parentId)) - Number(Boolean(b.parentId)) ||
+            a.name.localeCompare(b.name));
+    });
+};
 /** Ratings the panel offers, as "n stars & up". */
 const RATING_BUCKETS = [4, 3, 2];
 /**
@@ -195,6 +316,11 @@ const findFilterFacets = async (query) => {
                 id: true,
                 name: true,
                 slug: true,
+                image: true,
+                parentId: true,
+                parent: {
+                    select: { id: true, name: true, slug: true, image: true },
+                },
                 _count: { select: { products: { where: categoryWhere } } },
             },
             orderBy: { name: "asc" },
@@ -295,10 +421,7 @@ const findFilterFacets = async (query) => {
     return {
         totalProducts,
         price,
-        categories: categories.map(({ _count, ...category }) => ({
-            ...category,
-            count: _count.products,
-        })),
+        categories: rollUpCategoryFacets(categories),
         brands: brands.map(({ _count, ...brand }) => ({
             ...brand,
             count: _count.products,
@@ -797,6 +920,7 @@ exports.productServices = {
     rejectProduct,
     //
     newArrivalProducts,
+    bestSellingProducts,
     relatedProducts,
     findByVendorSlug,
 };

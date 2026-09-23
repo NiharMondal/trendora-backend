@@ -20,6 +20,7 @@ const router = (0, express_1.Router)();
 // ---------------------------------------------------------------------- public
 router.get("/filters", product_controller_1.productControllers.findFilterFacets);
 router.get("/new-arrival", product_controller_1.productControllers.newArrivalProducts);
+router.get("/best-sellers", product_controller_1.productControllers.bestSellingProducts);
 router.get("/by-slug/:slug", product_controller_1.productControllers.findBySlug);
 router.get("/related-products/:id", product_controller_1.productControllers.relatedProducts);
 router.get("/store/:slug", product_controller_1.productControllers.findByVendorSlug);

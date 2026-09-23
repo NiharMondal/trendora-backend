@@ -2,6 +2,15 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.categoryValidation = exports.categoryUpdateSchema = exports.categorySchema = void 0;
 const zod_1 = require("zod");
+/**
+ * The Cloudinary temp-folder handshake: the client uploads straight to
+ * Cloudinary and sends us both halves, so the service can promote the asset
+ * out of `temp/` on save and destroy the one it replaces.
+ */
+const imageSchema = zod_1.z.object({
+    url: zod_1.z.string().trim(),
+    publicId: zod_1.z.string().trim(),
+});
 exports.categorySchema = zod_1.z.object({
     name: zod_1.z
         .string("Category name is required")
@@ -26,6 +35,13 @@ exports.categorySchema = zod_1.z.object({
         error: "Tax rate supports at most 4 decimal places",
     })
         .nullish(),
+    /**
+     * Merchandising artwork for the storefront's category tiles. `null`
+     * clears it — which is why this is nullable rather than merely optional:
+     * an admin has to be able to take a picture back off a category, and
+     * `undefined` on a PATCH means "leave it alone".
+     */
+    image: imageSchema.nullish(),
 });
 /**
  * PATCH /categories/:id — every field optional, nothing outside the list.

@@ -306,7 +306,7 @@ method turns any unrecognised key into a literal `where` clause on a column of t
 leaving `minPrice` in produces `where: { minPrice: 50 }` — a 500, not a 400. `splitStorefrontQuery`
 is what removes them.
 
-Three of the translations are not column comparisons:
+Four of the translations are not column comparisons:
 
 - **Price matches what the shopper is SHOWN** — `discountPrice` where there is one, `basePrice`
   otherwise, as an `OR` of the two cases. Filtering `basePrice` alone hides a 200 shirt discounted
@@ -315,6 +315,17 @@ Three of the translations are not column comparisons:
 - **Size lives on the variant**, so `sizeId` becomes `variants: { some: { isDeleted: false, … } }`.
 - **An unknown `gender` is dropped, not passed through** — Prisma rejects an invalid enum member
   with a 500, and a typo should narrow nothing rather than break the page.
+- **`onSale` is `discountPrice IS NOT NULL`**, which no column filter can express — `?discountPrice=`
+  can only ever test equality.
+
+**`categoryId` matches the category OR its children.** The taxonomy is two deep
+(Footwear → Sneakers) and products hang off the LEAF, so matching `categoryId` alone made every
+parent return nothing — which is exactly what the storefront's "shop by category" tiles link to.
+For the same reason `findFilterFacets` rolls a parent's count up from its children
+(`rollUpCategoryFacets`): a raw group-by never produces a row for "Footwear", so the panel could
+not offer it and an active-filter chip had no name to show. Summed in JS rather than SQL because
+Prisma's filtered relation count only counts the direct relation, and the taxonomy is small by
+construction.
 
 **Facet counts are disjunctive, and that is the whole point of `facetWhere`.** The number beside
 "Nike" is computed with every other filter applied but the brand filter dropped. Merged into one
@@ -331,6 +342,25 @@ categories and sizes exist is a property of the data — a vendor opening a new 
 up in the panel with no frontend change. `Size` has no ordering column, so sizes come back grouped
 by size group and then in natural order within it ("Clothing: 2XL L M S XL"); a `sortOrder` on
 `Size` is the fix if that ordering ever needs to be author-controlled.
+
+### Storefront merchandising endpoints
+
+The home page is built from public reads that already existed (`/slides`, `/products/new-arrival`,
+`?isFeatured=true`, `?sortBy=averageRating:desc`, `/vendors`, `/brands`) plus two additions:
+
+- **`GET /products/best-sellers`** — ranked by units actually sold in a rolling 90-day window
+  (`?limit=`, `?days=`). Before this, `topProducts` existed only inside **ADMIN-only**
+  `GET /orders/analytics`, so the storefront had no way to ask. Two narrowings are load-bearing:
+  cancelled parcels do not count (otherwise a seller orders their own stock and cancels it to climb
+  the rail), and the winners are **re-filtered through `publicProductFilter`** because `groupBy`
+  runs on OrderItem, which knows nothing about visibility. That second pass can return fewer rows
+  than `limit` — it is a merchandising rail, not a paginated list, and a short rail beats a leaked
+  draft.
+- **`Category.image` / `imagePublicId`** — artwork for the "shop by category" tiles, with the usual
+  Cloudinary temp-folder handshake. `resolveImageColumns` in `category.service.ts` distinguishes
+  three cases that are easy to conflate: `undefined` means "not in the request, change nothing",
+  `null` means "the admin removed it, clear both columns and destroy the asset", and an object
+  means "set it and destroy whatever it replaced".
 
 ### Variants and images are editable as sub-resources
 

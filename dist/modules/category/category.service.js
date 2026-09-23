@@ -7,12 +7,46 @@ exports.categoryServices = void 0;
 const db_1 = require("../../config/db.js");
 const slug_1 = require("../../helpers/slug.js");
 const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const cloudinary_1 = require("../../utils/cloudinary.js");
 const utils_1 = require("../../utils/utils.js");
+/**
+ * Turn the client's `{ url, publicId }` into the two columns that store it,
+ * promoting the asset out of Cloudinary's `temp/` folder on the way.
+ *
+ * Three distinct cases, and conflating them loses data:
+ *   `undefined` -> the field was not in the request; change nothing.
+ *   `null`      -> the admin removed the picture; clear both columns.
+ *   an object   -> set it, and destroy whatever it replaced.
+ *
+ * Only a publicId still containing `/temp/` is moved. A promoted asset is
+ * live on the storefront, and renaming it again would break every URL already
+ * rendered against it — the same guard the product and vendor services keep.
+ */
+const resolveImageColumns = async (image, previousPublicId) => {
+    if (image === undefined)
+        return {};
+    if (image === null) {
+        if (previousPublicId)
+            await (0, cloudinary_1.deleteFromCloudinary)(previousPublicId);
+        return { image: null, imagePublicId: null };
+    }
+    const stored = image.publicId.includes("/temp/")
+        ? await (0, cloudinary_1.moveFromTemp)(image.publicId)
+        : { url: image.url, publicId: image.publicId };
+    // Unchanged image on an unrelated edit — nothing to clean up.
+    if (previousPublicId && previousPublicId !== stored.publicId) {
+        await (0, cloudinary_1.deleteFromCloudinary)(previousPublicId);
+    }
+    return { image: stored.url, imagePublicId: stored.publicId };
+};
 const createIntoDB = async (payload) => {
+    // `image` arrives as a nested object; it maps onto two scalar columns, so
+    // it must not reach Prisma inside the spread.
+    const { image, ...rest } = payload;
     const name = (0, utils_1.capitalizeFirstLetter)(payload.name.trim());
     const slug = (0, slug_1.generateSlug)(payload.name);
     const data = await db_1.prisma.category.create({
-        data: { ...payload, name, slug },
+        data: { ...rest, ...(await resolveImageColumns(image)), name, slug },
     });
     return data;
 };
@@ -70,10 +104,15 @@ const updateData = async (id, payload) => {
     const category = await db_1.prisma.category.findUniqueOrThrow({
         where: { id },
     });
+    const { image, ...rest } = payload;
     const slug = (0, slug_1.generateSlug)(payload.name || category.name);
     const updatedData = await db_1.prisma.category.update({
         where: { id },
-        data: { ...payload, slug },
+        data: {
+            ...rest,
+            ...(await resolveImageColumns(image, category.imagePublicId)),
+            slug,
+        },
     });
     return updatedData;
 };
