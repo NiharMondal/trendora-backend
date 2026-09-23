@@ -129,6 +129,11 @@ Keep DB/business logic in services, not controllers.
 
   Reserved query params: `search`, `page`, `limit`, `sortBy`/`sort`, `orderBy`/`order`. Any other query key becomes a filter (comma-separated → `in`, `true`/`false` → boolean, numeric strings → number). Sort format is `?sortBy=field:asc`.
 
+  **A descending sort on a NULLABLE column puts NULLs last.** Postgres leads with them by default,
+  so `?sortBy=averageRating:desc` ("top rated") opened with every product nobody has reviewed.
+  Prisma's `{ sort, nulls }` form is only valid on an optional field, so the builder reads
+  nullability from `Prisma.dmmf` (`nullableFieldsFor`) and emits it only where it applies.
+
   **`model` is required.** `sortBy` comes from the query string and is written straight into
   Prisma's `orderBy`, so the builder needs to know the model to validate it — and it cannot infer
   one, because the generic is erased at runtime. It reads the model's scalar and enum fields from
@@ -283,6 +288,49 @@ accepted from the request body.
 `Product.name` is unique **per vendor** (`@@unique([vendorId, name])`) — two
 stores may both sell "Nike Air Max 90". `slug` stays globally unique and
 `generateUniqueProductSlug` appends the store slug on collision.
+
+### Storefront filtering is a pair of endpoints, not one
+
+`GET /products` (which rows) and `GET /products/filters` (which options the shopper is offered, and
+how many rows each would leave) must agree, so both translate the query string through the single
+**`src/helpers/product-filter.ts`**. If they ever diverge the panel offers a filter that returns an
+empty page.
+
+`STOREFRONT_FILTER_KEYS` is that shared vocabulary — `categoryId`, `brandId`, `vendorId`, `gender`,
+`sizeId` (all comma-separated → `IN`), plus `minPrice`, `maxPrice`, `minRating`, `inStock`. It is
+mirrored on the frontend as `PRODUCT_FILTER_KEYS` in
+`features/products/hooks/use-product-filters.ts`; the two lists must stay in step.
+
+**These keys are stripped from the query before `PrismaQueryBuilder.filter()` sees it.** That
+method turns any unrecognised key into a literal `where` clause on a column of the same name, so
+leaving `minPrice` in produces `where: { minPrice: 50 }` — a 500, not a 400. `splitStorefrontQuery`
+is what removes them.
+
+Three of the translations are not column comparisons:
+
+- **Price matches what the shopper is SHOWN** — `discountPrice` where there is one, `basePrice`
+  otherwise, as an `OR` of the two cases. Filtering `basePrice` alone hides a 200 shirt discounted
+  to 40 from the "under 50" bucket it visibly belongs in. (Sorting still uses `basePrice`: Prisma
+  cannot order by a coalesced expression without a generated column.)
+- **Size lives on the variant**, so `sizeId` becomes `variants: { some: { isDeleted: false, … } }`.
+- **An unknown `gender` is dropped, not passed through** — Prisma rejects an invalid enum member
+  with a 500, and a typo should narrow nothing rather than break the page.
+
+**Facet counts are disjunctive, and that is the whole point of `facetWhere`.** The number beside
+"Nike" is computed with every other filter applied but the brand filter dropped. Merged into one
+clause it would be impossible: ticking Nike would drop every other brand to 0 and the shopper could
+never tick a second one. Search is part of the base rather than a dimension — it defines the result
+set a facet is an option *within*, so it is never dropped from a count.
+
+Every option returned comes from products that pass `publicProductFilter`, so the panel can never
+offer a filter that leads to an empty page. Size counts use `distinct: ["sizeId", "productId"]` so
+a three-colour shirt counts once, not three times.
+
+**The options are derived, never hardcoded.** Sellers list whatever they like, so which brands,
+categories and sizes exist is a property of the data — a vendor opening a new category has to show
+up in the panel with no frontend change. `Size` has no ordering column, so sizes come back grouped
+by size group and then in natural order within it ("Clothing: 2XL L M S XL"); a `sortOrder` on
+`Size` is the fix if that ordering ever needs to be author-controlled.
 
 ### Variants and images are editable as sub-resources
 

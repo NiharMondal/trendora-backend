@@ -29,6 +29,21 @@ const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
         meta,
     });
 });
+/**
+ * The storefront filter panel's options, derived from the live catalogue.
+ * Takes the same query params as the listing so the counts reflect what the
+ * shopper has already narrowed to.
+ */
+const findFilterFacets = asyncHandler(async (req: Request, res: Response) => {
+    const data = await productServices.findFilterFacets(req.query);
+
+    sendResponse(res, {
+        statusCode: 200,
+        message: "Product filters fetched successfully",
+        data,
+    });
+});
+
 const findById = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
     const data = await productServices.findById(id);
@@ -196,6 +211,7 @@ const findByVendorSlug = asyncHandler(async (req: Request, res: Response) => {
 export const productControllers = {
     createIntoDB,
     findAllFromDB,
+    findFilterFacets,
     findById,
     findBySlug,
     updateData,

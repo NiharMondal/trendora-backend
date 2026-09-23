@@ -18,6 +18,7 @@ const router = Router();
  */
 
 // ---------------------------------------------------------------------- public
+router.get("/filters", productControllers.findFilterFacets);
 router.get("/new-arrival", productControllers.newArrivalProducts);
 router.get("/by-slug/:slug", productControllers.findBySlug);
 router.get("/related-products/:id", productControllers.relatedProducts);

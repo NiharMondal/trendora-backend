@@ -10,6 +10,12 @@ import {
 } from "@/helpers/vendor";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import { liveVariants, promoteImages } from "@/helpers/product";
+import {
+	facetWhere,
+	splitStorefrontQuery,
+	storefrontFilterClauses,
+	storefrontSearchClause,
+} from "@/helpers/product-filter";
 import { deleteFromCloudinary } from "@/utils/cloudinary";
 import CustomError from "@/utils/customError";
 import {
@@ -151,12 +157,24 @@ const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
  * stores — see publicProductFilter for the three gates.
  */
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, { model: "Product" });
+	// Price, size, rating and stock are not plain column comparisons, so they
+	// are translated here and stripped from what the builder sees — its
+	// `filter()` would turn `minPrice` into `where: { minPrice }` and 500.
+	const { storefront, rest } = splitStorefrontQuery(query);
+	const clauses = storefrontFilterClauses(storefront);
 
-	const prismaArgs = builder
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(rest, { model: "Product" });
+
+	builder
 		.withDefaultFilter(publicProductFilter())
 		.search(["name", "description"])
-		.filter()
+		.filter();
+
+	for (const clause of Object.values(clauses)) {
+		builder.addWhere(clause);
+	}
+
+	const prismaArgs = builder
 		.paginate()
 		.sort()
 		.include({
@@ -176,6 +194,212 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 	]);
 
 	return { meta, data: products };
+};
+
+/** Ratings the panel offers, as "n stars & up". */
+const RATING_BUCKETS = [4, 3, 2] as const;
+
+/**
+ * The filter panel's options, derived from the live catalogue rather than
+ * hardcoded on the client.
+ *
+ * Why the server owns this: sellers list whatever they like, so the set of
+ * brands, categories, sizes and price points that exist is a property of the
+ * data, not of the frontend. A client-side list goes stale the moment a vendor
+ * adds the first product in a new category, and it cannot know the counts.
+ *
+ * Every option returned is reachable — it comes from products that pass the
+ * same three visibility gates as `GET /products` — so the panel can never
+ * offer a filter that returns an empty page. Counts are disjunctive (see
+ * `facetWhere`): the number beside a brand is what the shopper would get if
+ * they ticked it, with their other choices still applied.
+ *
+ * Takes the same query params as `GET /products`, so the frontend passes its
+ * current filter state straight through and the counts narrow as it changes.
+ */
+const findFilterFacets = async (query: Record<string, unknown>) => {
+	const { storefront, rest } = splitStorefrontQuery(query);
+	const clauses = storefrontFilterClauses(storefront);
+	const search = storefrontSearchClause(rest.search);
+
+	// Search is part of the base rather than a dimension of its own: a facet
+	// is an option within the current result set, and the search term defines
+	// that set. It is never dropped from a count.
+	const base: Prisma.ProductWhereInput = {
+		AND: [publicProductFilter(), ...(search ? [search] : [])],
+	};
+
+	const categoryWhere = facetWhere(base, clauses, "category");
+	const brandWhere = facetWhere(base, clauses, "brand");
+	const vendorWhere = facetWhere(base, clauses, "vendor");
+	const genderWhere = facetWhere(base, clauses, "gender");
+	const sizeWhere = facetWhere(base, clauses, "size");
+	const priceWhere = facetWhere(base, clauses, "price");
+	const ratingWhere = facetWhere(base, clauses, "rating");
+	const currentWhere = facetWhere(base, clauses);
+
+	const [
+		categories,
+		brands,
+		vendors,
+		genderGroups,
+		sizeRows,
+		priceRange,
+		ratingCounts,
+		totalProducts,
+	] = await Promise.all([
+		prisma.category.findMany({
+			where: { isDeleted: false, products: { some: categoryWhere } },
+			select: {
+				id: true,
+				name: true,
+				slug: true,
+				_count: { select: { products: { where: categoryWhere } } },
+			},
+			orderBy: { name: "asc" },
+		}),
+
+		prisma.brand.findMany({
+			where: { isDeleted: false, products: { some: brandWhere } },
+			select: {
+				id: true,
+				name: true,
+				logo: true,
+				_count: { select: { products: { where: brandWhere } } },
+			},
+			orderBy: { name: "asc" },
+		}),
+
+		prisma.vendor.findMany({
+			where: { products: { some: vendorWhere } },
+			select: {
+				id: true,
+				storeName: true,
+				slug: true,
+				logo: true,
+				_count: { select: { products: { where: vendorWhere } } },
+			},
+			orderBy: { storeName: "asc" },
+		}),
+
+		prisma.product.groupBy({
+			by: ["gender"],
+			where: genderWhere,
+			_count: { _all: true },
+		}),
+
+		// Size lives on the variant, and a product usually has several
+		// variants in the same size (one per colour). `distinct` on the pair
+		// is what makes the number below a count of PRODUCTS rather than of
+		// variants — otherwise a three-colour shirt counts as three.
+		prisma.productVariant.findMany({
+			where: {
+				isDeleted: false,
+				sizeId: { not: null },
+				product: sizeWhere,
+			},
+			select: {
+				productId: true,
+				size: {
+					select: {
+						id: true,
+						name: true,
+						sizeGroup: { select: { id: true, name: true } },
+					},
+				},
+			},
+			distinct: ["sizeId", "productId"],
+		}),
+
+		prisma.product.aggregate({
+			where: priceWhere,
+			_min: { basePrice: true, discountPrice: true },
+			_max: { basePrice: true },
+		}),
+
+		Promise.all(
+			RATING_BUCKETS.map((value) =>
+				prisma.product
+					.count({
+						where: {
+							AND: [ratingWhere, { averageRating: { gte: value } }],
+						},
+					})
+					.then((count) => ({ value, count })),
+			),
+		),
+
+		prisma.product.count({ where: currentWhere }),
+	]);
+
+	// One row per (size, product); fold it down to one entry per size.
+	const sizeCounts = new Map<
+		string,
+		{ id: string; name: string; sizeGroup: string | null; count: number }
+	>();
+
+	for (const row of sizeRows) {
+		if (!row.size) continue;
+		const entry = sizeCounts.get(row.size.id);
+		if (entry) {
+			entry.count += 1;
+			continue;
+		}
+		sizeCounts.set(row.size.id, {
+			id: row.size.id,
+			name: row.size.name,
+			sizeGroup: row.size.sizeGroup?.name ?? null,
+			count: 1,
+		});
+	}
+
+	// The shown price is the discounted one where there is a discount, so the
+	// floor of the range can sit below the cheapest basePrice. The ceiling
+	// cannot: a discount is always lower than the price it replaces.
+	const baseMin = priceRange._min.basePrice;
+	const discountMin = priceRange._min.discountPrice;
+	const candidates = [baseMin, discountMin]
+		.filter((value): value is Prisma.Decimal => value !== null)
+		.map((value) => Number(value));
+
+	const price = {
+		min: candidates.length ? Math.floor(Math.min(...candidates)) : 0,
+		max: priceRange._max.basePrice
+			? Math.ceil(Number(priceRange._max.basePrice))
+			: 0,
+	};
+
+	return {
+		totalProducts,
+		price,
+		categories: categories.map(({ _count, ...category }) => ({
+			...category,
+			count: _count.products,
+		})),
+		brands: brands.map(({ _count, ...brand }) => ({
+			...brand,
+			count: _count.products,
+		})),
+		stores: vendors.map(({ _count, ...vendor }) => ({
+			...vendor,
+			count: _count.products,
+		})),
+		genders: genderGroups
+			.map((group) => ({
+				value: group.gender,
+				count: group._count._all,
+			}))
+			.sort((a, b) => b.count - a.count),
+		// Grouped first, then natural order inside the group, so the panel can
+		// render "Clothing: S M L XL" and "Footwear: 8 9 10" as written rather
+		// than interleaving 2XL with shoe size 8.
+		sizes: [...sizeCounts.values()].sort(
+			(a, b) =>
+				(a.sizeGroup ?? "").localeCompare(b.sizeGroup ?? "") ||
+				a.name.localeCompare(b.name, undefined, { numeric: true }),
+		),
+		ratings: ratingCounts.filter((bucket) => bucket.count > 0),
+	};
 };
 
 /**
@@ -749,6 +973,7 @@ const findByVendorSlug = async (
 export const productServices = {
 	createIntoDB,
 	findAllFromDB,
+	findFilterFacets,
 	findById,
 	findBySlug,
 	updateData,

@@ -18,6 +18,7 @@ const router = (0, express_1.Router)();
  * may only touch their own listings.
  */
 // ---------------------------------------------------------------------- public
+router.get("/filters", product_controller_1.productControllers.findFilterFacets);
 router.get("/new-arrival", product_controller_1.productControllers.newArrivalProducts);
 router.get("/by-slug/:slug", product_controller_1.productControllers.findBySlug);
 router.get("/related-products/:id", product_controller_1.productControllers.relatedProducts);
