@@ -42,6 +42,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-47 | Hard-deleting an order leaves the store rating stale | P2 | S | reviews |
 | ~~BE-48~~ | ~~Product reviews are not gated on purchase, and not one per buyer~~ | ✅ **FIXED** 2026-09-24 | — | reviews |
 | ~~BE-49~~ | ~~No buyer-side summary: lifetime spend needs every order paged down~~ | ✅ **FIXED** 2026-09-24 | — | orders |
+| BE-50 | Any refund on one parcel makes every parcel of that order unpayable | P1 | S | payouts |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -1338,6 +1339,36 @@ Cloudinary randomness and is not published anywhere (except in the BE-41 case).
 3. The real fix is **signed uploads**: the backend issues a short-lived signature, the frontend
    uploads with it. That closes this, and it also makes `/cloudinary/delete-temp` naturally
    authenticated, which resolves BE-04 as a side effect.
+
+---
+
+### BE-50 · Any refund on one parcel makes every parcel of that order unpayable
+**P1 · S · payouts** — found 2026-09-24 while building the admin manual-refund entry (frontend FE-35)
+
+Payout eligibility is *delivered + buyer paid + unattached*, and "buyer paid" is written as
+`order: { paymentStatus: PaymentStatus.PAID }`. That appears three times: `payout.service.ts:44`,
+`:75` and `:366`. The vendor dashboard's earnings aggregate uses the same rule.
+
+But `recomputePaymentRefundState` (`helpers/refund.ts`) moves the **order's** `paymentStatus` to
+`PARTIALLY_REFUNDED` as soon as **any** refund on it succeeds. So:
+
+- a two-store cart where the buyer cancels one parcel and receives the other gets an automatic
+  Stripe refund for the first;
+- the order becomes `PARTIALLY_REFUNDED`;
+- the second store's delivered parcel never matches `PAID` again, and **is never paid out**.
+
+It also disappears from that store's "net earnings" and "ready for payout".
+
+**Reproduced live:** order `ORD-202609-254303` (vendor1, delivered, COD, paid). `GET
+/payouts/admin/outstanding` showed Urban Threads owed **142.10**. After a **5.00** manual refund on
+that parcel, it showed **0** and dropped the store from the queue.
+
+**Fix direction:** eligibility should mean "the buyer's money for THIS parcel was collected and not
+refunded". That is `paymentStatus IN (PAID, PARTIALLY_REFUNDED)` plus "this parcel has no SUCCEEDED
+refund". Whether a partly refunded delivered parcel (a goodwill refund) still pays the store in
+full, or nets the refund off `vendorEarning`, is a **business decision** that has to be made before
+coding it. Apply the same rule to the vendor dashboard aggregate and to `getMyBalance`, or the
+numbers disagree.
 
 ---
 

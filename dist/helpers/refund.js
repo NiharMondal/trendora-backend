@@ -52,6 +52,13 @@ const RETRYABLE = [prisma_client_1.RefundStatus.PENDING, prisma_client_1.RefundS
  */
 const idempotencyKeyFor = (refundId, attempt) => `refund:${refundId}:${attempt}`;
 /**
+ * Whether the buyer's money actually reached the platform. Both the automatic
+ * refund and a hand-recorded one start from this: nothing collected, nothing
+ * to give back.
+ */
+const wasCollected = (orderPaymentStatus, paymentStatus) => [orderPaymentStatus, paymentStatus].some((status) => status === prisma_client_1.PaymentStatus.PAID ||
+    status === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED);
+/**
  * Record that a buyer is owed money for a cancelled parcel.
  *
  * MUST run inside the transaction that cancels the parcel. Returns the refund
@@ -71,11 +78,7 @@ async function recordRefundIntent(tx, params) {
     if (!order?.payment)
         return null;
     // Nothing was ever collected, so there is nothing to give back.
-    const wasPaid = order.paymentStatus === prisma_client_1.PaymentStatus.PAID ||
-        order.paymentStatus === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED ||
-        order.payment.status === prisma_client_1.PaymentStatus.PAID ||
-        order.payment.status === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED;
-    if (!wasPaid)
+    if (!wasCollected(order.paymentStatus, order.payment.status))
         return null;
     // Cash on delivery has no gateway to call. The money, if any changed
     // hands, is returned in person — an admin records that separately with
@@ -232,12 +235,26 @@ async function recordManualRefund(params) {
     if (!order?.payment) {
         throw new customError_1.default(404, "Order or payment not found");
     }
+    // Only money that was actually collected can be handed back. An unpaid COD
+    // order would otherwise be "refunded" and its payment flipped to REFUNDED.
+    if (!wasCollected(order.paymentStatus, order.payment.status)) {
+        throw new customError_1.default(400, `Nothing to refund: this order's payment is ${order.payment.status}`);
+    }
     const alreadyRefunded = await sumSucceededRefunds(db_1.prisma, order.payment.id);
     const refundable = (0, money_1.round2)((0, money_1.toNumber)(order.payment.amount) - alreadyRefunded);
     if (params.amount > refundable + 0.005) {
         throw new customError_1.default(400, `Cannot refund ${params.amount}: only ${refundable} of this payment is unrefunded`);
     }
     if (params.vendorOrderId) {
+        // A parcel id from another order would attach this refund to the
+        // wrong parcel and block that parcel's own refund (the column is unique).
+        const parcel = await db_1.prisma.vendorOrder.findFirst({
+            where: { id: params.vendorOrderId, orderId: params.orderId },
+            select: { id: true },
+        });
+        if (!parcel) {
+            throw new customError_1.default(404, "That parcel is not part of this order");
+        }
         const existing = await db_1.prisma.refund.findUnique({
             where: { vendorOrderId: params.vendorOrderId },
         });

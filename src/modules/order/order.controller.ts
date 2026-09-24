@@ -1,4 +1,5 @@
 import { orderServices } from "./order.service";
+import { parseDateRange } from "@/helpers/date-range";
 import { Request, Response } from "express";
 import { asyncHandler } from "@/utils/asyncHandler";
 import { sendResponse } from "@/utils/sendResponse";
@@ -119,11 +120,11 @@ const updateVendorOrderStatus = asyncHandler(
 
 const getDashboardAnalytics = asyncHandler(
 	async (req: Request, res: Response) => {
-		const { startDate, endDate } = req.query;
+		const { startDate, endDate } = parseDateRange(req.query);
 
 		const data = await orderServices.getDashboardAnalytics(
-			startDate ? new Date(String(startDate)) : undefined,
-			endDate ? new Date(String(endDate)) : undefined,
+			startDate,
+			endDate,
 		);
 
 		sendResponse(res, {

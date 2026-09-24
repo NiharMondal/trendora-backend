@@ -731,17 +731,8 @@ const getMyDashboard = async (
 ) => {
     const vendor = await requireApprovedVendor(userId);
 
+    // Already validated by `parseDateRange` in the controller.
     const { startDate, endDate } = range ?? {};
-    // `new Date("garbage")` is an Invalid Date, which Prisma rejects with a 500.
-    if (
-        (startDate && Number.isNaN(startDate.getTime())) ||
-        (endDate && Number.isNaN(endDate.getTime()))
-    ) {
-        throw new CustomError(400, "startDate and endDate must be valid dates");
-    }
-    if (startDate && endDate && startDate > endDate) {
-        throw new CustomError(400, "startDate must be before endDate");
-    }
 
     // The headline figures are all-time without a range; the trend always has
     // a window, since a series from the store's first day is not chartable.

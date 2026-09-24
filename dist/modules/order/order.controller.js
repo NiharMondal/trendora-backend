@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.orderControllers = void 0;
 const order_service_1 = require("./order.service");
+const date_range_1 = require("../../helpers/date-range.js");
 const asyncHandler_1 = require("../../utils/asyncHandler.js");
 const sendResponse_1 = require("../../utils/sendResponse.js");
 const actorOf = (req) => ({
@@ -90,8 +91,8 @@ const updateVendorOrderStatus = (0, asyncHandler_1.asyncHandler)(async (req, res
     });
 });
 const getDashboardAnalytics = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const { startDate, endDate } = req.query;
-    const data = await order_service_1.orderServices.getDashboardAnalytics(startDate ? new Date(String(startDate)) : undefined, endDate ? new Date(String(endDate)) : undefined);
+    const { startDate, endDate } = (0, date_range_1.parseDateRange)(req.query);
+    const data = await order_service_1.orderServices.getDashboardAnalytics(startDate, endDate);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Analytics fetched successfully",

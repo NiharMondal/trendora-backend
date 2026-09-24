@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.vendorControllers = void 0;
+const date_range_1 = require("../../helpers/date-range.js");
 const asyncHandler_1 = require("../../utils/asyncHandler.js");
 const sendResponse_1 = require("../../utils/sendResponse.js");
 const vendor_service_1 = require("./vendor.service");
@@ -37,11 +38,7 @@ const updateMyStore = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const getMyDashboard = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const { startDate, endDate } = req.query;
-    const data = await vendor_service_1.vendorServices.getMyDashboard(req.user.id, {
-        startDate: startDate ? new Date(String(startDate)) : undefined,
-        endDate: endDate ? new Date(String(endDate)) : undefined,
-    });
+    const data = await vendor_service_1.vendorServices.getMyDashboard(req.user.id, (0, date_range_1.parseDateRange)(req.query));
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Vendor dashboard fetched successfully",

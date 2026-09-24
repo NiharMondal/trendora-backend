@@ -50,6 +50,21 @@ const idempotencyKeyFor = (refundId: string, attempt: number) =>
     `refund:${refundId}:${attempt}`;
 
 /**
+ * Whether the buyer's money actually reached the platform. Both the automatic
+ * refund and a hand-recorded one start from this: nothing collected, nothing
+ * to give back.
+ */
+const wasCollected = (
+    orderPaymentStatus: PaymentStatus,
+    paymentStatus: PaymentStatus,
+) =>
+    [orderPaymentStatus, paymentStatus].some(
+        (status) =>
+            status === PaymentStatus.PAID ||
+            status === PaymentStatus.PARTIALLY_REFUNDED,
+    );
+
+/**
  * Record that a buyer is owed money for a cancelled parcel.
  *
  * MUST run inside the transaction that cancels the parcel. Returns the refund
@@ -78,13 +93,7 @@ export async function recordRefundIntent(
     if (!order?.payment) return null;
 
     // Nothing was ever collected, so there is nothing to give back.
-    const wasPaid =
-        order.paymentStatus === PaymentStatus.PAID ||
-        order.paymentStatus === PaymentStatus.PARTIALLY_REFUNDED ||
-        order.payment.status === PaymentStatus.PAID ||
-        order.payment.status === PaymentStatus.PARTIALLY_REFUNDED;
-
-    if (!wasPaid) return null;
+    if (!wasCollected(order.paymentStatus, order.payment.status)) return null;
 
     // Cash on delivery has no gateway to call. The money, if any changed
     // hands, is returned in person — an admin records that separately with
@@ -283,6 +292,15 @@ export async function recordManualRefund(params: {
         throw new CustomError(404, "Order or payment not found");
     }
 
+    // Only money that was actually collected can be handed back. An unpaid COD
+    // order would otherwise be "refunded" and its payment flipped to REFUNDED.
+    if (!wasCollected(order.paymentStatus, order.payment.status)) {
+        throw new CustomError(
+            400,
+            `Nothing to refund: this order's payment is ${order.payment.status}`,
+        );
+    }
+
     const alreadyRefunded = await sumSucceededRefunds(
         prisma,
         order.payment.id,
@@ -299,6 +317,16 @@ export async function recordManualRefund(params: {
     }
 
     if (params.vendorOrderId) {
+        // A parcel id from another order would attach this refund to the
+        // wrong parcel and block that parcel's own refund (the column is unique).
+        const parcel = await prisma.vendorOrder.findFirst({
+            where: { id: params.vendorOrderId, orderId: params.orderId },
+            select: { id: true },
+        });
+        if (!parcel) {
+            throw new CustomError(404, "That parcel is not part of this order");
+        }
+
         const existing = await prisma.refund.findUnique({
             where: { vendorOrderId: params.vendorOrderId },
         });

@@ -10,6 +10,7 @@ import { productImageRouter } from "@/modules/product-image/image.route";
 import { variantRouter } from "@/modules/product-variant/variant.route";
 import { productRouter } from "@/modules/product/product.route";
 import { refundRouter } from "@/modules/refund/refund.route";
+import { settingsRouter } from "@/modules/settings/settings.route";
 import { reviewRouter } from "@/modules/review/review.route";
 import { sizeGroupRouter } from "@/modules/size-group/size-group.route";
 import { sizeRouter } from "@/modules/size/size.route";
@@ -48,6 +49,9 @@ export const routesArray = [
 	{ path: "/vendor-reviews", element: vendorReviewRouter },
 	{ path: "/payouts", element: payoutRouter },
 	{ path: "/refunds", element: refundRouter },
+
+	// read-only platform configuration for the admin settings screen
+	{ path: "/settings", element: settingsRouter },
 
 	// slide -> for showing slider data in frontend
 	{ path: "/slides", element: slideRouter },

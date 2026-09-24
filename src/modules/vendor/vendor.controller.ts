@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { parseDateRange } from "@/helpers/date-range";
 import { asyncHandler } from "@/utils/asyncHandler";
 import { sendResponse } from "@/utils/sendResponse";
 import { vendorServices } from "./vendor.service";
@@ -43,12 +44,10 @@ const updateMyStore = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const getMyDashboard = asyncHandler(async (req: Request, res: Response) => {
-    const { startDate, endDate } = req.query;
-
-    const data = await vendorServices.getMyDashboard(req.user.id, {
-        startDate: startDate ? new Date(String(startDate)) : undefined,
-        endDate: endDate ? new Date(String(endDate)) : undefined,
-    });
+    const data = await vendorServices.getMyDashboard(
+        req.user.id,
+        parseDateRange(req.query),
+    );
 
     sendResponse(res, {
         statusCode: 200,

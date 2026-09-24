@@ -13,6 +13,7 @@ const image_route_1 = require("../modules/product-image/image.route.js");
 const variant_route_1 = require("../modules/product-variant/variant.route.js");
 const product_route_1 = require("../modules/product/product.route.js");
 const refund_route_1 = require("../modules/refund/refund.route.js");
+const settings_route_1 = require("../modules/settings/settings.route.js");
 const review_route_1 = require("../modules/review/review.route.js");
 const size_group_route_1 = require("../modules/size-group/size-group.route.js");
 const size_route_1 = require("../modules/size/size.route.js");
@@ -49,6 +50,8 @@ exports.routesArray = [
     { path: "/vendor-reviews", element: vendor_review_route_1.vendorReviewRouter },
     { path: "/payouts", element: payout_route_1.payoutRouter },
     { path: "/refunds", element: refund_route_1.refundRouter },
+    // read-only platform configuration for the admin settings screen
+    { path: "/settings", element: settings_route_1.settingsRouter },
     // slide -> for showing slider data in frontend
     { path: "/slides", element: slide_route_1.slideRouter },
 ];
