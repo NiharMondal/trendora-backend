@@ -40,6 +40,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-45~~ | ~~Disabled users can never be listed, so never restored~~ | ✅ **FIXED** 2026-09-24 | — | users |
 | ~~BE-46~~ | ~~A vendor cannot list refunds on their own purchases~~ | ✅ **FIXED** 2026-09-24 | — | refunds |
 | BE-47 | Hard-deleting an order leaves the store rating stale | P2 | S | reviews |
+| ~~BE-48~~ | ~~Product reviews are not gated on purchase, and not one per buyer~~ | ✅ **FIXED** 2026-09-24 | — | reviews |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -960,6 +961,40 @@ hand cleanup of temporary test orders.
   make `VendorReview.vendorOrder` `onDelete: Restrict` (a cleanup must then delete reviews through
   the service), or add a small `pnpm ratings:recompute` script that rebuilds every vendor's
   aggregate from its live rows.
+
+
+---
+
+### ~~BE-48~~ · Product reviews are not gated on purchase, and not one per buyer
+**✅ FIXED 2026-09-24 · reviews** (branch `BE-review-purchase-gate`; frontend half: **FE-21**)
+
+**Was:** `createIntoDB` in `review.service.ts` checked only that the product was public. Any
+signed-in account could review any product, **any number of times**, and every review fed
+`recomputeProductRating`. Store reviews (`VendorReview`) were already tied to a delivered vendor
+order, so product reviews were the odd one out.
+
+**Now:** `getEligibility(userId, productId)` is **the one rule**, used by create and by the new
+**`GET /reviews/eligibility/:productId`** (any signed-in role, declared above `/:id`):
+
+| Condition | Result on create |
+| --- | --- |
+| an active (non-deleted) review by this user for this product exists | **409** "You have already reviewed this product — edit your review instead". Eligibility returns `ALREADY_REVIEWED` plus `reviewId`. |
+| an `OrderItem` for the product, in an order of this user, whose `VendorOrder.orderStatus` is **DELIVERED** | allowed |
+| a non-cancelled parcel with it, not yet delivered | **403** "…once your order has been delivered" (`NOT_DELIVERED`) |
+| otherwise | **403** "Only buyers who have received this product can review it" (`NOT_PURCHASED`) |
+
+- The rule is the same for every role. An ADMIN does not get to write reviews either.
+- The one-per-product rule is enforced in the service, not by a unique index. `Review` is
+  soft-deleted, so a plain `@@unique([userId, productId])` would stop a buyer re-reviewing after
+  deleting their review. Two simultaneous first reviews could therefore both land. That is
+  accepted at this scale.
+- Reviews written before the gate are kept, and nothing flags them as unverified.
+
+XR-04 was fixed in the same pass: see the XR-04 section.
+
+**Verified live:** 15 of 15 checks passed across a temporary order's full lifecycle. See frontend
+FE-21. The probe order, review and address were deleted afterwards, and `ProductVariant.stock`
+and `Product.stockQuantity` were confirmed at their starting values.
 
 ---
 
@@ -1918,21 +1953,29 @@ brand logo until that form grows an upload control.
 
 ---
 
-### XR-04 · A rating-only review always 400s
-**P1 · S · contract**
+### ~~XR-04~~ · A rating-only review always 400s
+**✅ FIXED 2026-09-24 on both sides · contract** (with FE-21 / BE-48)
 
-`src/modules/review/review.validation.ts:5-10` declares
-`comment: z.string().min(5).max(400).trim().optional()`. The frontend initialises
-`comment: ""` (`frontend/.../write-review.tsx:23`) and submits the form values verbatim at `:33`.
-An empty string is *present*, so `.optional()` does not apply and `.min(5)` fires.
+**Was:** the form initialised `comment: ""` and submitted it verbatim. The backend's
+`comment: z.string().min(5)…optional()` treats an empty string as *present*, so `.optional()` did
+not apply and every rating-only review got a 400 reading "Min length is 2", which did not even
+match the rule. The frontend's catch read `error.data.message` without optional chaining, so a
+network failure threw inside the catch.
 
-Every buyer who rates a product without writing a comment gets a 400 whose message is
-**"Min length is 2"** — a stale string that does not even match the rule. The update schema has
-the same shape with `min(2)` (`:21`).
+**Now, both halves:**
 
-**Fix here:** preprocess empty-to-undefined (`z.preprocess(v => v === "" ? undefined : v, …)`) and
-correct the message. **Fix there:** strip an empty `comment` before submitting. Either alone
-closes it; doing both is cheap.
+- **Backend:** `review.validation.ts` has one shared `optionalComment`, used by create *and*
+  update. It preprocesses a blank string to `undefined`, and the rule is 2–400 characters with
+  messages that say so.
+- **Frontend:** `write-review.tsx` drops an empty comment before sending, reports errors through
+  `getApiErrorMessage`, and resets the form on success. `review-form.schema.ts` checks the same
+  2–400 rule client-side.
+
+Verified live: a rating-only review with `comment: ""` returns 201 with `comment` stored as `null`,
+and a one-character comment is a 400 with "A comment should be at least 2 characters".
+
+**Side effect on edit:** a blank comment in `PATCH /reviews/:id` now means "leave it unchanged". A
+comment cannot be removed by clearing it. It needs an explicit `null` if that is ever wanted.
 
 ---
 

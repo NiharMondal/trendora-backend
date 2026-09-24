@@ -10,6 +10,8 @@ const prisma_client_1 = require("../../lib/prisma-client.js");
 const router = (0, express_1.Router)();
 const anySignedInUser = (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN);
 router.get("/my-reviews", anySignedInUser, review_controller_1.reviewControllers.findByUserId);
+// Above `/:id`, or Express would read "eligibility" as a review id.
+router.get("/eligibility/:productId", anySignedInUser, review_controller_1.reviewControllers.getEligibility);
 router.get("/product/:productId", review_controller_1.reviewControllers.findAllReviewsByProductId);
 router
     .route("/:id")

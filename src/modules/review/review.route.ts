@@ -10,6 +10,12 @@ const router = Router();
 const anySignedInUser = authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN);
 
 router.get("/my-reviews", anySignedInUser, reviewControllers.findByUserId);
+// Above `/:id`, or Express would read "eligibility" as a review id.
+router.get(
+	"/eligibility/:productId",
+	anySignedInUser,
+	reviewControllers.getEligibility
+);
 router.get(
 	"/product/:productId",
 	reviewControllers.findAllReviewsByProductId

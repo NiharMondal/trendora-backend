@@ -13,6 +13,15 @@ const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
         data: data,
     });
 });
+/** Whether the caller may review this product, and if not, why. */
+const getEligibility = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await review_service_1.reviewServices.getEligibility(req.user.id, req.params.productId);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Review eligibility fetched successfully",
+        data,
+    });
+});
 const findAllFromDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const data = await review_service_1.reviewServices.findAllFromDB(req.query);
     (0, sendResponse_1.sendResponse)(res, {
@@ -68,6 +77,7 @@ const deleteData = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 exports.reviewControllers = {
+    getEligibility,
     createIntoDB,
     findByUserId,
     findById,

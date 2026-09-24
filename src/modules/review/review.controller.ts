@@ -14,6 +14,20 @@ const createIntoDB = asyncHandler(async (req: Request, res: Response) => {
     });
 });
 
+/** Whether the caller may review this product, and if not, why. */
+const getEligibility = asyncHandler(async (req: Request, res: Response) => {
+    const data = await reviewServices.getEligibility(
+        req.user.id,
+        req.params.productId,
+    );
+
+    sendResponse(res, {
+        statusCode: 200,
+        message: "Review eligibility fetched successfully",
+        data,
+    });
+});
+
 const findAllFromDB = asyncHandler(async (req: Request, res: Response) => {
     const data = await reviewServices.findAllFromDB(req.query);
 
@@ -87,6 +101,7 @@ const deleteData = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const reviewControllers = {
+    getEligibility,
     createIntoDB,
     findByUserId,
     findById,

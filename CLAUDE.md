@@ -244,6 +244,10 @@ caller is always an active admin who is not the target.
 a banned session cannot renew itself. Disabling a seller **suspends their store
 in the same transaction** (otherwise their catalogue stays sellable); restoring
 the account does not lift the suspension — `PATCH /vendors/:id/reinstate` does.
+**Product reviews require a delivered purchase and are one per buyer per product** (BE-48).
+`getEligibility` in `review.service.ts` is the single rule, used by `POST /reviews` and
+`GET /reviews/eligibility/:productId`. Change it there, not in one caller.
+
 `GET /refunds/me` is two lists for a VENDOR: `?as=seller` (the default for a vendor) is refunds
 on parcels they sold, and `?as=buyer` is refunds on orders they placed (BE-46). Any shopper-facing
 screen must send `as=buyer`, or a seller sees their buyers' refunds instead of their own.

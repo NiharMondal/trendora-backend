@@ -1,4 +1,4 @@
-import { Prisma, Review, Role } from "@/lib/prisma-client";
+import { OrderStatus, Prisma, Review, Role } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
 import { publicProductFilter } from "@/helpers/vendor";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
@@ -30,6 +30,74 @@ const recomputeProductRating = async (
 	});
 };
 
+export type TReviewEligibility = {
+	canReview: boolean;
+	/** Why not, when `canReview` is false. */
+	reason: "ALREADY_REVIEWED" | "NOT_DELIVERED" | "NOT_PURCHASED" | null;
+	/** The caller's existing review, so the UI can offer to edit it. */
+	reviewId?: string;
+};
+
+/**
+ * Whether `userId` may review `productId` — the one rule, shared by the create
+ * route and `GET /reviews/eligibility/:productId` so the UI and the server can
+ * never disagree.
+ *
+ * A product review requires a DELIVERED parcel containing the product, bought
+ * by this user: the same proof of purchase store reviews already demand
+ * (`VendorReview` is tied to a delivered vendor order). Before this, any
+ * signed-in account could review anything, any number of times (FE-21).
+ *
+ * One active review per user per product. Buying the same thing again does not
+ * earn a second review — the buyer edits the one they have.
+ */
+const getEligibility = async (
+	userId: string,
+	productId: string,
+): Promise<TReviewEligibility> => {
+	const existing = await prisma.review.findFirst({
+		where: { userId, productId, isDeleted: false },
+		select: { id: true },
+	});
+	if (existing) {
+		return { canReview: false, reason: "ALREADY_REVIEWED", reviewId: existing.id };
+	}
+
+	const delivered = await prisma.orderItem.findFirst({
+		where: {
+			productId,
+			order: { userId },
+			vendorOrder: { orderStatus: OrderStatus.DELIVERED },
+		},
+		select: { id: true },
+	});
+	if (delivered) return { canReview: true, reason: null };
+
+	// Bought but still on its way: worth a different message than "never bought".
+	const inFlight = await prisma.orderItem.findFirst({
+		where: {
+			productId,
+			order: { userId },
+			vendorOrder: { orderStatus: { not: OrderStatus.CANCELED } },
+		},
+		select: { id: true },
+	});
+
+	return {
+		canReview: false,
+		reason: inFlight ? "NOT_DELIVERED" : "NOT_PURCHASED",
+	};
+};
+
+const ELIGIBILITY_ERRORS: Record<
+	Exclude<TReviewEligibility["reason"], null>,
+	[number, string]
+> = {
+	ALREADY_REVIEWED: [409, "You have already reviewed this product — edit your review instead"],
+	NOT_DELIVERED: [403, "You can review this product once your order has been delivered"],
+	NOT_PURCHASED: [403, "Only buyers who have received this product can review it"],
+};
+
 const createIntoDB = async (payload: Review) => {
 	const user = await prisma.user.findUnique({
 		where: { id: payload.userId },
@@ -44,6 +112,12 @@ const createIntoDB = async (payload: Review) => {
 
 	if (!product) {
 		throw new CustomError(404, "Sorry, Product not found!");
+	}
+
+	const eligibility = await getEligibility(payload.userId, payload.productId);
+	if (!eligibility.canReview && eligibility.reason) {
+		const [status, message] = ELIGIBILITY_ERRORS[eligibility.reason];
+		throw new CustomError(status, message);
 	}
 
 	const result = await prisma.$transaction(async (tx) => {
@@ -206,6 +280,7 @@ const deleteData = async (actor: TActor, id: string) => {
 };
 
 export const reviewServices = {
+	getEligibility,
 	createIntoDB,
 	findAllFromDB,
 	findByUserId,

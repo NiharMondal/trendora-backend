@@ -28,6 +28,56 @@ const recomputeProductRating = async (tx, productId) => {
         },
     });
 };
+/**
+ * Whether `userId` may review `productId` — the one rule, shared by the create
+ * route and `GET /reviews/eligibility/:productId` so the UI and the server can
+ * never disagree.
+ *
+ * A product review requires a DELIVERED parcel containing the product, bought
+ * by this user: the same proof of purchase store reviews already demand
+ * (`VendorReview` is tied to a delivered vendor order). Before this, any
+ * signed-in account could review anything, any number of times (FE-21).
+ *
+ * One active review per user per product. Buying the same thing again does not
+ * earn a second review — the buyer edits the one they have.
+ */
+const getEligibility = async (userId, productId) => {
+    const existing = await db_1.prisma.review.findFirst({
+        where: { userId, productId, isDeleted: false },
+        select: { id: true },
+    });
+    if (existing) {
+        return { canReview: false, reason: "ALREADY_REVIEWED", reviewId: existing.id };
+    }
+    const delivered = await db_1.prisma.orderItem.findFirst({
+        where: {
+            productId,
+            order: { userId },
+            vendorOrder: { orderStatus: prisma_client_1.OrderStatus.DELIVERED },
+        },
+        select: { id: true },
+    });
+    if (delivered)
+        return { canReview: true, reason: null };
+    // Bought but still on its way: worth a different message than "never bought".
+    const inFlight = await db_1.prisma.orderItem.findFirst({
+        where: {
+            productId,
+            order: { userId },
+            vendorOrder: { orderStatus: { not: prisma_client_1.OrderStatus.CANCELED } },
+        },
+        select: { id: true },
+    });
+    return {
+        canReview: false,
+        reason: inFlight ? "NOT_DELIVERED" : "NOT_PURCHASED",
+    };
+};
+const ELIGIBILITY_ERRORS = {
+    ALREADY_REVIEWED: [409, "You have already reviewed this product — edit your review instead"],
+    NOT_DELIVERED: [403, "You can review this product once your order has been delivered"],
+    NOT_PURCHASED: [403, "Only buyers who have received this product can review it"],
+};
 const createIntoDB = async (payload) => {
     const user = await db_1.prisma.user.findUnique({
         where: { id: payload.userId },
@@ -40,6 +90,11 @@ const createIntoDB = async (payload) => {
     });
     if (!product) {
         throw new customError_1.default(404, "Sorry, Product not found!");
+    }
+    const eligibility = await getEligibility(payload.userId, payload.productId);
+    if (!eligibility.canReview && eligibility.reason) {
+        const [status, message] = ELIGIBILITY_ERRORS[eligibility.reason];
+        throw new customError_1.default(status, message);
     }
     const result = await db_1.prisma.$transaction(async (tx) => {
         const review = await tx.review.create({
@@ -170,6 +225,7 @@ const deleteData = async (actor, id) => {
     });
 };
 exports.reviewServices = {
+    getEligibility,
     createIntoDB,
     findAllFromDB,
     findByUserId,
