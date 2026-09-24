@@ -244,6 +244,10 @@ caller is always an active admin who is not the target.
 a banned session cannot renew itself. Disabling a seller **suspends their store
 in the same transaction** (otherwise their catalogue stays sellable); restoring
 the account does not lift the suspension — `PATCH /vendors/:id/reinstate` does.
+`GET /refunds/me` is two lists for a VENDOR: `?as=seller` (the default for a vendor) is refunds
+on parcels they sold, and `?as=buyer` is refunds on orders they placed (BE-46). Any shopper-facing
+screen must send `as=buyer`, or a seller sees their buyers' refunds instead of their own.
+
 Disabled accounts are listed with `GET /users?isDeleted=true` (BE-45). The param replaces the
 list's `isDeleted: false` default rather than being ANDed onto it, which is the only way a
 `withDefaultFilter` value can be changed by a caller.

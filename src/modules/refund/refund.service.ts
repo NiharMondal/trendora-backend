@@ -123,16 +123,36 @@ const getOutstanding = async () => {
  * store's, and never order-level ones.
  */
 const findMine = async (actor: TActor, query: Record<string, unknown>) => {
+    // A VENDOR is still a shopper, so "my refunds" has two meanings for them:
+    // money going back to buyers of their parcels (`seller`, the default for a
+    // vendor — unchanged), or money coming back to them on orders they placed
+    // (`buyer`, what the shopper dashboard asks for). Without `?as=buyer` a
+    // seller could never see a refund on their own purchase.
+    const { as, ...rest } = query;
+    if (as !== undefined && as !== "buyer" && as !== "seller") {
+        throw new CustomError(400, "as must be buyer or seller");
+    }
+
+    const perspective =
+        as === "buyer" || as === "seller"
+            ? as
+            : actor.role === Role.VENDOR
+              ? "seller"
+              : "buyer";
+
     let scope: Prisma.RefundWhereInput;
 
-    if (actor.role === Role.VENDOR) {
+    if (perspective === "seller") {
+        if (actor.role !== Role.VENDOR) {
+            throw new CustomError(403, "Only a seller can list refunds on their parcels");
+        }
         const vendor = await requireApprovedVendor(actor.id);
         scope = { vendorOrder: { vendorId: vendor.id } };
     } else {
         scope = { order: { userId: actor.id } };
     }
 
-    const builder = new PrismaQueryBuilder<Prisma.RefundWhereInput>(query, { model: "Refund" });
+    const builder = new PrismaQueryBuilder<Prisma.RefundWhereInput>(rest, { model: "Refund" });
 
     const prismaArgs = builder
         .withDefaultFilter(scope)

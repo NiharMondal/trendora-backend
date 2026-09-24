@@ -38,6 +38,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-43~~ | ~~Slide writes: no photo `publicId`, no temp promotion, unvalidated `PATCH`~~ | ✅ **FIXED** 2026-09-24 | — | content |
 | ~~BE-44~~ | ~~Orders, payouts and refunds ignore `?search=`~~ | ✅ **FIXED** 2026-09-24 | — | query |
 | ~~BE-45~~ | ~~Disabled users can never be listed, so never restored~~ | ✅ **FIXED** 2026-09-24 | — | users |
+| ~~BE-46~~ | ~~A vendor cannot list refunds on their own purchases~~ | ✅ **FIXED** 2026-09-24 | — | refunds |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -908,6 +909,31 @@ Leaving it to `.filter()` only ever narrows.
 
 **Verified live:** see FE-16. 14 of 14 checks passed, including the disabled list, search within
 it, restore, and the 400.
+
+
+---
+
+### ~~BE-46~~ · A vendor cannot list refunds on their own purchases
+**✅ FIXED 2026-09-24 · refunds** (branch `BE-refunds-buyer-scope`; frontend half: **FE-18**)
+
+**Was:** `findMine` in `refund.service.ts` picked its scope from the role alone. A VENDOR got
+`vendorOrder.vendorId = <their store>`, the refunds on parcels they sold. Everyone else got
+`order.userId = <them>`. **A VENDOR is still a shopper**, so a seller whose own purchase was
+refunded had no endpoint that listed it.
+
+**Now:** `GET /refunds/me` takes **`?as=buyer|seller`**, which is pulled out of the query before
+the builder so it never becomes a column filter.
+
+| Caller | no `as` | `as=buyer` | `as=seller` |
+| --- | --- | --- | --- |
+| VENDOR | seller view (**unchanged**) | refunds on orders they placed | seller view |
+| CUSTOMER / ADMIN | buyer view (unchanged) | buyer view | **403** "Only a seller can list refunds on their parcels" |
+
+Any other value is a 400. The default is untouched for every role, so no existing caller changes.
+The shopper dashboard sends `as=buyer` explicitly.
+
+**Verified live:** see FE-18. 13 of 13 checks passed, including cross-store isolation in both
+directions. The probe order, refund and address were deleted afterwards.
 
 ---
 
