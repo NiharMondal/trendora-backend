@@ -36,6 +36,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-41 | A failed temp promotion leaves a live image publicly deletable | P1 | M | media |
 | BE-42 | The unsigned Cloudinary preset is an open upload endpoint | P1 | M | media |
 | ~~BE-43~~ | ~~Slide writes: no photo `publicId`, no temp promotion, unvalidated `PATCH`~~ | ✅ **FIXED** 2026-09-24 | — | content |
+| ~~BE-44~~ | ~~Orders, payouts and refunds ignore `?search=`~~ | ✅ **FIXED** 2026-09-24 | — | query |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -839,6 +840,48 @@ but upload a slide from `/admin/add-slide` once and confirm the stored `photoPub
 **Still open:** `title` is `@unique` and delete is a soft delete, so re-creating a slide with a
 deleted slide's title fails on the constraint. A deleted slide's Cloudinary asset is also not
 destroyed.
+
+
+---
+
+### ~~BE-44~~ · Orders, payouts and refunds ignore `?search=`
+**✅ FIXED 2026-09-24 · query** (branch `BE-list-search`; frontend half: **FE-15**)
+
+**Was:** none of the six list reads in `order.service.ts`, `payout.service.ts` and
+`refund.service.ts` called `.search()`. `search` is a reserved key, so `?search=` was accepted,
+ignored, and the full list came back with no error. The frontend renders a search box on six of
+these lists.
+
+**Now:**
+
+| Endpoint | Searches |
+| --- | --- |
+| `GET /orders` (ADMIN) | `orderNumber`; the buyer's `user.name` and `user.auth.email` |
+| `GET /orders/my-orders` | `orderNumber`. Parcels are a to-many relation, which `search()` cannot walk. |
+| `GET /orders/vendor/my-orders` | `vendorOrderNumber`, `trackingNumber`; `order.orderNumber`, `order.user.name` |
+| `GET /payouts/me` | `reference`, `method`, `notes` |
+| `GET /payouts/admin/all` | those three, plus `vendor.storeName` |
+| `GET /refunds/admin/all` | `gatewayRefundId` (the `re_…` support is quoted), `reason`, `failureReason`; `order.orderNumber`, `vendorOrder.vendorOrderNumber` |
+| `GET /refunds/me` | `reason`; the order and parcel numbers |
+
+To support `user.auth.email`, `PrismaQueryBuilder.search()` relation paths now nest to any depth,
+with every segment but the last walked with `is`. Existing one-level paths build exactly the same
+`where` as before.
+
+**Verified live.** One temporary cash-on-delivery order was placed as `customer@` against
+vendor1's store. 17 of 17 checks passed:
+
+- Admin finds it by order-number tail, by buyer name and by buyer email.
+- The buyer finds it by number. A no-match term returns 0 on every endpoint.
+- vendor1 finds it by order number, parcel number and buyer name.
+- **Scope held: vendor2 searching the same order number or buyer returns 0, and so does
+  vendor2's own my-orders.**
+- All four payout and refund searches return 200 as valid queries. There were no payout or refund
+  rows to match against, so their *matching* is not exercised.
+
+Afterwards the parcel was cancelled and the variant's stock was confirmed back at 35, its
+value before the order. The order and
+its inline address were hard-deleted. The dev database has zero orders again, as before.
 
 ---
 
@@ -1940,8 +1983,8 @@ of its six required variables are documented anywhere but `CLAUDE.md`.
 | `POST /auth/reset-password` | ✅ redeems the token and sets the new password |
 | Email delivery | ✅ `src/utils/sendEmail.ts` + `passwordResetEmail` template |
 | Token storage | ✅ `PasswordResetToken`, SHA-256 hashed, TTL + single-use + supersede |
-| Forgot-password form (frontend) | ❌ still `console.log(data)` — never calls the API (FE-04) |
-| `/reset-password` page (frontend) | ❌ does not exist |
+| Forgot-password form (frontend) | ✅ wired (frontend FE-04) |
+| `/reset-password` page (frontend) | ✅ built (frontend FE-04) |
 
 **The contract the frontend must meet:**
 

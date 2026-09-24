@@ -241,6 +241,8 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query, { model: "Order" });
 
 	const prismaArgs = builder
+		// Order number, or the buyer by name or email.
+		.search(["orderNumber"], ["user.name", "user.auth.email"])
 		.filter()
 		.paginate()
 		.sort("createdAt", "desc")
@@ -288,6 +290,9 @@ const getMyOrders = async (userId: string, query: Record<string, unknown>) => {
 
 	const prismaArgs = builder
 		.addWhere({ userId })
+		// The buyer's own orders, so the order number is the only useful key
+		// (the per-store parcels are a to-many relation `search` cannot walk).
+		.search(["orderNumber"])
 		.filter()
 		.paginate()
 		.sort()
@@ -496,6 +501,12 @@ const getMyVendorOrders = async (
 
 	const prismaArgs = builder
 		.withDefaultFilter(scope)
+		// The parcel's own number and tracking, its order's number, or the
+		// buyer — ANDed with `scope`, so a store only ever searches its own.
+		.search(
+			["vendorOrderNumber", "trackingNumber"],
+			["order.orderNumber", "order.user.name"],
+		)
 		.filter()
 		.paginate()
 		.sort("createdAt", "desc")

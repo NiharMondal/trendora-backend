@@ -260,6 +260,8 @@ const getMyPayouts = async (
 
     const prismaArgs = builder
         .withDefaultFilter({ vendorId })
+        // The bank / gateway reference is what a seller has on a statement.
+        .search(["reference", "method", "notes"])
         .filter()
         .paginate()
         .sort("createdAt", "desc")
@@ -285,6 +287,7 @@ const findAllForAdmin = async (query: Record<string, unknown>) => {
     const builder = new PrismaQueryBuilder<Prisma.PayoutWhereInput>(query, { model: "Payout" });
 
     const prismaArgs = builder
+        .search(["reference", "method", "notes"], ["vendor.storeName"])
         .filter()
         .paginate()
         .sort("createdAt", "desc")

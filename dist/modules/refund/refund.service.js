@@ -23,6 +23,9 @@ const customError_1 = __importDefault(require("../../utils/customError.js"));
 const findAllForAdmin = async (query) => {
     const builder = new PrismaQueryBuilder_1.default(query, { model: "Refund" });
     const prismaArgs = builder
+        // Order or parcel number, the Stripe refund id (`re_…`, what support
+        // is quoted), or the reason / failure text.
+        .search(["gatewayRefundId", "reason", "failureReason"], ["order.orderNumber", "vendorOrder.vendorOrderNumber"])
         .filter()
         .paginate()
         .sort("createdAt", "desc")
@@ -114,6 +117,7 @@ const findMine = async (actor, query) => {
     const builder = new PrismaQueryBuilder_1.default(query, { model: "Refund" });
     const prismaArgs = builder
         .withDefaultFilter(scope)
+        .search(["reason"], ["order.orderNumber", "vendorOrder.vendorOrderNumber"])
         .filter()
         .paginate()
         .sort("createdAt", "desc")
