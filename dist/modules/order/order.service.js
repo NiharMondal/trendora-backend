@@ -452,6 +452,16 @@ const getVendorOrderById = async (actor, vendorOrderId) => {
                 select: statusHistorySelect,
                 orderBy: { createdAt: "asc" },
             },
+            // Whether the money for a cancelled parcel went back. The same
+            // narrow projection the buyer gets — never the gateway payload.
+            refund: {
+                select: {
+                    id: true,
+                    amount: true,
+                    status: true,
+                    processedAt: true,
+                },
+            },
             order: {
                 select: {
                     id: true,

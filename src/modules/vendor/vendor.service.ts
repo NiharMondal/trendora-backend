@@ -7,7 +7,7 @@ import {
 } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
 import { envConfig } from "@/config/env-config";
-import { toNumber } from "@/helpers/money";
+import { round2, toNumber } from "@/helpers/money";
 import { generateUniqueVendorSlug } from "@/helpers/slug";
 import {
     findVendorByOwner,
@@ -657,6 +657,67 @@ const deleteVendor = async (vendorId: string, actor: TModerationActor) => {
 
 // -------------------------------------------------------------------- analytics
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** The trend's window when the caller names none. */
+const DEFAULT_TREND_DAYS = 30;
+/** One point per day, so a window is capped to keep the series chartable. */
+const MAX_TREND_DAYS = 366;
+
+const startOfUtcDay = (date: Date) =>
+    new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+/**
+ * One point per UTC day across the window, zero-filled so a quiet day is a
+ * visible dip rather than a gap the chart silently joins across.
+ *
+ * `orders` counts every parcel placed, like `overview.totalOrders`; the money
+ * uses the same rule as `overview` (paid, not cancelled), so the series sums to
+ * the headline figures for the same window.
+ */
+const buildSalesTrend = async (vendorId: string, start: Date, end: Date) => {
+    const parcels = await prisma.vendorOrder.findMany({
+        where: { vendorId, createdAt: { gte: start, lte: end } },
+        select: {
+            createdAt: true,
+            orderStatus: true,
+            totalAmount: true,
+            vendorEarning: true,
+            order: { select: { paymentStatus: true } },
+        },
+    });
+
+    const buckets = new Map<
+        string,
+        { date: string; orders: number; grossSales: number; netEarnings: number }
+    >();
+    for (
+        let day = startOfUtcDay(start).getTime();
+        day <= end.getTime();
+        day += DAY_MS
+    ) {
+        const date = new Date(day).toISOString().slice(0, 10);
+        buckets.set(date, { date, orders: 0, grossSales: 0, netEarnings: 0 });
+    }
+
+    for (const parcel of parcels) {
+        const bucket = buckets.get(parcel.createdAt.toISOString().slice(0, 10));
+        if (!bucket) continue;
+
+        bucket.orders += 1;
+        if (
+            parcel.orderStatus !== OrderStatus.CANCELED &&
+            parcel.order.paymentStatus === PaymentStatus.PAID
+        ) {
+            bucket.grossSales = round2(bucket.grossSales + toNumber(parcel.totalAmount));
+            bucket.netEarnings = round2(
+                bucket.netEarnings + toNumber(parcel.vendorEarning),
+            );
+        }
+    }
+
+    return [...buckets.values()];
+};
+
 /**
  * The vendor dashboard.
  *
@@ -669,6 +730,27 @@ const getMyDashboard = async (
     range?: { startDate?: Date; endDate?: Date },
 ) => {
     const vendor = await requireApprovedVendor(userId);
+
+    const { startDate, endDate } = range ?? {};
+    // `new Date("garbage")` is an Invalid Date, which Prisma rejects with a 500.
+    if (
+        (startDate && Number.isNaN(startDate.getTime())) ||
+        (endDate && Number.isNaN(endDate.getTime()))
+    ) {
+        throw new CustomError(400, "startDate and endDate must be valid dates");
+    }
+    if (startDate && endDate && startDate > endDate) {
+        throw new CustomError(400, "startDate must be before endDate");
+    }
+
+    // The headline figures are all-time without a range; the trend always has
+    // a window, since a series from the store's first day is not chartable.
+    const trendEnd = endDate ?? new Date();
+    const trendStart =
+        startDate ?? new Date(startOfUtcDay(trendEnd).getTime() - (DEFAULT_TREND_DAYS - 1) * DAY_MS);
+    if (trendEnd.getTime() - trendStart.getTime() > MAX_TREND_DAYS * DAY_MS) {
+        throw new CustomError(400, `The date range may span at most ${MAX_TREND_DAYS} days`);
+    }
 
     const dateFilter =
         range?.startDate && range?.endDate
@@ -688,6 +770,7 @@ const getMyDashboard = async (
         pendingPayout,
         topProducts,
         recentOrders,
+        salesTrend,
     ] = await Promise.all([
         prisma.vendorOrder.count({ where: scope }),
 
@@ -761,6 +844,8 @@ const getMyDashboard = async (
             orderBy: { createdAt: "desc" },
             take: 10,
         }),
+
+        buildSalesTrend(vendor.id, trendStart, trendEnd),
     ]);
 
     const netEarnings = toNumber(earnings._sum.vendorEarning);
@@ -801,6 +886,7 @@ const getMyDashboard = async (
             revenue: toNumber(row._sum.subtotal),
         })),
         recentOrders,
+        salesTrend,
     };
 };
 

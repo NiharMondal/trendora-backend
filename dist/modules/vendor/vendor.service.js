@@ -522,6 +522,49 @@ const deleteVendor = async (vendorId, actor) => {
     });
 };
 // -------------------------------------------------------------------- analytics
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** The trend's window when the caller names none. */
+const DEFAULT_TREND_DAYS = 30;
+/** One point per day, so a window is capped to keep the series chartable. */
+const MAX_TREND_DAYS = 366;
+const startOfUtcDay = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+/**
+ * One point per UTC day across the window, zero-filled so a quiet day is a
+ * visible dip rather than a gap the chart silently joins across.
+ *
+ * `orders` counts every parcel placed, like `overview.totalOrders`; the money
+ * uses the same rule as `overview` (paid, not cancelled), so the series sums to
+ * the headline figures for the same window.
+ */
+const buildSalesTrend = async (vendorId, start, end) => {
+    const parcels = await db_1.prisma.vendorOrder.findMany({
+        where: { vendorId, createdAt: { gte: start, lte: end } },
+        select: {
+            createdAt: true,
+            orderStatus: true,
+            totalAmount: true,
+            vendorEarning: true,
+            order: { select: { paymentStatus: true } },
+        },
+    });
+    const buckets = new Map();
+    for (let day = startOfUtcDay(start).getTime(); day <= end.getTime(); day += DAY_MS) {
+        const date = new Date(day).toISOString().slice(0, 10);
+        buckets.set(date, { date, orders: 0, grossSales: 0, netEarnings: 0 });
+    }
+    for (const parcel of parcels) {
+        const bucket = buckets.get(parcel.createdAt.toISOString().slice(0, 10));
+        if (!bucket)
+            continue;
+        bucket.orders += 1;
+        if (parcel.orderStatus !== prisma_client_1.OrderStatus.CANCELED &&
+            parcel.order.paymentStatus === prisma_client_1.PaymentStatus.PAID) {
+            bucket.grossSales = (0, money_1.round2)(bucket.grossSales + (0, money_1.toNumber)(parcel.totalAmount));
+            bucket.netEarnings = (0, money_1.round2)(bucket.netEarnings + (0, money_1.toNumber)(parcel.vendorEarning));
+        }
+    }
+    return [...buckets.values()];
+};
 /**
  * The vendor dashboard.
  *
@@ -531,6 +574,22 @@ const deleteVendor = async (vendorId, actor) => {
  */
 const getMyDashboard = async (userId, range) => {
     const vendor = await (0, vendor_1.requireApprovedVendor)(userId);
+    const { startDate, endDate } = range ?? {};
+    // `new Date("garbage")` is an Invalid Date, which Prisma rejects with a 500.
+    if ((startDate && Number.isNaN(startDate.getTime())) ||
+        (endDate && Number.isNaN(endDate.getTime()))) {
+        throw new customError_1.default(400, "startDate and endDate must be valid dates");
+    }
+    if (startDate && endDate && startDate > endDate) {
+        throw new customError_1.default(400, "startDate must be before endDate");
+    }
+    // The headline figures are all-time without a range; the trend always has
+    // a window, since a series from the store's first day is not chartable.
+    const trendEnd = endDate ?? new Date();
+    const trendStart = startDate ?? new Date(startOfUtcDay(trendEnd).getTime() - (DEFAULT_TREND_DAYS - 1) * DAY_MS);
+    if (trendEnd.getTime() - trendStart.getTime() > MAX_TREND_DAYS * DAY_MS) {
+        throw new customError_1.default(400, `The date range may span at most ${MAX_TREND_DAYS} days`);
+    }
     const dateFilter = range?.startDate && range?.endDate
         ? { createdAt: { gte: range.startDate, lte: range.endDate } }
         : {};
@@ -538,7 +597,7 @@ const getMyDashboard = async (userId, range) => {
         vendorId: vendor.id,
         ...dateFilter,
     };
-    const [totalOrders, earnings, ordersByStatus, productCounts, pendingPayout, topProducts, recentOrders,] = await Promise.all([
+    const [totalOrders, earnings, ordersByStatus, productCounts, pendingPayout, topProducts, recentOrders, salesTrend,] = await Promise.all([
         db_1.prisma.vendorOrder.count({ where: scope }),
         // Money the store has actually earned: paid orders that were not
         // canceled. `vendorEarning` already excludes commission and tax.
@@ -605,6 +664,7 @@ const getMyDashboard = async (userId, range) => {
             orderBy: { createdAt: "desc" },
             take: 10,
         }),
+        buildSalesTrend(vendor.id, trendStart, trendEnd),
     ]);
     const netEarnings = (0, money_1.toNumber)(earnings._sum.vendorEarning);
     const grossSales = (0, money_1.toNumber)(earnings._sum.totalAmount);
@@ -642,6 +702,7 @@ const getMyDashboard = async (userId, range) => {
             revenue: (0, money_1.toNumber)(row._sum.subtotal),
         })),
         recentOrders,
+        salesTrend,
     };
 };
 exports.vendorServices = {
