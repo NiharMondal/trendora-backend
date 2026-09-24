@@ -2082,8 +2082,8 @@ that would become a bogus column filter.** Two caveats:
 
 ---
 
-### XR-09 · Enum drift
-**P2 · S · contract**
+### ~~XR-09~~ · Enum drift
+**✅ FIXED 2026-09-24 on both sides · contract**
 
 `prisma/schema.prisma:667-748` and `src/helpers/enum.ts:10-66` **agree on all nine mirrored
 enums**. The gaps are at the edges:
@@ -2092,13 +2092,10 @@ enums**. The gaps are at the edges:
   `EMAIL`~~ — **fixed (BE-25)**: `AuthProviderEnum` is the tenth mirror, and `/auth/oauth-login`
   now takes an explicit subset of it (`GOOGLE` only). Dropping `EMAIL` there was correct and is
   now commented as such.
-- The frontend has **two copies of `PaymentStatus`**, and one of them —
-  `frontend/src/features/orders/utils/payment-status.ts:3-8` — is **missing
-  `PARTIALLY_REFUNDED`**, so a partially-refunded order renders with *Pending* styling. *(Frontend
-  fix.)*
-- The frontend carries three phantom types with no counterpart here: `TUserStatus`,
-  `TCouponStatus`, and a pre-marketplace `TProductStatus` of `ACTIVE | INACTIVE | OUT_OF_STOCK`.
-  *(Frontend fix.)*
+- ~~The frontend's extra `PaymentStatus` copy missing `PARTIALLY_REFUNDED`, and its three phantom
+  status types~~ — **fixed on the frontend (FE-28, 2026-09-24)**. Every status union there is now
+  defined once, in `frontend/src/shared/types/status.types.ts`. A script check confirmed all six
+  match their Prisma enums exactly, so **the whole XR-09 item is closed on both sides**.
 - `EnumUserRole.SUPER_ADMIN` exists only on the frontend — deliberate; see "Verified NOT a gap".
 
 ---
