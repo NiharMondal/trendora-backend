@@ -39,6 +39,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-44~~ | ~~Orders, payouts and refunds ignore `?search=`~~ | ✅ **FIXED** 2026-09-24 | — | query |
 | ~~BE-45~~ | ~~Disabled users can never be listed, so never restored~~ | ✅ **FIXED** 2026-09-24 | — | users |
 | ~~BE-46~~ | ~~A vendor cannot list refunds on their own purchases~~ | ✅ **FIXED** 2026-09-24 | — | refunds |
+| BE-47 | Hard-deleting an order leaves the store rating stale | P2 | S | reviews |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -934,6 +935,31 @@ The shopper dashboard sends `as=buyer` explicitly.
 
 **Verified live:** see FE-18. 13 of 13 checks passed, including cross-store isolation in both
 directions. The probe order, refund and address were deleted afterwards.
+
+
+---
+
+### BE-47 · Hard-deleting an order leaves the store rating stale
+**P2 · S · reviews** (found while building frontend FE-19)
+
+**Now:** `Vendor.averageRating` and `totalReviews` are a cached aggregate, recomputed only by
+`recomputeVendorRating` in `vendor-review.service.ts` on create, update and delete. But
+`VendorReview.vendorOrder` is **`onDelete: Cascade`**, so deleting an `Order` (which cascades to
+`VendorOrder`) deletes its reviews **at the database level**, and nothing recomputes the aggregate.
+
+**Seen in the dev database (2026-09-24):** Urban Threads has `averageRating: 5, totalReviews: 1`
+and **zero** `VendorReview` rows, soft-deleted or otherwise. The storefront and the seller's
+Reviews screen both show "5.0 · 1 review" over an empty list. The likeliest cause is an earlier
+hand cleanup of temporary test orders.
+
+**Fix:**
+
+- For the dev data: `UPDATE "Vendor" SET "averageRating" = NULL, "totalReviews" = 0 WHERE slug =
+  'urban-threads';`.
+- Structurally: nothing in the app hard-deletes orders, so the exposure is manual cleanup. Either
+  make `VendorReview.vendorOrder` `onDelete: Restrict` (a cleanup must then delete reviews through
+  the service), or add a small `pnpm ratings:recompute` script that rebuilds every vendor's
+  aggregate from its live rows.
 
 ---
 
