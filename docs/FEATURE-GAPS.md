@@ -1927,7 +1927,7 @@ change here is always two commits on two branches._
 | `src/config/env-config.ts:32` (code fallback) | **0.08** |
 | `.env.example:40` and the live `.env` | **0.05** |
 | `frontend/.env.local` (`NEXT_PUBLIC_TAX_RATE`) | **0.05** |
-| `frontend/src/features/cart/utils/calculate-order-total.ts:26` (code fallback) | **0** |
+| ~~`frontend/src/features/cart/utils/calculate-order-total.ts:26` (code fallback)~~ | ~~**0**~~ — **no fallback since frontend FE-30**: the value is required, and a build without it fails |
 
 The running pair agrees at 0.05, so checkout is correct today. But a deploy that forgets the
 variable charges **8% server-side while the cart displays 0%** — the buyer is billed more than
@@ -2107,8 +2107,9 @@ enums**. The gaps are at the edges:
 (`env-config.ts:12`) and used only for Stripe redirect URLs (`src/helpers/stripe.ts:83-84`). The
 backend therefore **cannot be deployed without editing source**.
 
-Symmetrically, the frontend has **no `.env.example`** — only a gitignored `.env.local` — so none
-of its six required variables are documented anywhere but `CLAUDE.md`.
+~~Symmetrically, the frontend has no `.env.example`~~ — **added 2026-09-24 (frontend FE-29)**,
+with all ten variables. The frontend also validates them now (FE-30). The hardcoded CORS origin
+above is still open.
 
 **Fix:** Read the origin from `envConfig.front_end_url` (accept a comma-separated list). Add
 `frontend/.env.example`.
