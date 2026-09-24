@@ -35,6 +35,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-04 | `POST /cloudinary/delete-temp` is unauthenticated | P2 | S | security |
 | BE-41 | A failed temp promotion leaves a live image publicly deletable | P1 | M | media |
 | BE-42 | The unsigned Cloudinary preset is an open upload endpoint | P1 | M | media |
+| ~~BE-43~~ | ~~Slide writes: no photo `publicId`, no temp promotion, unvalidated `PATCH`~~ | ✅ **FIXED** 2026-09-24 | — | content |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -776,9 +777,68 @@ deliberately **disagrees with `createdAt`** and one deactivated:
   returns 401; and `/admin/all` is not swallowed by `/:id`.
 - Slides restored to their seeded order afterwards.
 
-**Related:** there is still no admin screen to manage slides (**FE-14**) — the API it needs now
-exists, including the create/update/delete routes that were already there and the listing that was
-missing.
+**Related:** the admin screen now exists (frontend **FE-14**). Building it exposed three more
+problems in the write routes. They are fixed as **BE-43**, below.
+
+---
+
+### ~~BE-43~~ · Slide writes: no photo `publicId`, no temp promotion, unvalidated `PATCH`
+**✅ FIXED 2026-09-24 · content** (branch `BE-slides-admin`)
+
+**Was:**
+
+- `Slide` stored only `photoUrl`, with no publicId column, and `createIntoDB` wrote the body
+  straight to Prisma. An admin upload lands in `trendora/temp/slides/`, so it would have been saved
+  **still in `temp/`**. That is a live storefront banner whose publicId is readable from the
+  `<img src>`, and anyone can delete it through the unauthenticated `/cloudinary/delete-temp`. It
+  is the BE-41 hazard, on the most visible image on the site. A replaced image was also never
+  destroyed.
+- `PATCH /slides/:id` had **no `validateRequest`**, and the service passed `req.body` into
+  `prisma.slide.update`. So `isDeleted`, `id` and `createdAt` were all settable. It is the hole
+  BE-21 closed on Brand and the category module closed on Category.
+- `POST` could not set `sortOrder` or `isActive`. The title's max-length message read "at least 30
+  characters".
+
+**Now:**
+
+- **Migration `20260924120000_add_slide_photo_public_id`** adds a nullable
+  `Slide.photoPublicId`. Null means an image hosted outside Cloudinary, such as the seeded Unsplash
+  banners.
+- **Writes take `photo: { url, publicId }` instead of `photoUrl`.** This is a contract change on
+  write only. Reads still return `photoUrl`, plus the new `photoPublicId`, so the storefront hero
+  is unaffected. The only frontend caller is the new admin screen.
+- **`resolvePhotoColumns`** in `slide.service.ts` mirrors the category service's
+  `resolveImageColumns`. A publicId containing `/temp/` is promoted with `moveFromTemp`. An empty
+  publicId stores the URL with a null publicId. A replaced Cloudinary asset is destroyed. A failed
+  promotion throws **before** the row is written, so a temp publicId is never persisted.
+- **`slideSchema` / `slideUpdateSchema`** (`.partial()`, strips unknown keys):
+  - `title` 5–30 characters, with the message fixed;
+  - `subtitle` 20–120;
+  - `photo.url` must be a URL;
+  - `url` must be a `/path` or an `http(s)` URL, so `javascript:` is rejected;
+  - optional `sortOrder` (an integer ≥ 0) and `isActive`.
+- `PATCH` is validated.
+
+**Verified live** against the dev database, as the seeded admin:
+
+| Check | Result |
+| --- | --- |
+| create with an external image | `photoPublicId: null` |
+| inactive slide | absent from `GET /slides`, present in `/slides/admin/all` |
+| smuggled `isDeleted: true` on `PATCH` | stripped: the response has `isDeleted: false` alongside the real `isActive` / `sortOrder` change |
+| `url: "javascript:alert(1)"` | 400 with the field message |
+| `PATCH` without a token | 401 |
+
+The probe rows were hard-deleted afterwards.
+
+**Not verified live:** the `temp/` promotion and the replaced-asset cleanup. The sandbox that ran
+the checks could not reach Cloudinary. The code path is the category service's, which is exercised,
+but upload a slide from `/admin/add-slide` once and confirm the stored `photoPublicId` has no
+`/temp/`.
+
+**Still open:** `title` is `@unique` and delete is a soft delete, so re-creating a slide with a
+deleted slide's title fails on the constraint. A deleted slide's Cloudinary asset is also not
+destroyed.
 
 ---
 
@@ -1717,7 +1777,7 @@ always arrive nested) **— plus, as of BE-26, the `POST`/`PATCH`/`DELETE` now s
 Those are worth wiring up rather than noting: the product form currently edits imagery through
 `PATCH /products/:id`, which deletes any image whose `id` it fails to round-trip and destroys the
 Cloudinary asset with it**; `GET /wishlists/:id`; `PATCH`/`DELETE /vendor-reviews/:id`;
-`GET /vendor-reviews/my-reviews`; `GET /address` (admin list); the whole slide write CRUD;
+`GET /vendor-reviews/my-reviews`; `GET /address` (admin list);
 `GET /payouts/:id`; `GET /refunds/:id`. Each is a screen the frontend planned and did not build —
 see FE-14 and the frontend's unused-hook list. The Stripe webhook routes are correctly excluded
 from this count.

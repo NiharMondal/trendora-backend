@@ -18,7 +18,7 @@ router.get("/admin/all", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN),
 router
     .route("/:id")
     .get(slide_controller_1.slideControllers.findById)
-    .patch((0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), slide_controller_1.slideControllers.updateData)
+    .patch((0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(slide_validation_1.slideUpdateSchema), slide_controller_1.slideControllers.updateData)
     .delete((0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), slide_controller_1.slideControllers.deleteData);
 router
     .route("/")

@@ -745,6 +745,9 @@ model Slide {
   title     String   @unique
   subtitle  String
   photoUrl  String
+  /// Cloudinary public id of `photoUrl`, once promoted out of `temp/`. Null for
+  /// an image hosted elsewhere (the seeded Unsplash banners).
+  photoPublicId String?
   url       String
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)

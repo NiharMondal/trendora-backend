@@ -5,7 +5,7 @@ import { validateRequest } from "@/middleware/validateRequest";
 import { authGuard } from "@/middleware/authGuard";
 import { Role } from "@/lib/prisma-client";
 import { slideControllers } from "./slide.controller";
-import { slideSchema } from "./slide.validation";
+import { slideSchema, slideUpdateSchema } from "./slide.validation";
 
 const router = Router();
 
@@ -24,7 +24,11 @@ router.get(
 router
     .route("/:id")
     .get(slideControllers.findById)
-    .patch(authGuard(Role.ADMIN), slideControllers.updateData)
+    .patch(
+        authGuard(Role.ADMIN),
+        validateRequest(slideUpdateSchema),
+        slideControllers.updateData,
+    )
     .delete(authGuard(Role.ADMIN), slideControllers.deleteData);
 
 router
