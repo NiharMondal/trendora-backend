@@ -244,6 +244,9 @@ caller is always an active admin who is not the target.
 a banned session cannot renew itself. Disabling a seller **suspends their store
 in the same transaction** (otherwise their catalogue stays sellable); restoring
 the account does not lift the suspension — `PATCH /vendors/:id/reinstate` does.
+Disabled accounts are listed with `GET /users?isDeleted=true` (BE-45). The param replaces the
+list's `isDeleted: false` default rather than being ANDed onto it, which is the only way a
+`withDefaultFilter` value can be changed by a caller.
 
 **A VENDOR is still a shopper.** Every buyer-facing route therefore guards with
 all three roles (`authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)`), not just
