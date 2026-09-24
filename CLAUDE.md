@@ -244,6 +244,10 @@ caller is always an active admin who is not the target.
 a banned session cannot renew itself. Disabling a seller **suspends their store
 in the same transaction** (otherwise their catalogue stays sellable); restoring
 the account does not lift the suspension — `PATCH /vendors/:id/reinstate` does.
+`GET /orders/my-summary` is the shopper dashboard's aggregate (BE-49), always the caller's own
+*purchases*. `totalSpent` is completed payments minus `Payment.refundAmount`, so keep it in step
+if payment or refund states change.
+
 **Product reviews require a delivered purchase and are one per buyer per product** (BE-48).
 `getEligibility` in `review.service.ts` is the single rule, used by `POST /reviews` and
 `GET /reviews/eligibility/:productId`. Change it there, not in one caller.

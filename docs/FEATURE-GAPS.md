@@ -41,6 +41,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-46~~ | ~~A vendor cannot list refunds on their own purchases~~ | ✅ **FIXED** 2026-09-24 | — | refunds |
 | BE-47 | Hard-deleting an order leaves the store rating stale | P2 | S | reviews |
 | ~~BE-48~~ | ~~Product reviews are not gated on purchase, and not one per buyer~~ | ✅ **FIXED** 2026-09-24 | — | reviews |
+| ~~BE-49~~ | ~~No buyer-side summary: lifetime spend needs every order paged down~~ | ✅ **FIXED** 2026-09-24 | — | orders |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -995,6 +996,30 @@ XR-04 was fixed in the same pass: see the XR-04 section.
 **Verified live:** 15 of 15 checks passed across a temporary order's full lifecycle. See frontend
 FE-21. The probe order, review and address were deleted afterwards, and `ProductVariant.stock`
 and `Product.stockQuantity` were confirmed at their starting values.
+
+
+---
+
+### ~~BE-49~~ · No buyer-side summary
+**✅ FIXED 2026-09-24 · orders** (branch `BE-buyer-summary`; frontend half: **FE-22**)
+
+**Was:** the seller and the admin each had a dashboard aggregate (`/vendors/me/dashboard`,
+`/orders/analytics`), but a shopper had none. Showing a buyer their lifetime spend meant the
+client paging down every order and adding them up.
+
+**Now:** **`GET /orders/my-summary`** (any signed-in role, **scoped to the caller as a buyer**)
+returns, from six parallel queries:
+
+| Field | Meaning |
+| --- | --- |
+| `totalOrders` | orders placed |
+| `totalSpent` | `sum(Payment.amount)` over PAID / PARTIALLY_REFUNDED / REFUNDED, **minus `sum(Payment.refundAmount)`**. That is money that actually moved: an unpaid order spent nothing, and a refund still FAILED is not subtracted, because the buyer has not had it. |
+| `parcels` | `{ inProgress, delivered, canceled }`, grouped by `VendorOrder.orderStatus` |
+| `openRefunds` | `{ count, amount }` of refunds PENDING, PROCESSING or FAILED, meaning money still owed back |
+| `awaitingReview` | `{ count, products: [{ name, slug }] }`: delivered products **still on sale** (`publicProductFilter`, because `POST /reviews` requires it) that the buyer has not reviewed. The first three are returned, so the dashboard can link to each product page. |
+
+A VENDOR calling it gets their purchases, never their sales. Verified live: see FE-22 (8 of 8,
+including the seller's own summary staying at 0).
 
 ---
 

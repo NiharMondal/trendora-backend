@@ -3,6 +3,7 @@ import {
 	PaymentMethod,
 	PaymentStatus,
 	Prisma,
+	RefundStatus,
 	Role,
 } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
@@ -32,6 +33,7 @@ import {
 } from "@/helpers/notifications";
 import {
 	assertVendorOwnsVendorOrder,
+	publicProductFilter,
 	requireApprovedVendor,
 } from "@/helpers/vendor";
 import { sanitizePayment, sanitizeRefund } from "@/helpers/payment";
@@ -1107,7 +1109,116 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 	};
 };
 
+/**
+ * The shopper dashboard's headline numbers, for the caller's OWN purchases —
+ * a VENDOR calling this gets what they bought, never what they sold.
+ *
+ * Aggregated here rather than on the client: the alternative is paging every
+ * order down just to add up a total.
+ *
+ * `totalSpent` is money that actually moved: payments that completed, minus
+ * `Payment.refundAmount` (money that actually went back — not what is owed).
+ * An unpaid or failed payment spent nothing; a refund still FAILED is not
+ * subtracted, because the buyer has not had it yet.
+ */
+const getMySummary = async (userId: string) => {
+	const [orderCount, payments, parcels, openRefunds, deliveredItems, reviewed] =
+		await Promise.all([
+			prisma.order.count({ where: { userId } }),
+			prisma.payment.aggregate({
+				where: {
+					order: { userId },
+					status: {
+						in: [
+							PaymentStatus.PAID,
+							PaymentStatus.PARTIALLY_REFUNDED,
+							PaymentStatus.REFUNDED,
+						],
+					},
+				},
+				_sum: { amount: true, refundAmount: true },
+			}),
+			prisma.vendorOrder.groupBy({
+				by: ["orderStatus"],
+				where: { order: { userId } },
+				_count: { _all: true },
+			}),
+			// Money still owed back: not yet sent, being sent, or failed.
+			prisma.refund.aggregate({
+				where: {
+					order: { userId },
+					status: {
+						in: [
+							RefundStatus.PENDING,
+							RefundStatus.PROCESSING,
+							RefundStatus.FAILED,
+						],
+					},
+				},
+				_count: { _all: true },
+				_sum: { amount: true },
+			}),
+			// Only products still on sale can be reviewed (`createIntoDB`
+			// requires `publicProductFilter`), so only those are prompted.
+			prisma.orderItem.findMany({
+				where: {
+					order: { userId },
+					vendorOrder: { orderStatus: OrderStatus.DELIVERED },
+					product: publicProductFilter(),
+				},
+				select: {
+					productId: true,
+					product: { select: { name: true, slug: true } },
+				},
+				distinct: ["productId"],
+			}),
+			prisma.review.findMany({
+				where: { userId, isDeleted: false },
+				select: { productId: true },
+			}),
+		]);
+
+	const parcelCount = (...statuses: OrderStatus[]) =>
+		parcels
+			.filter((row) => statuses.includes(row.orderStatus))
+			.reduce((sum, row) => sum + row._count._all, 0);
+
+	const reviewedIds = new Set(reviewed.map((row) => row.productId));
+
+	return {
+		totalOrders: orderCount,
+		totalSpent: round2(
+			toNumber(payments._sum.amount) - toNumber(payments._sum.refundAmount),
+		),
+		parcels: {
+			inProgress: parcelCount(
+				OrderStatus.PENDING,
+				OrderStatus.PROCESSING,
+				OrderStatus.SHIPPED,
+			),
+			delivered: parcelCount(OrderStatus.DELIVERED),
+			canceled: parcelCount(OrderStatus.CANCELED),
+		},
+		openRefunds: {
+			count: openRefunds._count._all,
+			amount: round2(toNumber(openRefunds._sum.amount)),
+		},
+		awaitingReview: (() => {
+			const pending = deliveredItems.filter(
+				(row) => !reviewedIds.has(row.productId),
+			);
+			// A few, so the dashboard can link straight to each product page —
+			// that is where a product review is written.
+			return {
+				count: pending.length,
+				products: pending.slice(0, 3).map((row) => row.product),
+			};
+		})(),
+	};
+};
+
 export const orderServices = {
+	getMySummary,
 	createOrder,
 	findAllFromDB,
 	getMyOrders,

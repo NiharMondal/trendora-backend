@@ -42,6 +42,15 @@ const getOrderById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
         data: data,
     });
 });
+/** Headline numbers for the shopper dashboard — the caller's own purchases. */
+const getMySummary = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await order_service_1.orderServices.getMySummary(req.user.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Order summary fetched successfully",
+        data,
+    });
+});
 const getMyOrders = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     // NOTE: this used to read `req.user.userId`, which is not in the JWT
     // payload ({ id, role, email }) — it was always undefined, so the filter
@@ -90,6 +99,7 @@ const getDashboardAnalytics = (0, asyncHandler_1.asyncHandler)(async (req, res) 
     });
 });
 exports.orderControllers = {
+    getMySummary,
     createOrder,
     findAllFromDB,
     getOrderById,

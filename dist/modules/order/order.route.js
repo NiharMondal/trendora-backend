@@ -14,6 +14,7 @@ const router = (0, express_1.Router)();
  * order there is no single status to set, and it was unauthenticated.
  */
 // -------------------------------------------------------------------- customer
+router.get("/my-summary", (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getMySummary);
 router.get("/my-orders", (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getMyOrders);
 // ---------------------------------------------------------------------- vendor
 router.get("/vendor/my-orders", (0, authGuard_1.authGuard)(prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getMyVendorOrders);

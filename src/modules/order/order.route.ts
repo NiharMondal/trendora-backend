@@ -15,6 +15,12 @@ const router = Router();
 
 // -------------------------------------------------------------------- customer
 router.get(
+	"/my-summary",
+	authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
+	orderControllers.getMySummary,
+);
+
+router.get(
 	"/my-orders",
 	authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN),
 	orderControllers.getMyOrders,
