@@ -55,6 +55,21 @@ const MATERIAL_FIELDS = [
 	"images",
 ] as const satisfies readonly (keyof TProductUpdate)[];
 
+/**
+ * `isFeatured` puts a listing on the storefront home page, so it is the
+ * platform's editorial call, not the seller's: a vendor who sends it has it
+ * ignored, the same way they cannot set moderation state. Admins set it from
+ * `/admin/featured-products` (or the admin product form).
+ */
+const stripAdminOnlyFields = <T extends { isFeatured?: boolean }>(
+	actor: TActor,
+	data: T,
+): Omit<T, "isFeatured"> & { isFeatured?: boolean } => {
+	if (actor.role === Role.ADMIN) return data;
+	const { isFeatured: _ignoredFeatured, ...rest } = data;
+	return rest;
+};
+
 const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
 	const {
 		variants,
@@ -63,7 +78,7 @@ const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
 		submitForReview,
 		vendorId: requestedVendorId,
 		...others
-	} = payload;
+	} = stripAdminOnlyFields(actor, payload);
 
 	// Who does this listing belong to? A vendor can only ever create for
 	// themselves; an admin must name the store explicitly.
@@ -728,7 +743,7 @@ const updateData = async (
 		images = [],
 		submitForReview: _ignoredSubmitFlag,
 		...rest
-	} = payload;
+	} = stripAdminOnlyFields(actor, payload);
 
 	// Ownership first: a vendor may only touch their own listing, and the
 	// 404 (not 403) keeps another store's product ids unguessable.

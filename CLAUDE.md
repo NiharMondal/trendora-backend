@@ -310,6 +310,13 @@ on an approved listing sends it back to `PENDING`; price and stock edits do not
 (see `MATERIAL_FIELDS` in `product.service.ts`). Moderation state is never
 accepted from the request body.
 
+**`isFeatured` is admin-only.** It puts a listing in the storefront home page's
+"Featured" rail, so `stripAdminOnlyFields` drops it from a VENDOR's create or
+update payload (silently, like `submitForReview` on an edit). An admin toggles it
+with a bare `PATCH /products/:id { isFeatured }` — safe, because an absent
+`images`/`variants` array means "unchanged" and `isFeatured` is not a material
+field.
+
 `Product.name` is unique **per vendor** (`@@unique([vendorId, name])`) — two
 stores may both sell "Nike Air Max 90". `slug` stays globally unique and
 `generateUniqueProductSlug` appends the store slug on collision.
