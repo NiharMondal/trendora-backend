@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE "public"."OrderItem" ADD COLUMN     "tax" DECIMAL(10,2) NOT NULL DEFAULT 0,
-ADD COLUMN     "taxRate" DECIMAL(5,4) NOT NULL DEFAULT 0;
