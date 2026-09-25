@@ -65,6 +65,13 @@ router.patch(
 );
 
 router.patch(
+    "/:id/feature",
+    authGuard(Role.ADMIN),
+    validateRequest(productValidation.featureProductSchema),
+    productControllers.setFeatured,
+);
+
+router.patch(
     "/:id/reject",
     authGuard(Role.ADMIN),
     validateRequest(productValidation.rejectProductSchema),

@@ -40,7 +40,9 @@ export const productSchema = z.object({
 	brandId: z.uuid({ version: "v4", error: "Brand is required" }),
 	vendorId: z.uuid({ version: "v4" }).optional(),
 	isPublished: z.boolean().optional(),
-	isFeatured: z.boolean().optional(),
+	// No `isFeatured`: featuring is an admin action with its own endpoint
+	// (PATCH /products/:id/feature). Left out of this schema, zod strips it,
+	// so a create or edit can never feature a listing — for anyone.
 	/** Submit for review straight away instead of saving as a draft. */
 	submitForReview: z.boolean().optional(),
 	variants: z.array(productVariantSchema).optional(),
@@ -63,6 +65,10 @@ export const publishProductSchema = z.object({
 	isPublished: z.boolean({ error: "isPublished is required" }),
 });
 
+export const featureProductSchema = z.object({
+	isFeatured: z.boolean({ error: "isFeatured is required" }),
+});
+
 export type TProductCreate = z.infer<typeof productSchema>;
 export type TProductUpdate = z.infer<typeof updateProductSchema>;
 export type TRejectProduct = z.infer<typeof rejectProductSchema>;
@@ -72,4 +78,5 @@ export const productValidation = {
 	updateProductSchema,
 	rejectProductSchema,
 	publishProductSchema,
+	featureProductSchema,
 };

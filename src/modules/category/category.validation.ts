@@ -10,14 +10,21 @@ const imageSchema = z.object({
 	publicId: z.string().trim(),
 });
 
+const optionalId = z.preprocess(
+	(value) => (value === "" ? null : value),
+	z.string().nullish(),
+);
+
 export const categorySchema = z.object({
 	name: z
 		.string("Category name is required")
 		.nonempty("Category name is required")
 		.min(2, "Category must be at least 2 characters long")
 		.trim(),
-	parentId: z.string().nullish().nullable(),
-	sizeGroupId: z.string().nullish().nullable(),
+	// "" is "none", not an id: passed through, it lands in the foreign key and
+	// Postgres rejects the whole write (a 409 blaming a delete).
+	parentId: optionalId,
+	sizeGroupId: optionalId,
 	/**
 	 * Sales tax for this category, as a fraction: 0.18 is 18%.
 	 *
