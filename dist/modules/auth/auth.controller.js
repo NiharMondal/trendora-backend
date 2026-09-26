@@ -46,4 +46,33 @@ const refreshToken = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
         data: data,
     });
 });
-exports.authControllers = { registerUser, loginUser, oAuthLogin, changePassword, refreshToken };
+/**
+ * Always 200 with the same message, and never a payload — the service is
+ * deliberately silent about whether the address is registered, so the response
+ * must be too. Do not start returning the token here.
+ */
+const forgotPassword = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    await auth_service_1.authServices.forgotPassword(req.body);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "If an account exists for that email, a password reset link has been sent.",
+        data: null,
+    });
+});
+const resetPassword = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    await auth_service_1.authServices.resetPassword(req.body);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Password has been reset successfully. You can now log in.",
+        data: null,
+    });
+});
+exports.authControllers = {
+    registerUser,
+    loginUser,
+    oAuthLogin,
+    changePassword,
+    refreshToken,
+    forgotPassword,
+    resetPassword,
+};

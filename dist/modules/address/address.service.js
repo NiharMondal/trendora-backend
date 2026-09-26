@@ -6,60 +6,87 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.addressServices = void 0;
 const db_1 = require("../../config/db");
 const customError_1 = __importDefault(require("../../utils/customError"));
+/**
+ * Resolve one address *belonging to the caller*, or fail.
+ *
+ * Every single-address operation goes through here. `authGuard` only proves the
+ * caller is signed in and holds an accepted role — it cannot answer "is this
+ * row yours?". Without this check the id in the URL is the only thing between
+ * one shopper and every other shopper's name, phone number and street address.
+ *
+ * It raises **404, never 403**: a 403 confirms the row exists, which is all an
+ * attacker needs to enumerate. Same convention as `assertVendorOwnsProduct` in
+ * `src/helpers/vendor.ts`.
+ *
+ * `isDeleted` is part of the lookup so a soft-deleted address behaves as if it
+ * were gone — it cannot be read, re-edited or deleted twice.
+ */
+const findOwnedAddress = async (id, userId) => {
+    const address = await db_1.prisma.address.findFirst({
+        where: { id, userId, isDeleted: false },
+    });
+    if (!address) {
+        throw new customError_1.default(404, "Address not found");
+    }
+    return address;
+};
 const createIntoDB = async (payload, userId) => {
-    const user = await db_1.prisma.user.findUnique({ where: {
-            id: userId
-        } });
+    const user = await db_1.prisma.user.findUnique({
+        where: { id: userId },
+    });
     if (!user) {
         throw new customError_1.default(404, "User does not exist!");
     }
     const address = await db_1.prisma.address.create({
         data: {
             ...payload,
-            userId
+            userId,
         },
     });
     return address;
 };
+/** Admin-only list. Soft-deleted rows stay hidden. */
 const findAllFromDB = async () => {
-    const addresses = await db_1.prisma.address.findMany();
+    const addresses = await db_1.prisma.address.findMany({
+        where: { isDeleted: false },
+    });
     return addresses;
 };
 const findMyAddress = async (userId) => {
-    const user = await db_1.prisma.address.findMany({ where: { userId: userId, isDeleted: false } });
-    if (!user) {
-        throw new customError_1.default(404, "Sorry, user not found!");
-    }
     const addresses = await db_1.prisma.address.findMany({
         where: {
-            userId: userId,
-            isDeleted: false
+            userId,
+            isDeleted: false,
         },
     });
     return addresses;
 };
-const findById = async (id) => {
-    const address = await db_1.prisma.address.findUniqueOrThrow({
-        where: { id },
-    });
-    return address;
+const findById = async (id, userId) => {
+    return findOwnedAddress(id, userId);
 };
-const updateData = async (id, payload) => {
-    await db_1.prisma.address.findUniqueOrThrow({
-        where: { id },
-    });
+const updateData = async (id, userId, payload) => {
+    await findOwnedAddress(id, userId);
+    // `payload` is the Zod-parsed body, so it cannot carry `userId` or
+    // `isDeleted` — an address can never be reassigned to another account or
+    // undeleted through this route.
     const updatedData = await db_1.prisma.address.update({
         where: { id },
         data: payload,
     });
     return updatedData;
 };
-const deleteData = async (id) => {
-    await db_1.prisma.address.findUniqueOrThrow({
+/**
+ * Soft delete. `Order.shippingAddressId` is a required column pointing here, so
+ * a hard `delete` would either violate that constraint or orphan an order's
+ * shipping address. The order's own `shippingSnapshot` preserves what was
+ * actually shipped to (see `src/helpers/create-order.ts`), so hiding the row is
+ * enough — and it keeps past orders readable.
+ */
+const deleteData = async (id, userId) => {
+    await findOwnedAddress(id, userId);
+    const data = await db_1.prisma.address.update({
         where: { id },
-    });
-    const data = await db_1.prisma.address.delete({
-        where: { id },
+        data: { isDeleted: true },
     });
     return data;
 };

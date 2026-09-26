@@ -36,9 +36,12 @@ const findMyAddress = asyncHandler(
 		});
 	}
 );
+// The three single-address handlers all pass `req.user.id` to the service,
+// which scopes the lookup to the caller. Dropping that argument silently
+// reopens the IDOR these routes used to have — see docs/FEATURE-GAPS.md BE-02.
 const findById = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await addressServices.findById(id);
+	const data = await addressServices.findById(id, req.user.id);
 
 	sendResponse(res, {
 		statusCode: 200,
@@ -49,7 +52,7 @@ const findById = asyncHandler(async (req: Request, res: Response) => {
 
 const updateData = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await addressServices.updateData(id, req.body);
+	const data = await addressServices.updateData(id, req.user.id, req.body);
 
 	sendResponse(res, {
 		statusCode: 200,
@@ -59,7 +62,7 @@ const updateData = asyncHandler(async (req: Request, res: Response) => {
 });
 const deleteData = asyncHandler(async (req: Request, res: Response) => {
 	const id = req.params.id;
-	const data = await addressServices.deleteData(id);
+	const data = await addressServices.deleteData(id, req.user.id);
 
 	sendResponse(res, {
 		statusCode: 200,
