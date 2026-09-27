@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.vendorReviewControllers = void 0;
-const asyncHandler_1 = require("../../utils/asyncHandler");
-const sendResponse_1 = require("../../utils/sendResponse");
+const asyncHandler_1 = require("../../utils/asyncHandler.js");
+const sendResponse_1 = require("../../utils/sendResponse.js");
 const vendor_review_service_1 = require("./vendor-review.service");
 const createIntoDB = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const data = await vendor_review_service_1.vendorReviewServices.createIntoDB(req.user.id, req.body);

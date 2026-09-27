@@ -1,7 +1,7 @@
-import { Brand, Prisma } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import CustomError from "../../utils/customError";
+import { Brand, Prisma } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import CustomError from "@/utils/customError";
 
 const createIntoDB = async (payload: Brand) => {
 	const data = await prisma.brand.create({

@@ -6,14 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.paymentServices = void 0;
 /* eslint-disable no-console */
 const stripe_1 = __importDefault(require("stripe"));
-const env_config_1 = require("../../config/env-config");
-const customError_1 = __importDefault(require("../../utils/customError"));
-const db_1 = require("../../config/db");
-const prisma_1 = require("../../../generated/prisma");
-const checkout_1 = require("../../helpers/checkout");
-const refund_1 = require("../../helpers/refund");
-const money_1 = require("../../helpers/money");
-const create_order_1 = require("../../helpers/create-order");
+const env_config_1 = require("../../config/env-config.js");
+const customError_1 = __importDefault(require("../../utils/customError.js"));
+const db_1 = require("../../config/db.js");
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const checkout_1 = require("../../helpers/checkout.js");
+const refund_1 = require("../../helpers/refund.js");
+const money_1 = require("../../helpers/money.js");
+const create_order_1 = require("../../helpers/create-order.js");
 // Initialize Stripe
 const stripe = new stripe_1.default(env_config_1.envConfig.stripe_secret_key, {
     apiVersion: "2025-07-30.basil",
@@ -121,9 +121,9 @@ async function handleCheckoutSessionCompleted(session) {
                 userId: claimed.userId,
                 shippingAddressId: claimed.shippingAddressId,
                 calculation: claimed.calculation,
-                paymentMethod: prisma_1.PaymentMethod.STRIPE,
-                paymentStatus: prisma_1.PaymentStatus.PAID,
-                initialVendorStatus: prisma_1.OrderStatus.PROCESSING,
+                paymentMethod: prisma_client_1.PaymentMethod.STRIPE,
+                paymentStatus: prisma_client_1.PaymentStatus.PAID,
+                initialVendorStatus: prisma_client_1.OrderStatus.PROCESSING,
                 notes: claimed.notes,
                 ipAddress: claimed.ipAddress,
                 userAgent: claimed.userAgent,
@@ -167,7 +167,7 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
         await db_1.prisma.payment.update({
             where: { id: payment.id },
             data: {
-                status: prisma_1.PaymentStatus.PAID,
+                status: prisma_client_1.PaymentStatus.PAID,
                 paidAt: new Date(),
                 gatewayResponse: paymentIntent,
             },
@@ -187,7 +187,7 @@ async function handlePaymentIntentFailed(paymentIntent) {
         await db_1.prisma.payment.update({
             where: { id: payment.id },
             data: {
-                status: prisma_1.PaymentStatus.FAILED,
+                status: prisma_client_1.PaymentStatus.FAILED,
                 failureReason: paymentIntent.last_payment_error?.message,
                 gatewayResponse: paymentIntent,
             },
@@ -196,7 +196,7 @@ async function handlePaymentIntentFailed(paymentIntent) {
         await db_1.prisma.order.update({
             where: { id: payment.orderId },
             data: {
-                paymentStatus: prisma_1.PaymentStatus.FAILED,
+                paymentStatus: prisma_client_1.PaymentStatus.FAILED,
             },
         });
     }
@@ -211,25 +211,25 @@ async function handlePaymentIntentFailed(paymentIntent) {
  */
 async function handleRefundEvent(stripeRefund) {
     const status = stripeRefund.status === "succeeded"
-        ? prisma_1.RefundStatus.SUCCEEDED
+        ? prisma_client_1.RefundStatus.SUCCEEDED
         : stripeRefund.status === "failed" ||
             stripeRefund.status === "canceled"
-            ? prisma_1.RefundStatus.FAILED
-            : prisma_1.RefundStatus.PROCESSING;
+            ? prisma_client_1.RefundStatus.FAILED
+            : prisma_client_1.RefundStatus.PROCESSING;
     const existing = await db_1.prisma.refund.findUnique({
         where: { gatewayRefundId: stripeRefund.id },
     });
     if (existing) {
         // Never walk a settled refund backwards on a late duplicate event.
-        if (existing.status === prisma_1.RefundStatus.SUCCEEDED)
+        if (existing.status === prisma_client_1.RefundStatus.SUCCEEDED)
             return;
         await db_1.prisma.refund.update({
             where: { id: existing.id },
             data: {
                 status,
                 gatewayResponse: stripeRefund,
-                processedAt: status === prisma_1.RefundStatus.SUCCEEDED ? new Date() : null,
-                failureReason: status === prisma_1.RefundStatus.FAILED
+                processedAt: status === prisma_client_1.RefundStatus.SUCCEEDED ? new Date() : null,
+                failureReason: status === prisma_client_1.RefundStatus.FAILED
                     ? (stripeRefund.failure_reason ??
                         "Gateway reported the refund as failed")
                     : null,
@@ -264,7 +264,7 @@ async function handleRefundEvent(stripeRefund) {
             gatewayRefundId: stripeRefund.id,
             idempotencyKey: `gateway:${stripeRefund.id}`,
             gatewayResponse: stripeRefund,
-            processedAt: status === prisma_1.RefundStatus.SUCCEEDED ? new Date() : null,
+            processedAt: status === prisma_client_1.RefundStatus.SUCCEEDED ? new Date() : null,
         },
     });
     await (0, refund_1.recomputePaymentRefundState)(payment.id);

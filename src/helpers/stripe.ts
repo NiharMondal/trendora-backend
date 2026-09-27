@@ -1,6 +1,6 @@
 import Stripe from "stripe";
-import { envConfig } from "../config/env-config";
-import { OrderCalculation } from "../types/common.types";
+import { envConfig } from "@/config/env-config";
+import { OrderCalculation } from "@/types/common.types";
 import { round2 } from "./money";
 
 const stripe = new Stripe(envConfig.stripe_secret_key as string, {

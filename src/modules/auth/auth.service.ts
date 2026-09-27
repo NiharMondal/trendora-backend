@@ -1,17 +1,17 @@
 import crypto from "crypto";
 import { JwtPayload } from "jsonwebtoken";
-import { prisma } from "../../config/db";
-import { comparePassword, makePasswordHash } from "../../helpers/password";
-import CustomError from "../../utils/customError";
-import { generateAccessToken, generateRefreshToken } from "../../helpers/jwt";
-import { envConfig } from "../../config/env-config";
-import { Auth, AuthProvider } from "../../../generated/prisma";
+import { prisma } from "@/config/db";
+import { comparePassword, makePasswordHash } from "@/helpers/password";
+import CustomError from "@/utils/customError";
+import { generateAccessToken, generateRefreshToken } from "@/helpers/jwt";
+import { envConfig } from "@/config/env-config";
+import { Auth, AuthProvider } from "@/lib/prisma-client";
 import jwt from "jsonwebtoken";
 import {
 	passwordChangedEmail,
 	passwordResetEmail,
-} from "../../utils/email-templates";
-import { isEmailConfigured, sendEmailSafely } from "../../utils/sendEmail";
+} from "@/utils/email-templates";
+import { isEmailConfigured, sendEmailSafely } from "@/utils/sendEmail";
 import {
 	TChangePassword,
 	TForgotPassword,

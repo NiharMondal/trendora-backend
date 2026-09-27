@@ -1,15 +1,15 @@
-import { Prisma, RefundStatus, Role } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import { toNumber } from "../../helpers/money";
+import { Prisma, RefundStatus, Role } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { toNumber } from "@/helpers/money";
 import {
     cancelRefund,
     processPendingRefunds,
     processRefund,
     recordManualRefund,
-} from "../../helpers/refund";
-import { requireApprovedVendor } from "../../helpers/vendor";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import CustomError from "../../utils/customError";
+} from "@/helpers/refund";
+import { requireApprovedVendor } from "@/helpers/vendor";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import CustomError from "@/utils/customError";
 import { TCancelRefund, TManualRefund } from "./refund.validation";
 
 type TActor = { id: string; role: string };

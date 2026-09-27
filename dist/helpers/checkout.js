@@ -4,10 +4,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.expireStaleCheckoutSessions = exports.cancelCheckoutSession = exports.consumeCheckoutSession = exports.attachStripeSession = exports.createCheckoutSession = void 0;
-const prisma_1 = require("../../generated/prisma");
-const db_1 = require("../config/db");
-const env_config_1 = require("../config/env-config");
-const customError_1 = __importDefault(require("../utils/customError"));
+const prisma_client_1 = require("../lib/prisma-client.js");
+const db_1 = require("../config/db.js");
+const env_config_1 = require("../config/env-config.js");
+const customError_1 = __importDefault(require("../utils/customError.js"));
 const createCheckoutSession = async (input) => {
     const expiresAt = new Date(Date.now() + env_config_1.envConfig.checkout_session_ttl_minutes * 60 * 1000);
     return db_1.prisma.checkoutSession.create({
@@ -46,13 +46,13 @@ const consumeCheckoutSession = async (tx, checkoutSessionId) => {
     if (!draft) {
         throw new customError_1.default(404, "Checkout session not found");
     }
-    if (draft.status !== prisma_1.CheckoutSessionStatus.PENDING) {
+    if (draft.status !== prisma_client_1.CheckoutSessionStatus.PENDING) {
         throw new customError_1.default(409, `Checkout session already ${draft.status.toLowerCase()}`);
     }
     const claimed = await tx.checkoutSession.updateMany({
-        where: { id: checkoutSessionId, status: prisma_1.CheckoutSessionStatus.PENDING },
+        where: { id: checkoutSessionId, status: prisma_client_1.CheckoutSessionStatus.PENDING },
         data: {
-            status: prisma_1.CheckoutSessionStatus.COMPLETED,
+            status: prisma_client_1.CheckoutSessionStatus.COMPLETED,
             consumedAt: new Date(),
         },
     });
@@ -72,8 +72,8 @@ const consumeCheckoutSession = async (tx, checkoutSessionId) => {
 exports.consumeCheckoutSession = consumeCheckoutSession;
 /** Marks a draft as abandoned (buyer hit cancel on the Stripe page). */
 const cancelCheckoutSession = async (orderNumber) => db_1.prisma.checkoutSession.updateMany({
-    where: { orderNumber, status: prisma_1.CheckoutSessionStatus.PENDING },
-    data: { status: prisma_1.CheckoutSessionStatus.CANCELED },
+    where: { orderNumber, status: prisma_client_1.CheckoutSessionStatus.PENDING },
+    data: { status: prisma_client_1.CheckoutSessionStatus.CANCELED },
 });
 exports.cancelCheckoutSession = cancelCheckoutSession;
 /**
@@ -83,9 +83,9 @@ exports.cancelCheckoutSession = cancelCheckoutSession;
  */
 const expireStaleCheckoutSessions = async () => db_1.prisma.checkoutSession.updateMany({
     where: {
-        status: prisma_1.CheckoutSessionStatus.PENDING,
+        status: prisma_client_1.CheckoutSessionStatus.PENDING,
         expiresAt: { lt: new Date() },
     },
-    data: { status: prisma_1.CheckoutSessionStatus.EXPIRED },
+    data: { status: prisma_client_1.CheckoutSessionStatus.EXPIRED },
 });
 exports.expireStaleCheckoutSessions = expireStaleCheckoutSessions;

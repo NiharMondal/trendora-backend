@@ -1,4 +1,4 @@
-import { Prisma } from "../../generated/prisma";
+import { Prisma } from "@/lib/prisma-client";
 
 /**
  * Money helpers.

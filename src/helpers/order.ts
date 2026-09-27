@@ -1,13 +1,13 @@
-import { prisma } from "../config/db";
-import CustomError from "../utils/customError";
+import { prisma } from "@/config/db";
+import CustomError from "@/utils/customError";
 import {
     CartItemInput,
     OrderCalculation,
     ValidatedOrderItem,
     VendorOrderCalculation,
-} from "../types/common.types";
-import { OrderStatus, Prisma } from "../../generated/prisma";
-import { envConfig } from "../config/env-config";
+} from "@/types/common.types";
+import { OrderStatus, Prisma } from "@/lib/prisma-client";
+import { envConfig } from "@/config/env-config";
 import { round2, sumMoney, toNumber } from "./money";
 import { publicProductFilter } from "./vendor";
 

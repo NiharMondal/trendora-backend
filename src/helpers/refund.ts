@@ -5,9 +5,9 @@ import {
     PaymentStatus,
     Prisma,
     RefundStatus,
-} from "../../generated/prisma";
-import { prisma } from "../config/db";
-import CustomError from "../utils/customError";
+} from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import CustomError from "@/utils/customError";
 import { round2, toNumber } from "./money";
 import { createStripeRefund } from "./stripe";
 

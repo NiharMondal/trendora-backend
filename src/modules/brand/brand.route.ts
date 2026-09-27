@@ -1,10 +1,10 @@
 import { Router } from "express";
 
-import { validateRequest } from "../../middleware/validateRequest";
+import { validateRequest } from "@/middleware/validateRequest";
 import { brandControllers } from "./brand.controller";
 import { brandSchema } from "./brand.validation";
-import { authGuard } from "../../middleware/authGuard";
-import { Role } from "../../../generated/prisma";
+import { authGuard } from "@/middleware/authGuard";
+import { Role } from "@/lib/prisma-client";
 
 const router = Router();
 

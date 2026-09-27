@@ -4,10 +4,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.categoryServices = void 0;
-const db_1 = require("../../config/db");
-const slug_1 = require("../../helpers/slug");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const utils_1 = require("../../utils/utils");
+const db_1 = require("../../config/db.js");
+const slug_1 = require("../../helpers/slug.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const utils_1 = require("../../utils/utils.js");
 const createIntoDB = async (payload) => {
     const name = (0, utils_1.capitalizeFirstLetter)(payload.name.trim());
     const slug = (0, slug_1.generateSlug)(payload.name);

@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { asyncHandler } from "../../utils/asyncHandler";
+import { asyncHandler } from "@/utils/asyncHandler";
 import { productImageServices } from "./image.service";
-import { sendResponse } from "../../utils/sendResponse";
+import { sendResponse } from "@/utils/sendResponse";
 
 const findByProductId = asyncHandler(async (req: Request, res: Response) => {
 	const productId = req.params.productId;

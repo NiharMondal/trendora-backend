@@ -1,16 +1,16 @@
-import { Prisma, ProductStatus, Role } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import { generateUniqueProductSlug } from "../../helpers/slug";
+import { Prisma, ProductStatus, Role } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { generateUniqueProductSlug } from "@/helpers/slug";
 import {
 	assertVendorOwnsProduct,
 	publicProductFilter,
 	publicVendorSelect,
 	resolveVendorScope,
 	vendorListScope,
-} from "../../helpers/vendor";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import { deleteFromCloudinary, moveFromTemp } from "../../utils/cloudinary";
-import CustomError from "../../utils/customError";
+} from "@/helpers/vendor";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
+import CustomError from "@/utils/customError";
 import {
 	TProductCreate,
 	TProductUpdate,

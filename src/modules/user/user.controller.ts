@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { asyncHandler } from "../../utils/asyncHandler";
+import { asyncHandler } from "@/utils/asyncHandler";
 import { userServices } from "./user.service";
-import { sendResponse } from "../../utils/sendResponse";
+import { sendResponse } from "@/utils/sendResponse";
 
 const getAllFromDB = asyncHandler(async (req: Request, res: Response) => {
 	const data = await userServices.getAllFromDB();

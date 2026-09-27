@@ -1,8 +1,8 @@
-import { Prisma, Review, Role } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import { publicProductFilter } from "../../helpers/vendor";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import CustomError from "../../utils/customError";
+import { Prisma, Review, Role } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { publicProductFilter } from "@/helpers/vendor";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import CustomError from "@/utils/customError";
 
 type TActor = { id: string; role: string };
 

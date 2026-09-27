@@ -1,4 +1,4 @@
-import { PaymentMethod } from "../../generated/prisma";
+import { PaymentMethod } from "@/lib/prisma-client";
 
 export interface CartItemInput {
     productId: string;

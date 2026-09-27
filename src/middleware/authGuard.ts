@@ -1,8 +1,8 @@
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { NextFunction, Request, Response } from "express";
-import CustomError from "../utils/customError";
-import { envConfig } from "../config/env-config";
-import { prisma } from "../config/db";
+import CustomError from "@/utils/customError";
+import { envConfig } from "@/config/env-config";
+import { prisma } from "@/config/db";
 
 export const authGuard = (...roles: string[]) => {
     return async (req: Request, res: Response, next: NextFunction) => {

@@ -4,11 +4,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reviewServices = void 0;
-const prisma_1 = require("../../../generated/prisma");
-const db_1 = require("../../config/db");
-const vendor_1 = require("../../helpers/vendor");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const customError_1 = __importDefault(require("../../utils/customError"));
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const db_1 = require("../../config/db.js");
+const vendor_1 = require("../../helpers/vendor.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 /**
  * Recompute a product's denormalised rating counters. Called inside the same
  * transaction as every review write so `averageRating` / `totalReviews` on the
@@ -130,7 +130,7 @@ const updateData = async (actor, id, payload) => {
             throw new customError_1.default(404, "Review not found");
         }
         // Only the author may edit their review (an admin may moderate any).
-        if (actor.role !== prisma_1.Role.ADMIN &&
+        if (actor.role !== prisma_client_1.Role.ADMIN &&
             existingReview.userId !== actor.id) {
             throw new customError_1.default(403, "You can only edit your own review");
         }
@@ -156,7 +156,7 @@ const deleteData = async (actor, id) => {
         if (!review) {
             throw new customError_1.default(404, "Review not found");
         }
-        if (actor.role !== prisma_1.Role.ADMIN && review.userId !== actor.id) {
+        if (actor.role !== prisma_client_1.Role.ADMIN && review.userId !== actor.id) {
             throw new customError_1.default(403, "You can only delete your own review");
         }
         // Soft delete — this used to be a hard `delete` despite the comment,

@@ -11,9 +11,9 @@ exports.recomputePaymentRefundState = recomputePaymentRefundState;
 exports.processPendingRefunds = processPendingRefunds;
 exports.outstandingRefundForOrder = outstandingRefundForOrder;
 /* eslint-disable no-console */
-const prisma_1 = require("../../generated/prisma");
-const db_1 = require("../config/db");
-const customError_1 = __importDefault(require("../utils/customError"));
+const prisma_client_1 = require("../lib/prisma-client.js");
+const db_1 = require("../config/db.js");
+const customError_1 = __importDefault(require("../utils/customError.js"));
 const money_1 = require("./money");
 const stripe_1 = require("./stripe");
 /**
@@ -39,7 +39,7 @@ const stripe_1 = require("./stripe");
  * moves twice.
  */
 /** Refunds still owed and safe to attempt. */
-const RETRYABLE = [prisma_1.RefundStatus.PENDING, prisma_1.RefundStatus.FAILED];
+const RETRYABLE = [prisma_client_1.RefundStatus.PENDING, prisma_client_1.RefundStatus.FAILED];
 /**
  * Derives the Stripe idempotency key for one attempt.
  *
@@ -69,16 +69,16 @@ async function recordRefundIntent(tx, params) {
     if (!order?.payment)
         return null;
     // Nothing was ever collected, so there is nothing to give back.
-    const wasPaid = order.paymentStatus === prisma_1.PaymentStatus.PAID ||
-        order.paymentStatus === prisma_1.PaymentStatus.PARTIALLY_REFUNDED ||
-        order.payment.status === prisma_1.PaymentStatus.PAID ||
-        order.payment.status === prisma_1.PaymentStatus.PARTIALLY_REFUNDED;
+    const wasPaid = order.paymentStatus === prisma_client_1.PaymentStatus.PAID ||
+        order.paymentStatus === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED ||
+        order.payment.status === prisma_client_1.PaymentStatus.PAID ||
+        order.payment.status === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED;
     if (!wasPaid)
         return null;
     // Cash on delivery has no gateway to call. The money, if any changed
     // hands, is returned in person — an admin records that separately with
     // `recordManualRefund`.
-    if (order.paymentMethod === prisma_1.PaymentMethod.CASH_ON_DELIVERY)
+    if (order.paymentMethod === prisma_client_1.PaymentMethod.CASH_ON_DELIVERY)
         return null;
     // `vendorOrderId` is unique, so a replayed cancel finds the existing row
     // instead of creating a second refund for the same goods.
@@ -102,7 +102,7 @@ async function recordRefundIntent(tx, params) {
             paymentId: order.payment.id,
             vendorOrderId: params.vendorOrderId,
             amount,
-            status: prisma_1.RefundStatus.PENDING,
+            status: prisma_client_1.RefundStatus.PENDING,
             reason: params.reason,
             gateway: "stripe",
             // Replaced with the attempt-scoped key when it is actually sent;
@@ -131,10 +131,10 @@ async function processRefund(refundId, options = {}) {
     if (!refund) {
         throw new customError_1.default(404, "Refund not found");
     }
-    if (refund.status === prisma_1.RefundStatus.SUCCEEDED) {
+    if (refund.status === prisma_client_1.RefundStatus.SUCCEEDED) {
         return refund;
     }
-    if (refund.status === prisma_1.RefundStatus.CANCELED) {
+    if (refund.status === prisma_client_1.RefundStatus.CANCELED) {
         throw new customError_1.default(400, "This refund was cancelled");
     }
     const paymentIntentId = refund.payment.transactionId;
@@ -144,7 +144,7 @@ async function processRefund(refundId, options = {}) {
         const message = "No gateway transaction on this payment — refund it manually at the gateway";
         await db_1.prisma.refund.update({
             where: { id: refundId },
-            data: { status: prisma_1.RefundStatus.FAILED, failureReason: message },
+            data: { status: prisma_client_1.RefundStatus.FAILED, failureReason: message },
         });
         if (options.throwOnError)
             throw new customError_1.default(422, message);
@@ -159,7 +159,7 @@ async function processRefund(refundId, options = {}) {
     await db_1.prisma.refund.update({
         where: { id: refundId },
         data: {
-            status: prisma_1.RefundStatus.PROCESSING,
+            status: prisma_client_1.RefundStatus.PROCESSING,
             attempts: attempt,
             idempotencyKey,
             failureReason: null,
@@ -182,11 +182,11 @@ async function processRefund(refundId, options = {}) {
         // Stripe returns "pending" for rails that settle asynchronously; only
         // "succeeded" means the money is actually on its way back.
         const status = stripeRefund.status === "succeeded"
-            ? prisma_1.RefundStatus.SUCCEEDED
+            ? prisma_client_1.RefundStatus.SUCCEEDED
             : stripeRefund.status === "failed" ||
                 stripeRefund.status === "canceled"
-                ? prisma_1.RefundStatus.FAILED
-                : prisma_1.RefundStatus.PROCESSING;
+                ? prisma_client_1.RefundStatus.FAILED
+                : prisma_client_1.RefundStatus.PROCESSING;
         await db_1.prisma.refund.update({
             where: { id: refundId },
             data: {
@@ -194,8 +194,8 @@ async function processRefund(refundId, options = {}) {
                 gatewayRefundId: stripeRefund.id,
                 currency: stripeRefund.currency ?? refund.currency,
                 gatewayResponse: stripeRefund,
-                processedAt: status === prisma_1.RefundStatus.SUCCEEDED ? new Date() : null,
-                failureReason: status === prisma_1.RefundStatus.FAILED
+                processedAt: status === prisma_client_1.RefundStatus.SUCCEEDED ? new Date() : null,
+                failureReason: status === prisma_client_1.RefundStatus.FAILED
                     ? (stripeRefund.failure_reason ??
                         "Gateway reported the refund as failed")
                     : null,
@@ -208,7 +208,7 @@ async function processRefund(refundId, options = {}) {
         const failureReason = error instanceof Error ? error.message : "Unknown gateway error";
         await db_1.prisma.refund.update({
             where: { id: refundId },
-            data: { status: prisma_1.RefundStatus.FAILED, failureReason },
+            data: { status: prisma_client_1.RefundStatus.FAILED, failureReason },
         });
         console.error(`Refund ${refundId} failed: ${failureReason}`);
         if (options.throwOnError) {
@@ -249,7 +249,7 @@ async function recordManualRefund(params) {
             paymentId: order.payment.id,
             vendorOrderId: params.vendorOrderId,
             amount: (0, money_1.round2)(params.amount),
-            status: prisma_1.RefundStatus.SUCCEEDED,
+            status: prisma_client_1.RefundStatus.SUCCEEDED,
             reason: params.reason,
             // No gateway involved — that is what distinguishes this from a
             // Stripe refund in the ledger.
@@ -266,12 +266,12 @@ async function cancelRefund(refundId, reason) {
     const refund = await db_1.prisma.refund.findUnique({ where: { id: refundId } });
     if (!refund)
         throw new customError_1.default(404, "Refund not found");
-    if (refund.status === prisma_1.RefundStatus.SUCCEEDED) {
+    if (refund.status === prisma_client_1.RefundStatus.SUCCEEDED) {
         throw new customError_1.default(400, "This refund already succeeded — reverse it at the gateway instead");
     }
     const canceled = await db_1.prisma.refund.update({
         where: { id: refundId },
-        data: { status: prisma_1.RefundStatus.CANCELED, failureReason: reason },
+        data: { status: prisma_client_1.RefundStatus.CANCELED, failureReason: reason },
     });
     await recomputePaymentRefundState(refund.paymentId);
     return canceled;
@@ -300,18 +300,18 @@ async function recomputePaymentRefundState(paymentId) {
     if (!payment)
         return;
     const refunded = (0, money_1.round2)(payment.refunds
-        .filter((refund) => refund.status === prisma_1.RefundStatus.SUCCEEDED)
+        .filter((refund) => refund.status === prisma_client_1.RefundStatus.SUCCEEDED)
         .reduce((total, refund) => total + (0, money_1.toNumber)(refund.amount), 0));
     const charged = (0, money_1.toNumber)(payment.amount);
-    const wasPaid = payment.status === prisma_1.PaymentStatus.PAID ||
-        payment.status === prisma_1.PaymentStatus.PARTIALLY_REFUNDED ||
-        payment.status === prisma_1.PaymentStatus.REFUNDED;
+    const wasPaid = payment.status === prisma_client_1.PaymentStatus.PAID ||
+        payment.status === prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED ||
+        payment.status === prisma_client_1.PaymentStatus.REFUNDED;
     let status = payment.status;
     if (wasPaid && refunded > 0) {
         status =
             refunded >= charged - 0.005
-                ? prisma_1.PaymentStatus.REFUNDED
-                : prisma_1.PaymentStatus.PARTIALLY_REFUNDED;
+                ? prisma_client_1.PaymentStatus.REFUNDED
+                : prisma_client_1.PaymentStatus.PARTIALLY_REFUNDED;
     }
     await db_1.prisma.payment.update({
         where: { id: paymentId },
@@ -349,7 +349,7 @@ async function processPendingRefunds(limit = 25) {
     for (const refund of pending) {
         results.attempted++;
         const processed = await processRefund(refund.id);
-        if (processed.status === prisma_1.RefundStatus.SUCCEEDED)
+        if (processed.status === prisma_client_1.RefundStatus.SUCCEEDED)
             results.succeeded++;
         else
             results.failed++;
@@ -368,17 +368,17 @@ async function outstandingRefundForOrder(orderId) {
     if (!order?.payment)
         return 0;
     const owed = (0, money_1.round2)(order.vendorOrders
-        .filter((slice) => slice.orderStatus === prisma_1.OrderStatus.CANCELED)
+        .filter((slice) => slice.orderStatus === prisma_client_1.OrderStatus.CANCELED)
         .reduce((total, slice) => total + (0, money_1.toNumber)(slice.totalAmount), 0));
     const refunded = (0, money_1.round2)(order.payment.refunds
-        .filter((refund) => refund.status === prisma_1.RefundStatus.SUCCEEDED)
+        .filter((refund) => refund.status === prisma_client_1.RefundStatus.SUCCEEDED)
         .reduce((total, refund) => total + (0, money_1.toNumber)(refund.amount), 0));
     return (0, money_1.round2)(Math.max(owed - refunded, 0));
 }
 /** Sum of settled refunds against one payment. */
 async function sumSucceededRefunds(client, paymentId) {
     const result = await client.refund.aggregate({
-        where: { paymentId, status: prisma_1.RefundStatus.SUCCEEDED },
+        where: { paymentId, status: prisma_client_1.RefundStatus.SUCCEEDED },
         _sum: { amount: true },
     });
     return (0, money_1.round2)((0, money_1.toNumber)(result._sum.amount));

@@ -4,8 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.slideServices = void 0;
-const db_1 = require("../../config/db");
-const customError_1 = __importDefault(require("../../utils/customError"));
+const db_1 = require("../../config/db.js");
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 const createIntoDB = async (payload) => {
     const data = await db_1.prisma.slide.create({
         data: payload,
