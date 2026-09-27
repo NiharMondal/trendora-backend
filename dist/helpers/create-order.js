@@ -4,8 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.persistOrder = persistOrder;
-const prisma_1 = require("../../generated/prisma");
-const customError_1 = __importDefault(require("../utils/customError"));
+const prisma_client_1 = require("../lib/prisma-client.js");
+const customError_1 = __importDefault(require("../utils/customError.js"));
 const order_1 = require("./order");
 const order_2 = require("./order");
 async function persistOrder(tx, input) {
@@ -106,10 +106,10 @@ async function persistOrder(tx, input) {
         await (0, order_1.logStatusChange)(tx, {
             orderId: order.id,
             vendorOrderId: vendorOrder.id,
-            oldStatus: prisma_1.OrderStatus.PENDING,
+            oldStatus: prisma_client_1.OrderStatus.PENDING,
             newStatus: input.initialVendorStatus,
             userId: input.userId,
-            note: input.initialVendorStatus === prisma_1.OrderStatus.PENDING
+            note: input.initialVendorStatus === prisma_client_1.OrderStatus.PENDING
                 ? "Order placed"
                 : "Order placed — payment confirmed",
             ipAddress: input.ipAddress ?? undefined,

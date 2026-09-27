@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.retrieveStripeRefund = exports.createStripeRefund = exports.createStripePaymentUrl = void 0;
 const stripe_1 = __importDefault(require("stripe"));
-const env_config_1 = require("../config/env-config");
+const env_config_1 = require("../config/env-config.js");
 const money_1 = require("./money");
 const stripe = new stripe_1.default(env_config_1.envConfig.stripe_secret_key, {
     apiVersion: "2025-07-30.basil",

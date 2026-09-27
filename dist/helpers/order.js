@@ -9,10 +9,10 @@ exports.validateAndCalculateOrder = validateAndCalculateOrder;
 exports.logStatusChange = logStatusChange;
 exports.deriveOrderStatus = deriveOrderStatus;
 exports.recalculateOrderRollup = recalculateOrderRollup;
-const db_1 = require("../config/db");
-const customError_1 = __importDefault(require("../utils/customError"));
-const prisma_1 = require("../../generated/prisma");
-const env_config_1 = require("../config/env-config");
+const db_1 = require("../config/db.js");
+const customError_1 = __importDefault(require("../utils/customError.js"));
+const prisma_client_1 = require("../lib/prisma-client.js");
+const env_config_1 = require("../config/env-config.js");
 const money_1 = require("./money");
 const vendor_1 = require("./vendor");
 const TAX_RATE = env_config_1.envConfig.tax_rate;
@@ -291,21 +291,21 @@ async function logStatusChange(tx, params) {
  */
 function deriveOrderStatus(vendorStatuses) {
     if (vendorStatuses.length === 0)
-        return prisma_1.OrderStatus.PENDING;
-    const live = vendorStatuses.filter((status) => status !== prisma_1.OrderStatus.CANCELED);
+        return prisma_client_1.OrderStatus.PENDING;
+    const live = vendorStatuses.filter((status) => status !== prisma_client_1.OrderStatus.CANCELED);
     if (live.length === 0)
-        return prisma_1.OrderStatus.CANCELED;
-    if (live.every((status) => status === prisma_1.OrderStatus.DELIVERED)) {
-        return prisma_1.OrderStatus.DELIVERED;
+        return prisma_client_1.OrderStatus.CANCELED;
+    if (live.every((status) => status === prisma_client_1.OrderStatus.DELIVERED)) {
+        return prisma_client_1.OrderStatus.DELIVERED;
     }
-    if (live.every((status) => status === prisma_1.OrderStatus.SHIPPED ||
-        status === prisma_1.OrderStatus.DELIVERED)) {
-        return prisma_1.OrderStatus.SHIPPED;
+    if (live.every((status) => status === prisma_client_1.OrderStatus.SHIPPED ||
+        status === prisma_client_1.OrderStatus.DELIVERED)) {
+        return prisma_client_1.OrderStatus.SHIPPED;
     }
-    if (live.some((status) => status !== prisma_1.OrderStatus.PENDING)) {
-        return prisma_1.OrderStatus.PROCESSING;
+    if (live.some((status) => status !== prisma_client_1.OrderStatus.PENDING)) {
+        return prisma_client_1.OrderStatus.PROCESSING;
     }
-    return prisma_1.OrderStatus.PENDING;
+    return prisma_client_1.OrderStatus.PENDING;
 }
 /**
  * Recompute the parent order's rollup status and money totals from its vendor

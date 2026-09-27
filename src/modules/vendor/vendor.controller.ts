@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { asyncHandler } from "../../utils/asyncHandler";
-import { sendResponse } from "../../utils/sendResponse";
+import { asyncHandler } from "@/utils/asyncHandler";
+import { sendResponse } from "@/utils/sendResponse";
 import { vendorServices } from "./vendor.service";
 
 const applyForVendor = asyncHandler(async (req: Request, res: Response) => {

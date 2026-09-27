@@ -25,15 +25,44 @@ There is **no test runner configured** in this repo.
 
 After changing `prisma/schema.prisma`, always run `pnpm prisma:generate` — the client is consumed from a non-standard path (see below) and stale generation causes type errors.
 
-## Prisma client location (important)
+## Path aliases
 
-The Prisma client is generated to **`generated/prisma`** (repo root, gitignored), not `node_modules/@prisma/client`. Import model types and enums from the relative path:
+`src/` is aliased to **`@/`**. Use it for anything outside the current directory; keep
+same-directory imports as `./relative`.
 
 ```ts
-import { Prisma, Product, OrderStatus, Role } from "../../generated/prisma";
+import { prisma } from "@/config/db";
+import { authGuard } from "@/middleware/authGuard";
+import { Role } from "@/lib/prisma-client";
+import { authControllers } from "./auth.controller";   // same dir — stays relative
 ```
 
-Note the codebase is inconsistent here: `src/helpers/order.ts` imports `Prisma` from `@prisma/client` while importing enums from `../../generated/prisma`. Prefer the `generated/prisma` path for new code. The shared client singleton is `src/config/db.ts` (`export const prisma`) — always import from there, never instantiate `PrismaClient` directly.
+**Aliases are compile-time only, and three things keep them working at runtime.** Breaking any one
+of them produces `Cannot find module "@/..."` at boot, not a type error:
+
+| | |
+| --- | --- |
+| `tsconfig.json` | `baseUrl` + `paths` — type checking only |
+| `pnpm dev` | `ts-node-dev -r tsconfig-paths/register` |
+| `pnpm build` | `tsc && tsc-alias` — `tsc-alias` rewrites `dist/` back to relative paths |
+| `pnpm seed` | `tsx` resolves `paths` natively, nothing to add |
+
+## Prisma client location (important)
+
+The Prisma client is generated to **`generated/prisma`** (repo root, gitignored), not
+`node_modules/@prisma/client`. Because that is **outside `src/`**, it cannot be aliased directly —
+`tsc-alias` can only rewrite paths that land inside the compiled tree, so an alias pointing at it
+type-checks and then fails at runtime.
+
+`src/lib/prisma-client.ts` re-exports it, and that file holds the only relative path to it. Import
+model types, enums and the `Prisma` namespace from the alias:
+
+```ts
+import { Prisma, Product, OrderStatus, Role } from "@/lib/prisma-client";
+```
+
+The shared client *instance* is `src/config/db.ts` (`export const prisma`) — always import from
+there, never instantiate `PrismaClient` directly.
 
 ## Architecture
 
@@ -43,7 +72,21 @@ Note the codebase is inconsistent here: `src/helpers/order.ts` imports `Prisma` 
 
 All feature routers are registered in **`src/routes/routes-array.ts`** as `{ path, element }` entries. To add a module, create it under `src/modules/<name>/` and add one line to this array. Multiple routers can share a base path (e.g. `/products` is served by `productRouter`, `variantRouter`, and `productImageRouter`).
 
-Middleware ordering in `app.ts` matters: the **Stripe webhook is mounted at `/webhook` before `express.json()`** so it receives the raw body (`express.raw`). Everything else parses JSON. `notFoundRoute` and `globalErrorHandler` are last.
+**Middleware ordering in `app.ts` is load-bearing.** In order: `trust proxy` → `helmet` → `cors` →
+`morgan` → `/webhook` → `express.json({ limit })` → `apiLimiter` + `/api/v1` → `notFoundRoute` →
+`globalErrorHandler`. Three of those positions are deliberate:
+
+- The **Stripe webhook is mounted at `/webhook` before `express.json()`** so it receives the raw
+  body (`express.raw`). It is also above `apiLimiter` and outside `/api/v1`, so **Stripe's retries
+  are never throttled** — a dropped retry loses an order or leaves a refund unreconciled.
+- **`cors` must precede the rate limiter.** A 429 is still a cross-origin response; without CORS
+  headers already attached the browser reports an opaque CORS failure instead of the real message.
+- **`morgan` sits above the webhook and the limiter**, so both appear in the log.
+
+Rate limiters are in `src/middleware/rateLimiter.ts` and are applied **per endpoint** in
+`auth.route.ts`, never to the whole router: `/refresh-token` fires for every signed-in browser every
+~20 minutes, so throttling it at credential-guessing rates would break sessions for everyone behind
+one NAT. `loginLimiter` uses `skipSuccessfulRequests` so only *failed* logins count.
 
 The webhook router serves **both `POST /webhook` and `POST /webhook/stripe`**. It is deliberately NOT in `routes-array.ts`: registering it under `/api/v1` would expose a second path whose body `express.json()` has already consumed, so every signature check on it would fail. (That duplicate existed at `/api/v1/payments/stripe` and has been removed.)
 
@@ -155,9 +198,10 @@ one store's data into another's dashboard.
 `authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)` is guarded against *strangers*, not against
 *other customers* — if the handler then looks a row up by `req.params.id` alone, every signed-in
 account can reach every other account's data. `src/modules/address/address.service.ts`
-(`findOwnedAddress`) is the reference implementation for a per-user resource: filter on
-`id + userId`, throw **404 rather than 403**, and have the controller pass `req.user.id`. The
-wishlist module still has this bug — see `docs/FEATURE-GAPS.md` BE-03.
+(`findOwnedAddress`) and `src/modules/wishlist/wishlist.service.ts` (`findOwnedWishlist`) are the
+reference implementations for a per-user resource: filter on `id + userId`, throw **404 rather than
+403**, and have the controller pass `req.user.id`. Never take the owner from the request body —
+`wishlist.validation.ts` carries the note on why that schema deliberately omits `userId`.
 
 **Soft-delete user-owned rows that an order can reference.** `Address` is the worked example:
 `Order.shippingAddressId` is a required column pointing at it, so a hard delete breaks past orders.

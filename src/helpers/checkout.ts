@@ -2,11 +2,11 @@ import {
     CheckoutSessionStatus,
     PaymentMethod,
     Prisma,
-} from "../../generated/prisma";
-import { prisma } from "../config/db";
-import { envConfig } from "../config/env-config";
-import { OrderCalculation } from "../types/common.types";
-import CustomError from "../utils/customError";
+} from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { envConfig } from "@/config/env-config";
+import { OrderCalculation } from "@/types/common.types";
+import CustomError from "@/utils/customError";
 
 /**
  * Checkout drafts.

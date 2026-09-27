@@ -1,6 +1,6 @@
 import { Request, Response, Router } from "express";
-import CustomError from "../../utils/customError";
-import { deleteFromCloudinary } from "../../utils/cloudinary";
+import CustomError from "@/utils/customError";
+import { deleteFromCloudinary } from "@/utils/cloudinary";
 
 const router = Router();
 

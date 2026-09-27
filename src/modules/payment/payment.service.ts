@@ -1,20 +1,20 @@
 /* eslint-disable no-console */
 import Stripe from "stripe";
-import { envConfig } from "../../config/env-config";
-import CustomError from "../../utils/customError";
-import { prisma } from "../../config/db";
+import { envConfig } from "@/config/env-config";
+import CustomError from "@/utils/customError";
+import { prisma } from "@/config/db";
 import {
     OrderStatus,
     PaymentMethod,
     PaymentStatus,
     Prisma,
     RefundStatus,
-} from "../../../generated/prisma";
-import { consumeCheckoutSession } from "../../helpers/checkout";
-import { recomputePaymentRefundState } from "../../helpers/refund";
-import { round2 } from "../../helpers/money";
-import { persistOrder } from "../../helpers/create-order";
-import { OrderCalculation } from "../../types/common.types";
+} from "@/lib/prisma-client";
+import { consumeCheckoutSession } from "@/helpers/checkout";
+import { recomputePaymentRefundState } from "@/helpers/refund";
+import { round2 } from "@/helpers/money";
+import { persistOrder } from "@/helpers/create-order";
+import { OrderCalculation } from "@/types/common.types";
 
 // Initialize Stripe
 const stripe = new Stripe(envConfig.stripe_secret_key as string, {

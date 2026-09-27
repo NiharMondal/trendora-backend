@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.globalErrorHandler = void 0;
-const prisma_1 = require("../../generated/prisma");
+const prisma_client_1 = require("../lib/prisma-client.js");
 const zod_1 = require("zod");
 const globalErrorHandler = (
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,7 +25,7 @@ next) => {
             errorResponse.errorDetails = errors;
         }
     }
-    if (error instanceof prisma_1.Prisma.PrismaClientValidationError) {
+    if (error instanceof prisma_client_1.Prisma.PrismaClientValidationError) {
         errorResponse.statusCode = 400;
         errorResponse.message = error.name;
         const match = error.message.match(/Argument\s+`[^`]+`\s+is\s+missing\./);
@@ -33,7 +33,7 @@ next) => {
         errorResponse.errorDetails = result;
         console.log(error);
     }
-    if (error instanceof prisma_1.Prisma.PrismaClientKnownRequestError) {
+    if (error instanceof prisma_client_1.Prisma.PrismaClientKnownRequestError) {
         if (error.code === "P2002") {
             errorResponse.statusCode = 400;
             errorResponse.message = "Duplicate key error";

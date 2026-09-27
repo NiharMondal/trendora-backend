@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { Role } from "../../../generated/prisma";
-import { authGuard } from "../../middleware/authGuard";
-import { validateRequest } from "../../middleware/validateRequest";
+import { Role } from "@/lib/prisma-client";
+import { authGuard } from "@/middleware/authGuard";
+import { validateRequest } from "@/middleware/validateRequest";
 import { vendorControllers } from "./vendor.controller";
 import { vendorValidation } from "./vendor.validation";
 

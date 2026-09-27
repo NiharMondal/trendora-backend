@@ -1,5 +1,5 @@
 import slugify from "slugify";
-import { prisma } from "../config/db";
+import { prisma } from "@/config/db";
 
 export const generateSlug = (title: string): string => {
     const slug = slugify(title, { lower: true });

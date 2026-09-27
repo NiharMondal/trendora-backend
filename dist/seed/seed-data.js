@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.slides = exports.vendors = exports.users = exports.products = exports.categories = exports.brands = exports.sizeGroups = void 0;
-const prisma_1 = require("../../generated/prisma");
+const prisma_client_1 = require("../lib/prisma-client.js");
 exports.sizeGroups = [
     { name: "Clothing", sizes: ["XS", "S", "M", "L", "XL", "2XL"] },
     { name: "Footwear", sizes: ["7", "8", "9", "10", "11", "12"] },
@@ -38,7 +38,7 @@ exports.products = [
         basePrice: 89,
         discountPrice: 69,
         stockQuantity: 300,
-        gender: prisma_1.Gender.MEN,
+        gender: prisma_client_1.Gender.MEN,
         brand: "Levi's",
         categorySlug: "jeans",
         images: [
@@ -71,7 +71,7 @@ exports.products = [
         discountPrice: 120,
         stockQuantity: 150,
         isFeatured: true,
-        gender: prisma_1.Gender.UNISEX,
+        gender: prisma_client_1.Gender.UNISEX,
         brand: "Nike",
         categorySlug: "sneakers",
         images: [
@@ -106,7 +106,7 @@ exports.products = [
         description: "Energy-returning Boost cushioning. Adaptive Primeknit+ upper. Continental rubber outsole for superior grip. Perfect for running and everyday training.",
         basePrice: 190,
         stockQuantity: 180,
-        gender: prisma_1.Gender.UNISEX,
+        gender: prisma_client_1.Gender.UNISEX,
         brand: "Adidas",
         categorySlug: "sneakers",
         images: [
@@ -138,7 +138,7 @@ exports.products = [
         basePrice: 90.99,
         discountPrice: 80,
         stockQuantity: 118,
-        gender: prisma_1.Gender.UNISEX,
+        gender: prisma_client_1.Gender.UNISEX,
         brand: "Trendora Basics",
         categorySlug: "t-shirts",
         images: [
@@ -165,25 +165,25 @@ exports.users = [
         name: "Trendora Admin",
         email: "admin@trendora.test",
         phone: "+8801700000001",
-        role: prisma_1.Role.ADMIN,
+        role: prisma_client_1.Role.ADMIN,
     },
     {
         name: "Test Customer",
         email: "customer@trendora.test",
         phone: "+8801700000002",
-        role: prisma_1.Role.CUSTOMER,
+        role: prisma_client_1.Role.CUSTOMER,
     },
     {
         name: "Ayesha Rahman",
         email: "vendor1@trendora.test",
         phone: "+8801700000003",
-        role: prisma_1.Role.VENDOR,
+        role: prisma_client_1.Role.VENDOR,
     },
     {
         name: "Rafiq Islam",
         email: "vendor2@trendora.test",
         phone: "+8801700000004",
-        role: prisma_1.Role.VENDOR,
+        role: prisma_client_1.Role.VENDOR,
     },
 ];
 /**
@@ -206,7 +206,7 @@ exports.vendors = [
         description: "The platform's own store. Holds every product that existed before Trendora became a marketplace.",
         businessEmail: "store@trendora.test",
         businessPhone: "+8801700000001",
-        status: prisma_1.VendorStatus.APPROVED,
+        status: prisma_client_1.VendorStatus.APPROVED,
         commissionRate: 0,
         shippingFee: 100,
         freeShippingThreshold: 1000,
@@ -218,7 +218,7 @@ exports.vendors = [
         description: "Denim and everyday essentials, cut for real life. Family-run since 2014 and still packing every order by hand.",
         businessEmail: "hello@urbanthreads.test",
         businessPhone: "+8801700000003",
-        status: prisma_1.VendorStatus.APPROVED,
+        status: prisma_client_1.VendorStatus.APPROVED,
         commissionRate: 0.1,
         shippingFee: 80,
         freeShippingThreshold: 800,
@@ -230,7 +230,7 @@ exports.vendors = [
         description: "Performance running and lifestyle sneakers, fitted properly. Free delivery once you cross a pair and a half.",
         businessEmail: "hello@solesociety.test",
         businessPhone: "+8801700000004",
-        status: prisma_1.VendorStatus.APPROVED,
+        status: prisma_client_1.VendorStatus.APPROVED,
         // A negotiated rate — proof that commission is per store, not global.
         commissionRate: 0.12,
         shippingFee: 150,

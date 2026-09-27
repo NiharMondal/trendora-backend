@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createCODOrder = createCODOrder;
-const prisma_1 = require("../../generated/prisma");
-const db_1 = require("../config/db");
+const prisma_client_1 = require("../lib/prisma-client.js");
+const db_1 = require("../config/db.js");
 const create_order_1 = require("./create-order");
 /**
  * Cash on delivery: the order is created inline, unpaid. Payment flips to PAID
@@ -14,9 +14,9 @@ async function createCODOrder(input) {
         userId: input.userId,
         shippingAddressId: input.shippingAddressId,
         calculation: input.calculation,
-        paymentMethod: prisma_1.PaymentMethod.CASH_ON_DELIVERY,
-        paymentStatus: prisma_1.PaymentStatus.PENDING,
-        initialVendorStatus: prisma_1.OrderStatus.PENDING,
+        paymentMethod: prisma_client_1.PaymentMethod.CASH_ON_DELIVERY,
+        paymentStatus: prisma_client_1.PaymentStatus.PENDING,
+        initialVendorStatus: prisma_client_1.OrderStatus.PENDING,
         notes: input.notes,
         ipAddress: input.ipAddress,
         userAgent: input.userAgent,

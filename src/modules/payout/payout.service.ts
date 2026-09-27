@@ -4,12 +4,12 @@ import {
     PayoutStatus,
     Prisma,
     Role,
-} from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import { round2, toNumber } from "../../helpers/money";
-import { requireApprovedVendor } from "../../helpers/vendor";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import CustomError from "../../utils/customError";
+} from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { round2, toNumber } from "@/helpers/money";
+import { requireApprovedVendor } from "@/helpers/vendor";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import CustomError from "@/utils/customError";
 import {
     TGeneratePayout,
     TMarkPayoutFailed,

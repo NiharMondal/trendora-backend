@@ -4,15 +4,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.vendorServices = void 0;
-const prisma_1 = require("../../../generated/prisma");
-const db_1 = require("../../config/db");
-const env_config_1 = require("../../config/env-config");
-const money_1 = require("../../helpers/money");
-const slug_1 = require("../../helpers/slug");
-const vendor_1 = require("../../helpers/vendor");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const cloudinary_1 = require("../../utils/cloudinary");
-const customError_1 = __importDefault(require("../../utils/customError"));
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const db_1 = require("../../config/db.js");
+const env_config_1 = require("../../config/env-config.js");
+const money_1 = require("../../helpers/money.js");
+const slug_1 = require("../../helpers/slug.js");
+const vendor_1 = require("../../helpers/vendor.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const cloudinary_1 = require("../../utils/cloudinary.js");
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 /**
  * Promotes a Cloudinary temp upload into its final folder.
  *
@@ -49,10 +49,10 @@ const applyForVendor = async (userId, payload) => {
     if (existing) {
         // A rejected applicant may re-apply; the same row is reused so the
         // one-store-per-user invariant (Vendor.ownerId is unique) holds.
-        if (existing.status === prisma_1.VendorStatus.REJECTED) {
+        if (existing.status === prisma_client_1.VendorStatus.REJECTED) {
             return reapply(existing.id, payload);
         }
-        throw new customError_1.default(409, existing.status === prisma_1.VendorStatus.PENDING
+        throw new customError_1.default(409, existing.status === prisma_client_1.VendorStatus.PENDING
             ? "You already have a vendor application under review"
             : "You already have a vendor account");
     }
@@ -79,7 +79,7 @@ const applyForVendor = async (userId, payload) => {
             commissionRate: env_config_1.envConfig.platform_commission_rate,
             shippingFee: env_config_1.envConfig.shipping_cost,
             freeShippingThreshold: env_config_1.envConfig.free_shipping_threshold,
-            status: prisma_1.VendorStatus.PENDING,
+            status: prisma_client_1.VendorStatus.PENDING,
         },
     });
 };
@@ -104,7 +104,7 @@ const reapply = async (vendorId, payload) => {
             banner: banner?.url,
             bannerPublicId: banner?.publicId,
             payoutDetails: payload.payoutDetails,
-            status: prisma_1.VendorStatus.PENDING,
+            status: prisma_client_1.VendorStatus.PENDING,
             rejectionReason: null,
             isDeleted: false,
         },
@@ -123,8 +123,8 @@ const getMyStore = async (userId) => {
 };
 const updateMyStore = async (userId, payload) => {
     const vendor = await getMyStore(userId);
-    if (vendor.status === prisma_1.VendorStatus.SUSPENDED ||
-        vendor.status === prisma_1.VendorStatus.REJECTED) {
+    if (vendor.status === prisma_client_1.VendorStatus.SUSPENDED ||
+        vendor.status === prisma_client_1.VendorStatus.REJECTED) {
         throw new customError_1.default(403, "You cannot edit your store while it is suspended or rejected");
     }
     const [logo, banner] = await Promise.all([
@@ -169,7 +169,7 @@ const findAllPublic = async (query) => {
     const builder = new PrismaQueryBuilder_1.default(query);
     const prismaArgs = builder
         .withDefaultFilter({
-        status: prisma_1.VendorStatus.APPROVED,
+        status: prisma_client_1.VendorStatus.APPROVED,
         isDeleted: false,
     })
         .search(["storeName", "description"])
@@ -187,7 +187,7 @@ const findAllPublic = async (query) => {
 /** A single storefront by slug, with its live product count. */
 const findBySlug = async (slug) => {
     const vendor = await db_1.prisma.vendor.findFirst({
-        where: { slug, status: prisma_1.VendorStatus.APPROVED, isDeleted: false },
+        where: { slug, status: prisma_client_1.VendorStatus.APPROVED, isDeleted: false },
         select: vendor_1.publicVendorSelect,
     });
     if (!vendor) {
@@ -266,20 +266,20 @@ const approveVendor = async (vendorId) => {
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
     }
-    if (vendor.status === prisma_1.VendorStatus.APPROVED) {
+    if (vendor.status === prisma_client_1.VendorStatus.APPROVED) {
         throw new customError_1.default(400, "This store is already approved");
     }
     return db_1.prisma.$transaction(async (tx) => {
-        if (vendor.owner.auth && vendor.owner.auth.role !== prisma_1.Role.ADMIN) {
+        if (vendor.owner.auth && vendor.owner.auth.role !== prisma_client_1.Role.ADMIN) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
-                data: { role: prisma_1.Role.VENDOR },
+                data: { role: prisma_client_1.Role.VENDOR },
             });
         }
         return tx.vendor.update({
             where: { id: vendorId },
             data: {
-                status: prisma_1.VendorStatus.APPROVED,
+                status: prisma_client_1.VendorStatus.APPROVED,
                 approvedAt: new Date(),
                 suspendedAt: null,
                 rejectionReason: null,
@@ -298,10 +298,10 @@ const rejectVendor = async (vendorId, payload) => {
         throw new customError_1.default(404, "Vendor not found");
     }
     return db_1.prisma.$transaction(async (tx) => {
-        if (vendor.owner.auth && vendor.owner.auth.role === prisma_1.Role.VENDOR) {
+        if (vendor.owner.auth && vendor.owner.auth.role === prisma_client_1.Role.VENDOR) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
-                data: { role: prisma_1.Role.CUSTOMER },
+                data: { role: prisma_client_1.Role.CUSTOMER },
             });
         }
         // Hide the catalogue: rejected stores must not keep live listings.
@@ -312,7 +312,7 @@ const rejectVendor = async (vendorId, payload) => {
         return tx.vendor.update({
             where: { id: vendorId },
             data: {
-                status: prisma_1.VendorStatus.REJECTED,
+                status: prisma_client_1.VendorStatus.REJECTED,
                 rejectionReason: payload.reason,
                 approvedAt: null,
             },
@@ -332,13 +332,13 @@ const suspendVendor = async (vendorId, payload) => {
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
     }
-    if (vendor.status === prisma_1.VendorStatus.SUSPENDED) {
+    if (vendor.status === prisma_client_1.VendorStatus.SUSPENDED) {
         throw new customError_1.default(400, "This store is already suspended");
     }
     return db_1.prisma.vendor.update({
         where: { id: vendorId },
         data: {
-            status: prisma_1.VendorStatus.SUSPENDED,
+            status: prisma_client_1.VendorStatus.SUSPENDED,
             suspendedAt: new Date(),
             rejectionReason: payload.reason,
         },
@@ -350,13 +350,13 @@ const reinstateVendor = async (vendorId) => {
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
     }
-    if (vendor.status !== prisma_1.VendorStatus.SUSPENDED) {
+    if (vendor.status !== prisma_client_1.VendorStatus.SUSPENDED) {
         throw new customError_1.default(400, "This store is not suspended");
     }
     return db_1.prisma.vendor.update({
         where: { id: vendorId },
         data: {
-            status: prisma_1.VendorStatus.APPROVED,
+            status: prisma_client_1.VendorStatus.APPROVED,
             suspendedAt: null,
             rejectionReason: null,
         },
@@ -387,7 +387,7 @@ const deleteVendor = async (vendorId) => {
         where: {
             vendorId,
             orderStatus: {
-                notIn: [prisma_1.OrderStatus.DELIVERED, prisma_1.OrderStatus.CANCELED],
+                notIn: [prisma_client_1.OrderStatus.DELIVERED, prisma_client_1.OrderStatus.CANCELED],
             },
         },
     });
@@ -401,7 +401,7 @@ const deleteVendor = async (vendorId) => {
         });
         return tx.vendor.update({
             where: { id: vendorId },
-            data: { isDeleted: true, status: prisma_1.VendorStatus.SUSPENDED },
+            data: { isDeleted: true, status: prisma_client_1.VendorStatus.SUSPENDED },
         });
     });
 };
@@ -429,8 +429,8 @@ const getMyDashboard = async (userId, range) => {
         db_1.prisma.vendorOrder.aggregate({
             where: {
                 ...scope,
-                orderStatus: { not: prisma_1.OrderStatus.CANCELED },
-                order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+                orderStatus: { not: prisma_client_1.OrderStatus.CANCELED },
+                order: { paymentStatus: prisma_client_1.PaymentStatus.PAID },
             },
             _sum: {
                 vendorEarning: true,
@@ -453,9 +453,9 @@ const getMyDashboard = async (userId, range) => {
         db_1.prisma.vendorOrder.aggregate({
             where: {
                 vendorId: vendor.id,
-                orderStatus: prisma_1.OrderStatus.DELIVERED,
+                orderStatus: prisma_client_1.OrderStatus.DELIVERED,
                 payoutId: null,
-                order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+                order: { paymentStatus: prisma_client_1.PaymentStatus.PAID },
             },
             _sum: { vendorEarning: true },
             _count: { id: true },
@@ -465,7 +465,7 @@ const getMyDashboard = async (userId, range) => {
             where: {
                 vendorId: vendor.id,
                 vendorOrder: {
-                    orderStatus: { not: prisma_1.OrderStatus.CANCELED },
+                    orderStatus: { not: prisma_client_1.OrderStatus.CANCELED },
                     ...dateFilter,
                 },
             },

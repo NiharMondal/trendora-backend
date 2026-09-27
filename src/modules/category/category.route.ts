@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { categoryControllers } from "./category.controller";
-import { validateRequest } from "../../middleware/validateRequest";
+import { validateRequest } from "@/middleware/validateRequest";
 import { categorySchema } from "./category.validation";
-import { authGuard } from "../../middleware/authGuard";
-import { Role } from "../../../generated/prisma";
+import { authGuard } from "@/middleware/authGuard";
+import { Role } from "@/lib/prisma-client";
 
 const router = Router();
 

@@ -1,11 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 /* eslint-disable no-console */
-const env_config_1 = require("../config/env-config");
-const db_1 = require("../config/db");
-const password_1 = require("../helpers/password");
-const slug_1 = require("../helpers/slug");
-const prisma_1 = require("../../generated/prisma");
+const env_config_1 = require("../config/env-config.js");
+const db_1 = require("../config/db.js");
+const password_1 = require("../helpers/password.js");
+const slug_1 = require("../helpers/slug.js");
+const prisma_client_1 = require("../lib/prisma-client.js");
 const seed_data_1 = require("./seed-data");
 /**
  * Idempotent development seed. Every step upserts or looks up before writing,
@@ -109,7 +109,7 @@ async function seedProducts(brandIds, categoryIds, sizeIds, vendorIds) {
             vendorId,
             // Seeded listings are pre-moderated, otherwise the storefront
             // would render nothing (publicProductFilter requires APPROVED).
-            status: prisma_1.ProductStatus.APPROVED,
+            status: prisma_client_1.ProductStatus.APPROVED,
             approvedAt: new Date(),
             submittedAt: new Date(),
         };

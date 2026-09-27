@@ -1,5 +1,5 @@
-import { prisma } from "../../config/db";
-import CustomError from "../../utils/customError";
+import { prisma } from "@/config/db";
+import CustomError from "@/utils/customError";
 import { TAddressValues } from "./address.validation";
 
 /**

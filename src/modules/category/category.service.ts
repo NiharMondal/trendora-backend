@@ -1,9 +1,9 @@
-import { Category, Prisma } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import { generateSlug } from "../../helpers/slug";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
+import { Category, Prisma } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import { generateSlug } from "@/helpers/slug";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 
-import { capitalizeFirstLetter } from "../../utils/utils";
+import { capitalizeFirstLetter } from "@/utils/utils";
 
 const createIntoDB = async (payload: Category) => {
 

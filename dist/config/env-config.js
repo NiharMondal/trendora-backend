@@ -43,10 +43,32 @@ exports.envConfig = {
     password_reset_ttl_minutes: parseInt(process.env.PASSWORD_RESET_TTL_MINUTES || "30", 10),
     /**
      * Minimum gap between two reset emails for the same account, in seconds.
-     * Stops one address being used to mail-bomb another while there is still
-     * no global rate limiter (see docs/FEATURE-GAPS.md BE-05).
+     * The per-account counterpart to `sensitiveAuthLimiter`: this stops one
+     * address being mail-bombed, the limiter stops one client walking a list.
      */
     password_reset_cooldown_seconds: parseInt(process.env.PASSWORD_RESET_COOLDOWN_SECONDS || "60", 10),
+    /**
+     * Number of reverse-proxy hops in front of this app, for Express's
+     * `trust proxy`. **0 means no proxy** (local dev, or a directly exposed
+     * container). Behind one load balancer this is 1.
+     *
+     * Getting it wrong breaks per-IP rate limiting in opposite ways: too low and
+     * every request looks like it came from the proxy, so one noisy client
+     * throttles everybody; too high and a client can spoof `X-Forwarded-For` to
+     * dodge the limit entirely.
+     */
+    trust_proxy: parseInt(process.env.TRUST_PROXY || "0", 10),
+    /** Per-IP request budgets, each over a 15-minute window. */
+    rate_limit: {
+        /** Whole API. Generous — a storefront page makes several calls. */
+        api_max: parseInt(process.env.RATE_LIMIT_API_MAX || "1000", 10),
+        /** Failed logins only (successful ones are not counted). */
+        login_max: parseInt(process.env.RATE_LIMIT_LOGIN_MAX || "10", 10),
+        /** Register / forgot-password / reset-password; counts every request. */
+        sensitive_max: parseInt(process.env.RATE_LIMIT_SENSITIVE_MAX || "10", 10),
+    },
+    /** Maximum accepted request body size. */
+    body_limit: process.env.BODY_LIMIT || "1mb",
     // dev seed (src/seed) — not used by the running server
     seed_password: process.env.SEED_PASSWORD || "Password123!",
     // order related

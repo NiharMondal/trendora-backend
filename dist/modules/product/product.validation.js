@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productValidation = exports.publishProductSchema = exports.rejectProductSchema = exports.updateProductSchema = exports.productSchema = exports.productVariantSchema = exports.productImageSchema = void 0;
 const zod_1 = require("zod");
-const utils_1 = require("../../utils/utils");
-const enum_1 = require("../../helpers/enum");
+const utils_1 = require("../../utils/utils.js");
+const enum_1 = require("../../helpers/enum.js");
 exports.productImageSchema = zod_1.z.object({
     id: zod_1.z.string().optional(),
     url: zod_1.z.url({ error: "URL is required" }),

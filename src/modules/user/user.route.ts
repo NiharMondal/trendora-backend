@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { userControllers } from "./user.controller";
-import { authGuard } from "../../middleware/authGuard";
-import { Role } from "../../../generated/prisma";
+import { authGuard } from "@/middleware/authGuard";
+import { Role } from "@/lib/prisma-client";
 
 const router = Router();
 

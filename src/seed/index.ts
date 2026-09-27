@@ -1,9 +1,9 @@
 /* eslint-disable no-console */
-import { envConfig } from "../config/env-config";
-import { prisma } from "../config/db";
-import { makePasswordHash } from "../helpers/password";
-import { generateSlug } from "../helpers/slug";
-import { ProductStatus } from "../../generated/prisma";
+import { envConfig } from "@/config/env-config";
+import { prisma } from "@/config/db";
+import { makePasswordHash } from "@/helpers/password";
+import { generateSlug } from "@/helpers/slug";
+import { ProductStatus } from "@/lib/prisma-client";
 import {
 	brands,
 	categories,

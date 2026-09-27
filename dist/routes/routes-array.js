@@ -1,25 +1,25 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routesArray = void 0;
-const address_route_1 = require("../modules/address/address.route");
-const auth_route_1 = require("../modules/auth/auth.route");
-const brand_route_1 = require("../modules/brand/brand.route");
-const category_route_1 = require("../modules/category/category.route");
-const cloudinary_route_1 = require("../modules/cloudinary/cloudinary.route");
-const order_route_1 = require("../modules/order/order.route");
-const payout_route_1 = require("../modules/payout/payout.route");
-const image_route_1 = require("../modules/product-image/image.route");
-const variant_route_1 = require("../modules/product-variant/variant.route");
-const product_route_1 = require("../modules/product/product.route");
-const refund_route_1 = require("../modules/refund/refund.route");
-const review_route_1 = require("../modules/review/review.route");
-const size_group_route_1 = require("../modules/size-group/size-group.route");
-const size_route_1 = require("../modules/size/size.route");
-const slide_route_1 = require("../modules/slide/slide.route");
-const user_route_1 = require("../modules/user/user.route");
-const vendor_review_route_1 = require("../modules/vendor-review/vendor-review.route");
-const vendor_route_1 = require("../modules/vendor/vendor.route");
-const wishlist_route_1 = require("../modules/wishlist/wishlist.route");
+const address_route_1 = require("../modules/address/address.route.js");
+const auth_route_1 = require("../modules/auth/auth.route.js");
+const brand_route_1 = require("../modules/brand/brand.route.js");
+const category_route_1 = require("../modules/category/category.route.js");
+const cloudinary_route_1 = require("../modules/cloudinary/cloudinary.route.js");
+const order_route_1 = require("../modules/order/order.route.js");
+const payout_route_1 = require("../modules/payout/payout.route.js");
+const image_route_1 = require("../modules/product-image/image.route.js");
+const variant_route_1 = require("../modules/product-variant/variant.route.js");
+const product_route_1 = require("../modules/product/product.route.js");
+const refund_route_1 = require("../modules/refund/refund.route.js");
+const review_route_1 = require("../modules/review/review.route.js");
+const size_group_route_1 = require("../modules/size-group/size-group.route.js");
+const size_route_1 = require("../modules/size/size.route.js");
+const slide_route_1 = require("../modules/slide/slide.route.js");
+const user_route_1 = require("../modules/user/user.route.js");
+const vendor_review_route_1 = require("../modules/vendor-review/vendor-review.route.js");
+const vendor_route_1 = require("../modules/vendor/vendor.route.js");
+const wishlist_route_1 = require("../modules/wishlist/wishlist.route.js");
 exports.routesArray = [
     { path: "/auth", element: auth_route_1.authRouter },
     { path: "/users", element: user_route_1.userRouter },

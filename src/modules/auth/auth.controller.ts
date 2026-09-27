@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { asyncHandler } from "../../utils/asyncHandler";
+import { asyncHandler } from "@/utils/asyncHandler";
 
-import { sendResponse } from "../../utils/sendResponse";
+import { sendResponse } from "@/utils/sendResponse";
 import { authServices } from "./auth.service";
 
 const registerUser = asyncHandler(async (req: Request, res: Response) => {

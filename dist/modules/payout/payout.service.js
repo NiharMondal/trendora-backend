@@ -4,12 +4,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.payoutServices = void 0;
-const prisma_1 = require("../../../generated/prisma");
-const db_1 = require("../../config/db");
-const money_1 = require("../../helpers/money");
-const vendor_1 = require("../../helpers/vendor");
-const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder"));
-const customError_1 = __importDefault(require("../../utils/customError"));
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const db_1 = require("../../config/db.js");
+const money_1 = require("../../helpers/money.js");
+const vendor_1 = require("../../helpers/vendor.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const customError_1 = __importDefault(require("../../utils/customError.js"));
 /**
  * Vendor payouts.
  *
@@ -26,8 +26,8 @@ const customError_1 = __importDefault(require("../../utils/customError"));
 const eligibleWhere = (vendorId, periodStart, periodEnd) => ({
     vendorId,
     payoutId: null,
-    orderStatus: prisma_1.OrderStatus.DELIVERED,
-    order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+    orderStatus: prisma_client_1.OrderStatus.DELIVERED,
+    order: { paymentStatus: prisma_client_1.PaymentStatus.PAID },
     ...(periodStart && periodEnd
         ? { deliveredAt: { gte: periodStart, lte: periodEnd } }
         : {}),
@@ -37,7 +37,7 @@ const eligibleWhere = (vendorId, periodStart, periodEnd) => ({
  * balance" on the vendor dashboard.
  */
 const getMyBalance = async (actor, vendorIdOverride) => {
-    const vendorId = actor.role === prisma_1.Role.ADMIN && vendorIdOverride
+    const vendorId = actor.role === prisma_client_1.Role.ADMIN && vendorIdOverride
         ? vendorIdOverride
         : (await (0, vendor_1.requireApprovedVendor)(actor.id)).id;
     const [pending, inFlight, settled] = await Promise.all([
@@ -52,15 +52,15 @@ const getMyBalance = async (actor, vendorIdOverride) => {
                 vendorId,
                 payoutId: null,
                 orderStatus: {
-                    notIn: [prisma_1.OrderStatus.DELIVERED, prisma_1.OrderStatus.CANCELED],
+                    notIn: [prisma_client_1.OrderStatus.DELIVERED, prisma_client_1.OrderStatus.CANCELED],
                 },
-                order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+                order: { paymentStatus: prisma_client_1.PaymentStatus.PAID },
             },
             _sum: { vendorEarning: true },
             _count: { id: true },
         }),
         db_1.prisma.payout.aggregate({
-            where: { vendorId, status: prisma_1.PayoutStatus.PAID },
+            where: { vendorId, status: prisma_client_1.PayoutStatus.PAID },
             _sum: { amount: true },
             _count: { id: true },
         }),
@@ -103,13 +103,13 @@ const generatePayout = async (payload) => {
             data: {
                 vendorId: payload.vendorId,
                 amount,
-                status: prisma_1.PayoutStatus.PENDING,
+                status: prisma_client_1.PayoutStatus.PENDING,
                 method: payload.method,
                 notes: payload.notes,
                 // Snapshot where the money is meant to go, so a later change
                 // to the vendor's bank details cannot rewrite history.
                 payoutDetails: vendor.payoutDetails ??
-                    prisma_1.Prisma.JsonNull,
+                    prisma_client_1.Prisma.JsonNull,
                 periodStart: payload.periodStart,
                 periodEnd: payload.periodEnd,
             },
@@ -140,13 +140,13 @@ const markPaid = async (payoutId, payload) => {
     if (!payout) {
         throw new customError_1.default(404, "Payout not found");
     }
-    if (payout.status === prisma_1.PayoutStatus.PAID) {
+    if (payout.status === prisma_client_1.PayoutStatus.PAID) {
         throw new customError_1.default(400, "This payout is already marked as paid");
     }
     return db_1.prisma.payout.update({
         where: { id: payoutId },
         data: {
-            status: prisma_1.PayoutStatus.PAID,
+            status: prisma_client_1.PayoutStatus.PAID,
             reference: payload.reference,
             method: payload.method ?? payout.method,
             notes: payload.notes ?? payout.notes,
@@ -164,7 +164,7 @@ const markFailed = async (payoutId, payload) => {
     if (!payout) {
         throw new customError_1.default(404, "Payout not found");
     }
-    if (payout.status === prisma_1.PayoutStatus.PAID) {
+    if (payout.status === prisma_client_1.PayoutStatus.PAID) {
         throw new customError_1.default(400, "This payout is already paid. Reverse it at the gateway first.");
     }
     return db_1.prisma.$transaction(async (tx) => {
@@ -175,7 +175,7 @@ const markFailed = async (payoutId, payload) => {
         return tx.payout.update({
             where: { id: payoutId },
             data: {
-                status: prisma_1.PayoutStatus.FAILED,
+                status: prisma_client_1.PayoutStatus.FAILED,
                 failureReason: payload.failureReason,
                 processedAt: new Date(),
             },
@@ -184,7 +184,7 @@ const markFailed = async (payoutId, payload) => {
 };
 /** The vendor's own payout history. */
 const getMyPayouts = async (actor, query) => {
-    const vendorId = actor.role === prisma_1.Role.ADMIN && query.vendorId
+    const vendorId = actor.role === prisma_client_1.Role.ADMIN && query.vendorId
         ? String(query.vendorId)
         : (await (0, vendor_1.requireApprovedVendor)(actor.id)).id;
     const { vendorId: _ignored, ...rest } = query;
@@ -258,7 +258,7 @@ const findById = async (actor, payoutId) => {
     if (!payout) {
         throw new customError_1.default(404, "Payout not found");
     }
-    if (actor.role !== prisma_1.Role.ADMIN) {
+    if (actor.role !== prisma_client_1.Role.ADMIN) {
         const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
         if (payout.vendorId !== vendor.id) {
             throw new customError_1.default(404, "Payout not found");
@@ -277,8 +277,8 @@ const getOutstandingBalances = async () => {
         by: ["vendorId"],
         where: {
             payoutId: null,
-            orderStatus: prisma_1.OrderStatus.DELIVERED,
-            order: { paymentStatus: prisma_1.PaymentStatus.PAID },
+            orderStatus: prisma_client_1.OrderStatus.DELIVERED,
+            order: { paymentStatus: prisma_client_1.PaymentStatus.PAID },
         },
         _sum: { vendorEarning: true, commissionAmount: true },
         _count: { id: true },

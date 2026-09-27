@@ -1,7 +1,7 @@
-import { Prisma, Size } from "../../../generated/prisma";
-import { prisma } from "../../config/db";
-import PrismaQueryBuilder from "../../lib/PrismaQueryBuilder";
-import CustomError from "../../utils/customError";
+import { Prisma, Size } from "@/lib/prisma-client";
+import { prisma } from "@/config/db";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
+import CustomError from "@/utils/customError";
 
 const createIntoDB = async (payload: Size) => {
 	const data = await prisma.size.create({
