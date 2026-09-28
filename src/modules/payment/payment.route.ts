@@ -25,7 +25,6 @@ const rawBody = express.raw({ type: "application/json" });
  *
  * `/webhook/stripe` is kept so an endpoint already pointed at it keeps working.
  */
-router.post("/", rawBody, paymentControllers.createPaymentWithStripeWebhook);
 router.post(
     "/stripe",
     rawBody,
@@ -74,5 +73,7 @@ readRouter.get(
 
 // Last: a literal segment above must not be swallowed as an id.
 readRouter.get("/:id", authGuard(Role.ADMIN), paymentControllers.findById);
+
+router.post("/", rawBody, paymentControllers.createPaymentWithStripeWebhook);
 
 export const paymentRouter = readRouter;
