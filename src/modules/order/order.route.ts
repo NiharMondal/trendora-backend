@@ -62,6 +62,12 @@ router.get(
 	orderControllers.getDashboardAnalytics,
 );
 
+router.get(
+	"/analytics/sales-trend",
+	authGuard(Role.ADMIN),
+	orderControllers.getSalesTrend,
+);
+
 // ------------------------------------------------------------------- shared
 router
 	.route("/:orderId")

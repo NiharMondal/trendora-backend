@@ -7,6 +7,7 @@ import {
 } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
 import { envConfig } from "@/config/env-config";
+import { DAY_MS, startOfUtcDay } from "@/helpers/date-range";
 import { round2, toNumber } from "@/helpers/money";
 import { generateUniqueVendorSlug } from "@/helpers/slug";
 import {
@@ -657,14 +658,10 @@ const deleteVendor = async (vendorId: string, actor: TModerationActor) => {
 
 // -------------------------------------------------------------------- analytics
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** The trend's window when the caller names none. */
 const DEFAULT_TREND_DAYS = 30;
 /** One point per day, so a window is capped to keep the series chartable. */
 const MAX_TREND_DAYS = 366;
-
-const startOfUtcDay = (date: Date) =>
-    new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 
 /**
  * One point per UTC day across the window, zero-filled so a quiet day is a

@@ -1665,7 +1665,7 @@ it already declares is now providable.
 | ~~BE-34~~ | ~~**Admin user management.**~~ ✅ **FIXED 2026-09-22** — see its own section below | `GET /users` |
 | ~~BE-35~~ | ~~**Vendor moderation audit log.**~~ ✅ **FIXED 2026-09-22** — see its own section below | three columns |
 | BE-36 | **Support tickets, disputes, buyer↔vendor messaging.** None. Refund `reason` is free text (`schema.prisma:557`) | — |
-| BE-37 | **Reporting.** Two hand-rolled endpoints: `GET /orders/analytics` and `GET /vendors/me/dashboard`. No date ranges, no export, no sales-by-period, no cohorts | two dashboards |
+| BE-37 | **Reporting.** Two hand-rolled endpoints: `GET /orders/analytics` and `GET /vendors/me/dashboard`. Date ranges exist; sales-by-period is `GET /orders/analytics/sales-trend` (admin, 2026-09-28). No export, no cohorts | two dashboards |
 | BE-38 | ~~**Tax rules.** No per-category rate~~ — **done 2026-09-22**, see below. Jurisdiction rates, exemptions and VAT/GST ids on orders remain unbuilt, by choice | `Category.taxRate` |
 | ~~BE-39~~ | ~~**Schema warnings.**~~ ✅ **FIXED 2026-09-22** — see its own section below | — |
 

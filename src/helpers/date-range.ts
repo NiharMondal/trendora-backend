@@ -27,3 +27,9 @@ export const parseDateRange = (query: Record<string, unknown>) => {
 
     return { startDate, endDate };
 };
+
+export const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Analytics series are bucketed by UTC day, so every window starts here. */
+export const startOfUtcDay = (date: Date) =>
+    new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));

@@ -25,6 +25,7 @@ import {
 	attachStripeSession,
 	createCheckoutSession,
 } from "@/helpers/checkout";
+import { DAY_MS, startOfUtcDay } from "@/helpers/date-range";
 import { round2, toNumber } from "@/helpers/money";
 import { processRefund, recordRefundIntent } from "@/helpers/refund";
 import {
@@ -1003,14 +1004,17 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 			_count: { id: true },
 		}),
 
-		// Top products
+		// Top products — units that actually sold, so a cancelled parcel
+		// does not count (the same rule as the vendor dashboard).
 		prisma.orderItem.groupBy({
 			by: ["productId", "productName"],
 			where: {
 				order: dateFilter,
+				vendorOrder: { orderStatus: { not: OrderStatus.CANCELED } },
 			},
 			_sum: {
 				quantity: true,
+				subtotal: true,
 			},
 			orderBy: {
 				_sum: {
@@ -1079,6 +1083,30 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 		vendorNames.map((vendor) => [vendor.id, vendor]),
 	);
 
+	// Thumbnail, slug and store for the top-product rows. `productName` stays
+	// the name AT PURCHASE, so a renamed or deleted listing still reads right.
+	const topProductIds = topProducts.map((row) => row.productId);
+	const topProductDetails = topProductIds.length
+		? await prisma.product.findMany({
+			where: { id: { in: topProductIds } },
+			select: {
+				id: true,
+				slug: true,
+				isDeleted: true,
+				images: {
+					where: { isDeleted: false },
+					select: { url: true },
+					orderBy: { isMain: "desc" },
+					take: 1,
+				},
+				vendor: { select: { storeName: true, slug: true } },
+			},
+		})
+		: [];
+	const productById = new Map(
+		topProductDetails.map((product) => [product.id, product]),
+	);
+
 	return {
 		overview: {
 			totalOrders,
@@ -1101,11 +1129,20 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 			status: item.status,
 			count: item._count.id,
 		})),
-		topProducts: topProducts.map((item) => ({
-			productId: item.productId,
-			productName: item.productName,
-			quantitySold: item._sum.quantity || 0,
-		})),
+		topProducts: topProducts.map((item) => {
+			const product = productById.get(item.productId);
+			return {
+				productId: item.productId,
+				productName: item.productName,
+				quantitySold: item._sum.quantity || 0,
+				// Merchandise value of those units, before tax and shipping.
+				revenue: toNumber(item._sum.subtotal),
+				slug: product && !product.isDeleted ? product.slug : null,
+				image: product?.images[0]?.url ?? null,
+				storeName: product?.vendor.storeName ?? null,
+				storeSlug: product?.vendor.slug ?? null,
+			};
+		}),
 		topVendors: topVendors.map((item) => ({
 			vendorId: item.vendorId,
 			storeName: vendorNameById.get(item.vendorId)?.storeName ?? null,
@@ -1116,6 +1153,99 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 			vendorEarnings: toNumber(item._sum.vendorEarning),
 		})),
 		recentOrders,
+	};
+};
+
+/** A window longer than this is bucketed by month instead of by day. */
+const MAX_DAILY_TREND_DAYS = 90;
+/** The window when the caller names none and there are no orders yet. */
+const DEFAULT_TREND_DAYS = 30;
+
+type TTrendGranularity = "day" | "month";
+
+/** `YYYY-MM-DD` of the bucket a timestamp falls in (UTC). */
+const trendBucketKey = (date: Date, granularity: TTrendGranularity) =>
+	granularity === "day"
+		? date.toISOString().slice(0, 10)
+		: `${date.toISOString().slice(0, 7)}-01`;
+
+/**
+ * Platform sales over time, for the admin dashboard's chart. ADMIN only.
+ *
+ * Zero-filled, so a quiet period is a visible dip rather than a gap the chart
+ * silently joins across. Up to 90 days is one point per UTC day; anything
+ * longer (including "all time", which starts at the first order) is one point
+ * per UTC month, since a year of daily points is unreadable at chart width.
+ *
+ * Each point uses the same rules as `getDashboardAnalytics().overview`, so the
+ * series sums to the headline tiles for the same window:
+ * - `orders` counts every order placed;
+ * - `grossSales` is GMV — the total of PAID orders;
+ * - `commission` is the platform's cut of paid, non-cancelled parcels.
+ */
+const getSalesTrend = async (startDate?: Date, endDate?: Date) => {
+	const end = endDate ?? new Date();
+
+	let start = startDate;
+	if (!start) {
+		const first = await prisma.order.aggregate({ _min: { createdAt: true } });
+		start =
+			first._min.createdAt ??
+			new Date(startOfUtcDay(end).getTime() - (DEFAULT_TREND_DAYS - 1) * DAY_MS);
+	}
+	start = startOfUtcDay(start);
+
+	const granularity: TTrendGranularity =
+		end.getTime() - start.getTime() <= MAX_DAILY_TREND_DAYS * DAY_MS
+			? "day"
+			: "month";
+
+	const buckets = new Map<
+		string,
+		{ date: string; orders: number; grossSales: number; commission: number }
+	>();
+	const cursor = new Date(start);
+	if (granularity === "month") cursor.setUTCDate(1);
+	while (cursor <= end) {
+		const date = trendBucketKey(cursor, granularity);
+		buckets.set(date, { date, orders: 0, grossSales: 0, commission: 0 });
+		if (granularity === "day") cursor.setUTCDate(cursor.getUTCDate() + 1);
+		else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+	}
+
+	const orders = await prisma.order.findMany({
+		where: { createdAt: { gte: start, lte: end } },
+		select: {
+			createdAt: true,
+			paymentStatus: true,
+			totalAmount: true,
+			vendorOrders: {
+				select: { orderStatus: true, commissionAmount: true },
+			},
+		},
+	});
+
+	for (const order of orders) {
+		const bucket = buckets.get(trendBucketKey(order.createdAt, granularity));
+		if (!bucket) continue;
+
+		bucket.orders += 1;
+		if (order.paymentStatus !== PaymentStatus.PAID) continue;
+
+		bucket.grossSales = round2(bucket.grossSales + toNumber(order.totalAmount));
+		for (const parcel of order.vendorOrders) {
+			if (parcel.orderStatus === OrderStatus.CANCELED) continue;
+			bucket.commission = round2(
+				bucket.commission + toNumber(parcel.commissionAmount),
+			);
+		}
+	}
+
+	return {
+		granularity,
+		startDate: start.toISOString(),
+		endDate: end.toISOString(),
+		points: [...buckets.values()],
 	};
 };
 
@@ -1239,4 +1369,5 @@ export const orderServices = {
 	updateVendorOrderStatus,
 	//
 	getDashboardAnalytics,
+	getSalesTrend,
 };
