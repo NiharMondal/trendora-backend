@@ -667,6 +667,8 @@ const findMyProductById = async (actor: TActor, id: string) => {
 			include: {
 				variants: { ...liveVariants, include: { size: true } },
 				images: true,
+				brand: true,
+				category: { select: { id: true, name: true, slug: true, taxRate: true } },
 				vendor: { select: vendorCardSelect },
 			},
 		});
@@ -683,6 +685,8 @@ const findMyProductById = async (actor: TActor, id: string) => {
 		include: {
 			variants: { ...liveVariants, include: { size: true } },
 			images: true,
+			brand: true,
+			category: { select: { id: true, name: true, slug: true, taxRate: true } },
 			vendor: { select: vendorCardSelect },
 		},
 	});
