@@ -114,7 +114,13 @@ Keep DB/business logic in services, not controllers.
 - **`src/utils/asyncHandler.ts`** — wraps async handlers so thrown errors reach the global error handler. Wrap every controller with it.
 - **`src/utils/sendResponse.ts`** — standard success envelope. All successful responses are `{ success, message, meta?, result }` — note the data field is `result`, not `data`.
 - **`src/utils/customError.ts`** — `throw new CustomError(statusCode, message)` for domain errors.
-- **`src/middleware/globalErrorHandler.ts`** — central error formatter. Special-cases `ZodError` (400 validation), and Prisma `PrismaClientValidationError` / `PrismaClientKnownRequestError` (`P2002` duplicate, `P2025` not found, `P2003` FK `Restrict` refusal → 409). Error responses are `{ success: false, message, errorDetails }`.
+- **`src/middleware/globalErrorHandler.ts`** — central error formatter. Error responses are
+  `{ success: false, message, errorDetails }`, **built from an allowlist, never from the thrown
+  value**: `CustomError` (its status + message, `errorDetails: null`), `ZodError` (400 + issues),
+  Prisma validation (400), `P2002` (400), `P2025` (404), `P2003` (409), JWT failures (401) and the
+  body parser's `expose`d 4xx errors. **Anything else is a generic 500 with `errorDetails: null`**,
+  and every 5xx is `console.error`-logged with method and URL. So a message meant for the user must
+  be a `CustomError`; a plain `throw new Error(...)` reaches the client as "Something went wrong".
 - **`src/middleware/validateRequest.ts`** — `validateRequest(zodSchema)`; validates and replaces `req.body` with parsed data.
 - **`src/middleware/authGuard.ts`** — `authGuard(...roles)`; verifies the JWT, loads the user, and enforces roles. **The access token is read directly from the `Authorization` header with no `Bearer ` prefix.** `req.user` is the decoded JWT payload **with `role` overwritten by the database value** (typed globally in `index.d.ts`).
   **Authorization reads `Auth.role` from the database, never the token's `role` claim.** The claim can be 20 minutes stale, and `req.user.role` flows into `resolveVendorScope` / `vendorListScope`, where ADMIN means "may act on any store" — trusting it is a write-scope escalation. It also lets a newly approved vendor in without a token refresh. Do not change this back.
@@ -753,17 +759,17 @@ not point liveness at the database**; a DB blip becomes a restart loop across ev
 - Slugs are generated with `src/helpers/slug.ts` on create/update. Use `generateUniqueProductSlug` / `generateUniqueVendorSlug` for products and stores (they resolve collisions); bare `generateSlug` is for `Category`, whose names are admin-controlled and already unique.
 - Cloudinary uploads use a `/temp/` staging folder; `moveFromTemp` promotes images to their final folder on save, and `deleteFromCloudinary` cleans up removed images (see `src/modules/product/product.service.ts` and `src/utils/cloudinary.ts`).
 - ESLint uses `typescript-eslint` strict + stylistic; `no-console` is a warning (server bootstrap logs are `eslint-disable`d). `pnpm lint` is currently
-  **0 errors, 1 warning** — a stray `console.log` at `src/middleware/globalErrorHandler.ts:41`.
+  **0 errors, 0 warnings**.
 
 ## Known gaps in the marketplace layer (verified, not yet fixed)
 
 > The complete, prioritized backend audit is `docs/FEATURE-GAPS.md` (fixed items keep their history
-> there). Still open and most likely to bite: **BE-06** (P0 — `globalErrorHandler` returns the
-> thrown object to the client), **BE-41** / **BE-42** / **BE-04** (Cloudinary: a failed temp
+> there). Still open and most likely to bite (no P0 remains): **BE-41** / **BE-42** / **BE-04** (Cloudinary: a failed temp
 > promotion leaves a live image publicly deletable; the unsigned preset is an open upload
 > endpoint; `/cloudinary/delete-temp` is unauthenticated), **BE-50** (one refund on a multi-store
-> order makes every other parcel unpayable) and **BE-47** (hard-deleting an order leaves the
-> store rating stale). Read the relevant entry before touching media, error handling or payouts.
+> order makes every other parcel unpayable), **BE-51** (a FAILED payout can still be marked paid)
+> and **BE-47** (hard-deleting an order leaves the
+> store rating stale). Read the relevant entry before touching media or payouts.
 
 - **This Stripe test account is shared with another project.** The only
   registered webhook endpoint is `edu-sphere-backend-pi.vercel.app/webhook`

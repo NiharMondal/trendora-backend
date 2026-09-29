@@ -283,8 +283,27 @@ can be spoofed to dodge the limit.
 
 ---
 
-### BE-06 · `globalErrorHandler` returns the thrown object to the client
-**P0 · S · security**
+### ~~BE-06~~ · `globalErrorHandler` returns the thrown object to the client
+**✅ FIXED — 2026-09-29 · security**
+
+**Now:** the response is built from an allowlist (`toErrorResponse` in
+`src/middleware/globalErrorHandler.ts`). `CustomError`, `ZodError`, Prisma validation and the
+`P2002` / `P2025` / `P2003` codes, JWT errors and the body parser's `expose`d 4xx keep specific
+messages; everything else — including any other Prisma code and a plain thrown object — is a
+generic **500 "Something went wrong"** with `errorDetails: null`. The old code also sent an
+unexpected error's `.message` verbatim, which this closes too. Every 5xx is logged server-side
+(`console.error` with method + URL; there is still no structured logger), and the stray
+`console.log(error)` is gone, so `pnpm lint` is warning-free. `P2025` is now **404**.
+
+Found while fixing: a malformed or forged token (`JsonWebTokenError`) reached the handler with no
+status and became a **500**; `authGuard` only converted `TokenExpiredError`. It is now a **401**,
+which is what the frontend's refresh-and-retry reacts to. A Prisma validation error's message was
+`error.name` ("PrismaClientValidationError"); it is now "Invalid request data".
+
+Verified by calling the handler with each error type, plus real malformed-JSON (400) and
+over-limit (413) requests through `express.json()`.
+
+**Was (original entry):**
 
 **Now:** `src/middleware/globalErrorHandler.ts:13-17` builds
 `{ statusCode, message, errorDetails: error }`. The Zod branch (`:19-30`) and the Prisma branches
