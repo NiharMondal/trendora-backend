@@ -12,14 +12,20 @@ Many sellers list products; buyers check out once across several stores; the pla
 
 ```bash
 pnpm dev                 # Run dev server with hot reload (ts-node-dev) on src/server.ts
-pnpm build               # Compile TypeScript to dist/ (tsc)
+pnpm build               # tsc && tsc-alias -> dist/ (see Path aliases)
 pnpm start               # Run compiled server (node dist/server.js)
 pnpm lint                # ESLint over ./src
 pnpm lint:fix            # ESLint autofix
 pnpm prisma:generate     # Regenerate Prisma client (also runs on postinstall)
 pnpm prisma:migrate      # prisma migrate dev
 pnpm studio              # Open Prisma Studio
+pnpm seed                # src/seed/ — idempotent + additive (upserts, never deletes)
+pnpm stripe:listen       # forward Stripe test events to localhost (see webhook events below)
 ```
+
+`pnpm seed` creates size groups, brands, categories, products, hero slides, three stores and four
+logins — `admin@`, `customer@`, `vendor1@`, `vendor2@trendora.test`, password `SEED_PASSWORD`.
+Safe to re-run on a database that already has orders.
 
 There is **no test runner configured** in this repo.
 
@@ -81,6 +87,8 @@ All feature routers are registered in **`src/routes/routes-array.ts`** as `{ pat
   are never throttled** — a dropped retry loses an order or leaves a refund unreconciled.
 - **`cors` must precede the rate limiter.** A 429 is still a cross-origin response; without CORS
   headers already attached the browser reports an opaque CORS failure instead of the real message.
+  Its `origin` is **hardcoded `["http://localhost:3000"]`** — not read from `FRONTEND_URL` — so
+  any other frontend origin (a deploy, another port) needs an edit in `app.ts`.
 - **`morgan` sits above the webhook and the limiter**, so both appear in the log.
 
 Rate limiters are in `src/middleware/rateLimiter.ts` and are applied **per endpoint** in
@@ -88,7 +96,7 @@ Rate limiters are in `src/middleware/rateLimiter.ts` and are applied **per endpo
 ~20 minutes, so throttling it at credential-guessing rates would break sessions for everyone behind
 one NAT. `loginLimiter` uses `skipSuccessfulRequests` so only *failed* logins count.
 
-The webhook router serves **both `POST /webhook` and `POST /webhook/stripe`**. It is deliberately NOT in `routes-array.ts`: registering it under `/api/v1` would expose a second path whose body `express.json()` has already consumed, so every signature check on it would fail. (That duplicate existed at `/api/v1/payments/stripe` and has been removed.)
+The webhook router serves **both `POST /webhook` and `POST /webhook/stripe`**. It is deliberately NOT in `routes-array.ts`: registering it under `/api/v1` would expose a second path whose body `express.json()` has already consumed, so every signature check on it would fail.
 
 ### Module structure
 
@@ -106,10 +114,10 @@ Keep DB/business logic in services, not controllers.
 - **`src/utils/asyncHandler.ts`** — wraps async handlers so thrown errors reach the global error handler. Wrap every controller with it.
 - **`src/utils/sendResponse.ts`** — standard success envelope. All successful responses are `{ success, message, meta?, result }` — note the data field is `result`, not `data`.
 - **`src/utils/customError.ts`** — `throw new CustomError(statusCode, message)` for domain errors.
-- **`src/middleware/globalErrorHandler.ts`** — central error formatter. Special-cases `ZodError` (400 validation), and Prisma `PrismaClientValidationError` / `PrismaClientKnownRequestError` (`P2002` duplicate, `P2025` not found). Error responses are `{ success: false, message, errorDetails }`.
+- **`src/middleware/globalErrorHandler.ts`** — central error formatter. Special-cases `ZodError` (400 validation), and Prisma `PrismaClientValidationError` / `PrismaClientKnownRequestError` (`P2002` duplicate, `P2025` not found, `P2003` FK `Restrict` refusal → 409). Error responses are `{ success: false, message, errorDetails }`.
 - **`src/middleware/validateRequest.ts`** — `validateRequest(zodSchema)`; validates and replaces `req.body` with parsed data.
 - **`src/middleware/authGuard.ts`** — `authGuard(...roles)`; verifies the JWT, loads the user, and enforces roles. **The access token is read directly from the `Authorization` header with no `Bearer ` prefix.** `req.user` is the decoded JWT payload **with `role` overwritten by the database value** (typed globally in `index.d.ts`).
-  **Authorization reads `Auth.role` from the database, never the token's `role` claim.** The claim is a 20-minute-old snapshot, and `req.user.role` flows into `resolveVendorScope` / `vendorListScope`, where ADMIN means "may act on any store" — so trusting a stale claim is a write-scope escalation, not a routing detail. It also means a newly approved vendor reaches their dashboard immediately instead of waiting for a token refresh. The row is loaded anyway; do not change this back.
+  **Authorization reads `Auth.role` from the database, never the token's `role` claim.** The claim can be 20 minutes stale, and `req.user.role` flows into `resolveVendorScope` / `vendorListScope`, where ADMIN means "may act on any store" — trusting it is a write-scope escalation. It also lets a newly approved vendor in without a token refresh. Do not change this back.
 - **`src/lib/PrismaQueryBuilder.ts`** — fluent builder for list endpoints (search / filter / paginate / sort / include). Standard usage in a service:
 
   ```ts
@@ -159,8 +167,7 @@ Keep DB/business logic in services, not controllers.
 
   **Every list endpoint that the frontend gives a search box must call `.search()`.** The builder
   treats `search` as a reserved key, so an endpoint without `.search()` accepts `?search=`, ignores
-  it and returns the full list with no error. That was BE-44: orders, payouts and refunds, with
-  six live search boxes. Scoped lists are safe to search: `build()` ANDs every condition, including
+  it and returns the full list with no error (BE-44). Scoped lists are safe to search: `build()` ANDs every condition, including
   the `withDefaultFilter` / `addWhere` scope, so a search can never widen a vendor's or buyer's view. `relationPaths` is a **second parameter** to `search()`
   so the first keeps its `keyof TWhereInput` typing. `sortAliases` are declared in code, never
   read from the query string — they widen what is *sortable*, not what a caller can *inject*.
@@ -368,11 +375,9 @@ Every option returned comes from products that pass `publicProductFilter`, so th
 offer a filter that leads to an empty page. Size counts use `distinct: ["sizeId", "productId"]` so
 a three-colour shirt counts once, not three times.
 
-**The options are derived, never hardcoded.** Sellers list whatever they like, so which brands,
-categories and sizes exist is a property of the data — a vendor opening a new category has to show
-up in the panel with no frontend change. `Size` has no ordering column, so sizes come back grouped
-by size group and then in natural order within it ("Clothing: 2XL L M S XL"); a `sortOrder` on
-`Size` is the fix if that ordering ever needs to be author-controlled.
+**The options are derived, never hardcoded** — a vendor opening a new category must appear in the
+panel with no frontend change. `Size` has no ordering column, so sizes come back grouped by size
+group, then in natural order ("Clothing: 2XL L M S XL"); a `Size.sortOrder` is the fix if needed.
 
 ### Storefront merchandising endpoints
 
@@ -417,7 +422,8 @@ these rules:
 - **The GETs are public and gated by `resolveViewableProduct`**, which composes
   `publicProductFilter`. They 404 on a draft for the same reason
   `GET /products/:id` does; a vendor reads their own unpublished listing through
-  `/products/vendor/my-products/:id`, which returns both collections nested.
+  `/products/vendor/my-products/:id`, which returns both collections nested
+  (plus `brand` and `category`, so the edit form needs no second read).
   Writes go through `resolveEditableProduct` — 404, never 403.
 - **Variants are SOFT deleted.** `OrderItem.variantId` is `ON DELETE SET NULL`,
   so a hard delete detaches every past order line from the variant it sold.
@@ -429,6 +435,13 @@ these rules:
   (`reopenModerationIfApproved`) and the response says so; changing stock, price
   or which image is the hero does not. This mirrors `MATERIAL_FIELDS` — keep the
   two in step.
+- **With live variants, `Product.stockQuantity` is derived** — the sum of live variant
+  `stock`, written by `syncVariantStock` (`helpers/product.ts`) inside the transaction of every
+  write that moves it: sale, cancellation restock, product create/update (after the update, so a
+  client-sent value cannot win), and the `/variants` endpoints. Removing the last variant resets it
+  to 0. `inStock`, the dashboards and the stock sorts read this column, so a new stock write that
+  skips the sync brings XR-13 back. Such a product sells only by variant:
+  `validateAndCalculateOrder` 400s on a line with no `variantId`.
 - Exactly one image is `isMain`, enforced in-transaction because the column is a
   plain boolean; the last image cannot be deleted; a variant's (size, colour)
   pair is unique per product, enforced in code because the DB does not.
@@ -455,8 +468,8 @@ decides whether the caller is the `admin`, the `seller` of that parcel, or its
 store's parcels and a buyer on parcels it ordered elsewhere — deciding from
 `Role` alone is what used to lock sellers out of cancelling their own purchases.
 
-- `seller` moves forward and may cancel while nothing has shipped; cancelling an
-  already-shipped parcel is a refund dispute and stays ADMIN-only.
+- `seller` moves forward and may cancel until it ships; cancelling a shipped
+  parcel is a refund dispute and stays ADMIN-only.
 - `buyer` may do exactly one thing: **`PENDING -> CANCELED`**.
 
 **Buyer cancellation is gated on `OrderStatus`, never `PaymentStatus`.** A COD
@@ -494,11 +507,9 @@ vendorEarning    = subtotal + shippingCost - commissionAmount
   falsiness. The rate is not inherited from a parent category. When every
   category is NULL the sum collapses to exactly `round2(subtotal x TAX_RATE)`,
   which is why adding this changed no existing total.
-- `OrderItem.taxRate` / `OrderItem.tax` are **snapshots**, like
-  `VendorOrder.commissionRate` — re-rating a category never rewrites a past
-  invoice, and `VendorOrder.tax` is the sum of its lines.
-- `VendorOrder.commissionRate` is a **snapshot**, so changing a store's rate
-  never rewrites past orders.
+- `OrderItem.taxRate` / `OrderItem.tax` and `VendorOrder.commissionRate` are
+  **snapshots** — re-rating a category or a store never rewrites a past order.
+  `VendorOrder.tax` is the sum of its lines.
 - Money helpers live in `src/helpers/money.ts` (`round2`, `toNumber`,
   `sumMoney`). Round at the point each value is computed, never at the end.
 
@@ -515,9 +526,8 @@ It is also the idempotency key: `consumeCheckoutSession` flips it to
 `COMPLETED` inside the same transaction that creates the order, so a replayed
 webhook finds nothing to redeem and returns without duplicating.
 
-> Historical note: the previous implementation read `items`/`subtotal`/`tax`
-> from Stripe metadata that `createStripePaymentUrl` never set, so **no Stripe
-> order was ever created**. Don't reintroduce cart-in-metadata.
+**Don't reintroduce cart-in-metadata** — the previous implementation read a cart
+that `createStripePaymentUrl` never wrote, so no Stripe order was ever created.
 
 `CASH_ON_DELIVERY` creates the order inline and returns `{ order, paymentUrl: null }`.
 
@@ -531,6 +541,13 @@ concurrent order aborts rather than overselling.
 
 One charge lands in the platform's account; each vendor is owed their
 `vendorEarning`. A `Payout` batches those into one transfer.
+
+**No money-moving payout rail is integrated.** `PATCH /payouts/:id/mark-paid`
+only *records* that an admin already paid the store out-of-band: `reference` is
+the admin-typed transfer receipt and `method` is free text. Refunds are the only
+money this backend moves (real Stripe refunds, below). `Vendor.payoutDetails` is
+`Json` — snapshotted onto `Payout.payoutDetails` — so a rail such as Stripe
+Connect can be added later without a schema change.
 
 Eligibility is *delivered + buyer paid + `payoutId IS NULL`*. Attaching the
 vendor orders happens in the same transaction that creates the payout, which is
@@ -558,12 +575,8 @@ refund at the gateway with no record of it here. So:
 If phase 2 never runs (crash, Stripe down) the row stays `PENDING` and
 `processPendingRefunds()` picks it up. Nothing is lost and no money moves twice.
 
-`Refund` is the mirror of `Payout` — a ledger with one row per money movement:
-
-| | direction |
-| --- | --- |
-| `Payout` | platform → vendor |
-| `Refund` | platform → buyer |
+`Refund` (platform → buyer) is the mirror of `Payout` (platform → vendor): a
+ledger with one row per money movement.
 
 **Idempotency has two layers.** `Refund.vendorOrderId` is unique, so a replayed
 cancel finds the existing row instead of refunding the same goods twice; and
@@ -596,6 +609,25 @@ Cash on delivery has no gateway to call, so `recordRefundIntent` returns null
 for it; money handed back in person is recorded with `recordManualRefund`
 (`gateway` names the rail, e.g. `"cash"`, and there is no `gatewayRefundId`).
 
+### Dashboard analytics: tiles and trends
+
+Three endpoints: `GET /orders/analytics` and `GET /orders/analytics/sales-trend` (ADMIN), and
+`GET /vendors/me/dashboard`, whose `salesTrend` is built by `buildSalesTrend` in
+`vendor.service.ts`. All take `?startDate=&endDate=` through **`parseDateRange`**
+(`src/helpers/date-range.ts`), which turns an unparseable date into a 400 — `new Date("junk")`
+otherwise reaches Prisma as an Invalid Date and 500s. Use it for any new date-windowed read.
+
+- **Each trend applies the same money rule as its tiles** — orders counts everything placed; money
+  counts `paymentStatus: PAID` and non-cancelled parcels — so a series sums to the headline figures
+  for the same window. Change one, change both. (It therefore also inherits BE-50: a
+  `PARTIALLY_REFUNDED` order drops out of both.)
+- **The tiles apply a range only when BOTH bounds are present; the trends honour either.** With
+  one bound the two stop agreeing.
+- Buckets are **UTC days, zero-filled** (a quiet day is a dip, not a gap the chart joins across).
+  Admin: no `startDate` means from the first order; a window over 90 days switches to monthly
+  points (`granularity` says which). Vendor: always daily, defaults to the last 30 days, and 400s
+  past 366.
+
 ### Background sweeps
 
 `src/scheduler/index.ts` runs three `node-cron` jobs, started from `server.ts` once the port is
@@ -615,7 +647,7 @@ the webhook map Stripe statuses through the single `mapStripeRefundStatus`.
 
 ### Which webhook events must be enabled
 
-`POST /webhook` handles nine event types, and the endpoint sending to it has to
+`POST /webhook` (or `/webhook/stripe` — same handler) handles nine event types, and the endpoint sending to it has to
 have them switched on or orders and refunds silently stop reconciling:
 
 | event | why |
@@ -630,14 +662,14 @@ have them switched on or orders and refunds silently stop reconciling:
 
 Without the refund events, `Payment.refundAmount` silently disagrees with Stripe.
 
-**Local development:** `pnpm stripe:listen` forwards exactly this set to
-`localhost:5001/webhook` (needs the Stripe CLI: `brew install stripe/stripe-cli/stripe && stripe login`).
-It prints a `whsec_…` that must go in `STRIPE_WEBHOOK_SECRET` — that secret
-belongs to the listen session and is not a registered endpoint's secret. The
-script omits `charge.refund.updated` on purpose: `stripe listen` runs on the
-account's current API version, which emits `refund.*`, and forwarding both
-would deliver every refund change twice (harmless — the handler is idempotent —
-but pointless).
+**Local development:** `pnpm stripe:listen` forwards this set to
+`localhost:5001/webhook/stripe` (needs the Stripe CLI: `brew install stripe/stripe-cli/stripe && stripe login`).
+**That port is hardcoded, but `env-config.ts` defaults `PORT` to 5000** — with `PORT` unset,
+events go nowhere and no Stripe order is ever created. Keep `PORT=5001` in `.env`.
+It prints a `whsec_…` for `STRIPE_WEBHOOK_SECRET` (the listen session's, not a
+registered endpoint's). It omits `charge.refund.updated` on purpose: `stripe
+listen` uses the current API version, which emits `refund.*`, so forwarding both
+would deliver each refund change twice.
 
 ### Other domain notes
 
@@ -674,13 +706,20 @@ but pointless).
   seller read the buyer's IP off their own parcel. Never widen that projection
   without re-checking who can reach the endpoint.
 - Enums live in `prisma/schema.prisma`, as Zod mirrors in `src/helpers/enum.ts`,
-  and as frontend constants — all three must stay in sync.
+  and on the frontend in `frontend/src/shared/types/status.types.ts` — all three
+  must stay in sync.
+- **Store moderation is audited in `VendorStatusHistory`**, written by
+  `logVendorStatusChange` (`helpers/vendor.ts`) in the same transaction as the
+  change — including the two non-obvious doors, an admin deleting a store and
+  `disableUser` suspending one. Commercial-terms edits log `oldStatus === newStatus`
+  with the change in `note`. A seller reading `/vendors/me` gets the timeline with
+  actor and IP stripped (`sanitizeVendorHistory`) — the `sanitizeStatusHistory`
+  rule again.
 
 ### Config
 
-All environment access goes through **`src/config/env-config.ts`** (`envConfig` object) — and this
-is now enforced rather than merely encouraged: `grep process.env src/` returns nothing outside that
-file. Add new vars to its Zod schema, not to `process.env` reads.
+All environment access goes through **`src/config/env-config.ts`** (`envConfig`) — `process.env`
+is read nowhere else in `src/`. Add new vars to its Zod schema.
 
 **The schema is validated at import time and the process refuses to boot on a bad value**, listing
 every problem at once. Three tiers:
@@ -696,23 +735,21 @@ See `.env.example`, whose header repeats this contract.
 ### Boot and shutdown
 
 `src/server.ts` connects to the database **before** opening the port, and only then logs
-"Database connected" — that line used to print unconditionally, so a down database looked like a
-healthy boot.
+"Database connected".
 
 On SIGTERM/SIGINT it drains in order: **stop the scheduler → close the HTTP server and let
 in-flight requests finish → `prisma.$disconnect()`**. Killing requests mid-flight can abort a
 transaction between the order write and the refund intent. A 10s force-exit timer bounds it, and
 `unhandledRejection`/`uncaughtException` log and exit 1.
 
-Probes are at **`/health`** (liveness, touches nothing external) and **`/health/ready`** (readiness,
-`SELECT 1`, returns 503 when the database is unreachable). They sit outside `/api/v1` and above the
-rate limiter, and are skipped by the request log. **Do not point liveness at the database** — that
-turns a brief DB blip into a restart loop across every instance.
+Probes: **`/health`** (liveness, touches nothing external) and **`/health/ready`** (`SELECT 1`, 503
+when the database is unreachable) — outside `/api/v1`, above the limiter, skipped by the log. **Do
+not point liveness at the database**; a DB blip becomes a restart loop across every instance.
 
 ## Conventions
 
 - **The taxonomy is platform-owned.** `Category`, `SizeGroup`, `Size` and `Brand` are ADMIN-only writes — if vendors could create categories you would have forty spellings of "T-Shirts" within a month and the size-group logic would come apart.
-- Soft deletes: most models have `isDeleted`; delete operations set `isDeleted: true` and list queries filter it out via `withDefaultFilter({ isDeleted: false })`.
+- Soft deletes: most models have `isDeleted`; delete operations set `isDeleted: true` and list queries filter it out via `withDefaultFilter({ isDeleted: false })`. The two FKs an order or size depends on (`Order.shippingAddressId`, `Size.sizeGroupId`) are `onDelete: Restrict`, so a hard delete there is a 409 (`P2003`), not silent damage.
 - Slugs are generated with `src/helpers/slug.ts` on create/update. Use `generateUniqueProductSlug` / `generateUniqueVendorSlug` for products and stores (they resolve collisions); bare `generateSlug` is for `Category`, whose names are admin-controlled and already unique.
 - Cloudinary uploads use a `/temp/` staging folder; `moveFromTemp` promotes images to their final folder on save, and `deleteFromCloudinary` cleans up removed images (see `src/modules/product/product.service.ts` and `src/utils/cloudinary.ts`).
 - ESLint uses `typescript-eslint` strict + stylistic; `no-console` is a warning (server bootstrap logs are `eslint-disable`d). `pnpm lint` is currently
@@ -720,41 +757,23 @@ turns a brief DB blip into a restart loop across every instance.
 
 ## Known gaps in the marketplace layer (verified, not yet fixed)
 
-> The complete backend audit — including the P0 security items (`forgot-password` leaking a
-> token, two IDORs, an unguarded Cloudinary delete) that are **not** listed here — is in
-> `docs/FEATURE-GAPS.md`. Read it before starting work on auth, address or wishlist code.
+> The complete, prioritized backend audit is `docs/FEATURE-GAPS.md` (fixed items keep their history
+> there). Still open and most likely to bite: **BE-06** (P0 — `globalErrorHandler` returns the
+> thrown object to the client), **BE-41** / **BE-42** / **BE-04** (Cloudinary: a failed temp
+> promotion leaves a live image publicly deletable; the unsigned preset is an open upload
+> endpoint; `/cloudinary/delete-temp` is unauthenticated), **BE-50** (one refund on a multi-store
+> order makes every other parcel unpayable) and **BE-47** (hard-deleting an order leaves the
+> store rating stale). Read the relevant entry before touching media, error handling or payouts.
 
 - **This Stripe test account is shared with another project.** The only
   registered webhook endpoint is `edu-sphere-backend-pi.vercel.app/webhook`
   (api_version `2023-08-16`) — not Trendora's. There is no endpoint pointing at
   this backend, so a deployed Trendora needs one created with the nine events
   listed above. Local dev uses `pnpm stripe:listen` and needs none.
-- ~~**Nothing schedules `processPendingRefunds()`.**~~ **Fixed** — see
-  **Background sweeps** above and `docs/FEATURE-GAPS.md` BE-11.
-- ~~**A `PROCESSING` refund is not polled.**~~ **Fixed** — `reconcileProcessingRefunds`
-  now polls them on a 30-minute sweep.
 - **No stock reservation.** Stock is deducted at order creation (COD) or at the
   webhook (Stripe); between starting a Stripe checkout and the charge landing,
   another buyer can take the last unit. The webhook then fails the stock guard
   and that charge needs refunding by hand.
-- ~~**Expired checkout drafts are not swept.**~~ **Fixed** — swept hourly.
-- ~~**No vendor moderation audit log.**~~ **Fixed** — `VendorStatusHistory`
-  records every change to a store's state (`logVendorStatusChange` in
-  `helpers/vendor.ts`), including the two non-obvious doors: an admin deleting a
-  store, and `disableUser` suspending a seller's store as a side effect of
-  disabling their account. Commercial-terms edits are logged with
-  `oldStatus === newStatus` and the change in `note`. Every write shares a
-  transaction with the change it describes. Admins see the actor and IP; a seller
-  reading `/vendors/me` gets the same timeline and reasons with both stripped
-  (`sanitizeVendorHistory`) — the `sanitizeStatusHistory` rule again. The three
-  seeded stores predate the table, so their trails start empty.
 - **No per-vendor shipping methods/zones.** One flat fee plus one free-shipping
   threshold per store. A `ShippingMethod` model hanging off `Vendor` is the
   extension point.
-- ~~Two pre-existing `onDelete: SetNull` warnings on required columns.~~
-  **Fixed** — both are now `Restrict`, and no column had to become optional:
-  `SET NULL` on a `NOT NULL` column could never execute in the first place. An
-  address an order points at, and a size group that still has sizes, must not be
-  hard-deleted — which is exactly what the soft-delete services already assumed.
-  `prisma validate` is warning-free, and `globalErrorHandler` maps the `P2003`
-  refusal to a 409.

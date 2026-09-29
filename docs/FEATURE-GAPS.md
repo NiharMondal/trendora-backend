@@ -1,6 +1,8 @@
 # Feature Gaps & Technical Debt — Backend
 
 _Audited 2026-09-22 against `add-forgot-password-functionality` @ `273b5f1`._
+_Re-verified 2026-09-29 against `implement-new-api-for-order-analytics-for-dashboard-page` @
+`7a39068`: every open item re-checked, anchors re-pointed, BE-51 → BE-54 added._
 _Re-run this audit whenever the marketplace layer changes._
 
 Every item below is anchored to a `file:line` that was read during the audit. Nothing here is
@@ -33,7 +35,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-02~~ | ~~IDOR — any user can read/edit/delete any address~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | ~~BE-03~~ | ~~IDOR — any user can read/delete any wishlist row~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-04 | `POST /cloudinary/delete-temp` is unauthenticated | P2 | S | security |
-| BE-41 | A failed temp promotion leaves a live image publicly deletable | P1 | M | media |
+| BE-41 | A failed temp promotion leaves a live image publicly deletable — **guarded on the image sub-resource only** | P1 | M | media |
 | BE-42 | The unsigned Cloudinary preset is an open upload endpoint | P1 | M | media |
 | ~~BE-43~~ | ~~Slide writes: no photo `publicId`, no temp promotion, unvalidated `PATCH`~~ | ✅ **FIXED** 2026-09-24 | — | content |
 | ~~BE-44~~ | ~~Orders, payouts and refunds ignore `?search=`~~ | ✅ **FIXED** 2026-09-24 | — | query |
@@ -42,7 +44,11 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-47 | Hard-deleting an order leaves the store rating stale | P2 | S | reviews |
 | ~~BE-48~~ | ~~Product reviews are not gated on purchase, and not one per buyer~~ | ✅ **FIXED** 2026-09-24 | — | reviews |
 | ~~BE-49~~ | ~~No buyer-side summary: lifetime spend needs every order paged down~~ | ✅ **FIXED** 2026-09-24 | — | orders |
-| BE-50 | Any refund on one parcel makes every parcel of that order unpayable | P1 | S | payouts |
+| BE-50 | Any refund on one parcel makes every parcel of that order unpayable — and drops it from every sales figure | P1 | S | payouts |
+| BE-51 | `markPaid` accepts a FAILED payout whose earnings were already released | P1 | S | payouts |
+| BE-52 | Three product reads a cart line is built from carry no `category.taxRate` | P2 | S | tax |
+| BE-53 | No money-moving payout rail — `markPaid` only records a transfer | P2 | L | payouts |
+| BE-54 | Analytics tiles and trend disagree on a one-sided date range | P2 | S | analytics |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -72,7 +78,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-30 | No returns / RMA workflow | P2 | L | marketplace |
 | BE-31 | No shipping methods, zones or carrier integration | P2 | L | marketplace |
 | BE-32 | No stock reservation; no low-stock alerting | P2 | M | inventory |
-| BE-33 | No search facets or full-text index | P2 | L | catalogue |
+| BE-33 | No ~~search facets or~~ full-text index — **facets done 2026-09-23** (`GET /products/filters`) | P2 | L | catalogue |
 | ~~BE-34~~ | ~~Admin user management is one read-only list~~ | ✅ **FIXED** 2026-09-22 | — | users |
 | ~~BE-35~~ | ~~No vendor moderation audit log~~ | ✅ **FIXED** 2026-09-22 | — | marketplace |
 | BE-36 | No support tickets, disputes or buyer↔vendor messaging | P2 | L | marketplace |
@@ -137,16 +143,16 @@ base. The delete was a hard `prisma.address.delete` despite `Address.isDeleted` 
 required `Order.shippingAddressId` pointing at the row.
 
 **Now:** all three resolve through a single `findOwnedAddress(id, userId)` in
-`src/modules/address/address.service.ts:20-30`, which filters on `id + userId + isDeleted: false`
+`src/modules/address/address.service.ts:22-32`, which filters on `id + userId + isDeleted: false`
 and throws **404, not 403** — a 403 confirms the row exists, which is all an attacker needs to
 enumerate. Same convention as `assertVendorOwnsProduct` in `src/helpers/vendor.ts:157-170`. The
 controller passes `req.user.id` on each of the three
-(`src/modules/address/address.controller.ts:42-72`).
+(`src/modules/address/address.controller.ts:40-74`).
 
 `deleteData` is now a soft delete (`isDeleted: true`). A hard delete would have hit the required
 `Order.shippingAddressId` FK; order history is unaffected either way because `persistOrder` already
 snapshots the address into `Order.shippingSnapshot`
-(`src/helpers/create-order.ts:54-62`) precisely so a later edit or delete cannot rewrite what an
+(`src/helpers/create-order.ts:56-63, 115`) precisely so a later edit or delete cannot rewrite what an
 order was shipped to.
 
 Two consequences of soft-delete that were handled in the same change:
@@ -186,10 +192,10 @@ admin-only `GET /address` list is untouched and still available for a future adm
 so any signed-in account could read or delete items out of anyone else's wishlist.
 
 **Now:** both resolve through `findOwnedWishlist(id, userId)`
-(`src/modules/wishlist/wishlist.service.ts:17-27`), which filters on `id + userId` and throws
+(`src/modules/wishlist/wishlist.service.ts:19-29`), which filters on `id + userId` and throws
 **404, not 403** — the same convention as `findOwnedAddress` (BE-02) and
 `assertVendorOwnsProduct`. The controller passes `req.user.id`
-(`src/modules/wishlist/wishlist.controller.ts:32,43`).
+(`src/modules/wishlist/wishlist.controller.ts:36,47`).
 
 The delete stays **hard**, unlike the address case: `Wishlist` has no `isDeleted` column and
 nothing references the row, so there is no history to preserve.
@@ -281,9 +287,11 @@ can be spoofed to dodge the limit.
 **P0 · S · security**
 
 **Now:** `src/middleware/globalErrorHandler.ts:13-17` builds
-`{ statusCode, message, errorDetails: error }`. The Zod branch (`:19-29`) and the Prisma branches
-(`:31-54`) replace `errorDetails` with something safe, but **anything else falls through with the
-raw thrown value in place**, and it is serialized at `:57-61`.
+`{ statusCode, message, errorDetails: error }`. The Zod branch (`:19-30`) and the Prisma branches
+(`:32-64`, which gained the `P2003` → 409 case with BE-39) replace `errorDetails` with something
+safe, but **anything else falls through with the raw thrown value in place**, and it is serialized
+at `:66-70`. _(Re-checked 2026-09-29: unchanged; the `console.log` is still the only `pnpm lint`
+warning.)_
 
 **Gap:** Whatever enumerable properties the thrown object carries go to the client — for an
 unknown Prisma error that includes `clientVersion` and `meta`. Any future `throw` of an object
@@ -310,7 +318,7 @@ unrestricted product filter. A demoted admin kept **write scope over every vendo
 the rest of the token's 20-minute life, not just access to admin routes.
 
 It failed in the other direction too: approving a seller flips `Auth.role` to `VENDOR`
-(`src/modules/vendor/vendor.service.ts:337-341`), but the old token knew nothing about it, so a
+(`src/modules/vendor/vendor.service.ts:389-393`), but the old token knew nothing about it, so a
 newly approved vendor was locked out of their own dashboard until the token refreshed.
 
 **Now:** `src/middleware/authGuard.ts` authorizes against `user.auth.role`, and sets
@@ -371,7 +379,7 @@ matches both registration and the frontend's `profileFormSchema`. `.trim()` runs
 so a whitespace-only name is rejected rather than stored blank.
 
 **Mass assignment was never possible here** — `updateData` builds an explicit `transformData`
-projection (`src/modules/user/user.service.ts:36-41`), so extra body keys were already ignored.
+projection (`src/modules/user/user.service.ts:104-109`), so extra body keys were already ignored.
 Verified: sending `isDeleted: true`, `role: "ADMIN"` and `id: "hacked"` left all three untouched.
 Validation now rejects them one layer earlier rather than relying on that projection staying
 correct.
@@ -465,7 +473,7 @@ Popular products became un-wishlistable platform-wide.
 
 **Now:** the check reads through the model's own `@@unique([userId, productId])` index —
 `findUnique({ where: { userId_productId: { userId, productId } } })`
-(`src/modules/wishlist/wishlist.service.ts:54-58`) — so it is a single keyed lookup scoped to the
+(`src/modules/wishlist/wishlist.service.ts:56-60`) — so it is a single keyed lookup scoped to the
 caller. That constraint is also the backstop for the race where two concurrent requests both pass
 the check: the loser surfaces as a `P2002`, which `globalErrorHandler` already maps.
 
@@ -946,8 +954,8 @@ directions. The probe order, refund and address were deleted afterwards.
 **P2 · S · reviews** (found while building frontend FE-19)
 
 **Now:** `Vendor.averageRating` and `totalReviews` are a cached aggregate, recomputed only by
-`recomputeVendorRating` in `vendor-review.service.ts` on create, update and delete. But
-`VendorReview.vendorOrder` is **`onDelete: Cascade`**, so deleting an `Order` (which cascades to
+`recomputeVendorRating` in `vendor-review.service.ts` (`:19`, called on create `:84`, update `:163` and delete `:192`). But
+`VendorReview.vendorOrder` is **`onDelete: Cascade`** (`schema.prisma:193`), so deleting an `Order` (which cascades to
 `VendorOrder`) deletes its reviews **at the database level**, and nothing recomputes the aggregate.
 
 **Seen in the dev database (2026-09-24):** Urban Threads has `averageRating: 5, totalReviews: 1`
@@ -1121,7 +1129,7 @@ webhook signature check, both probes and an unauthenticated 401 all behave as be
 **✅ FIXED — 2026-09-22 · users**
 
 **Was:** `prisma.user.findMany()` with no `auth` include — and email and role live on `Auth`, not
-`User` (`prisma/schema.prisma:49-59`) — so the admin user table rendered permanently blank Email
+`User` (`prisma/schema.prisma:52-64`) — so the admin user table rendered permanently blank Email
 and Role columns. The `meta` half was already dealt with in BE-15.
 
 **Now — the two columns are FLATTENED onto the user, not nested under `auth`.** That is the
@@ -1280,6 +1288,15 @@ projections; `changePassword` returns nothing; `refreshToken` returns only `acce
 ### BE-41 · A failed temp promotion leaves a live image publicly deletable
 **P1 · M · media**
 
+**Partly closed (re-checked 2026-09-29).** `assertPromoted` (`src/helpers/product.ts:106-115`) now
+refuses to persist a publicId still under `/temp/`, but only one caller uses it:
+`POST /products/:productId/images` (`src/modules/product-image/image.service.ts:67-68`). Product
+create and edit — the paths the product form actually uses — promote through `promoteImages`
+(`product.service.ts:106`, `:812`) and never assert; neither do slide (`slide.service.ts:33`),
+category (`category.service.ts:37`), vendor logo/banner (`vendor.service.ts:46`) or avatar
+(`user.service.ts:120`). `moveFromTemp`'s string surgery is unchanged. The stuck dev-database row
+below was not re-queried.
+
 **This is the real problem behind BE-04.** Verified against the live dev database.
 
 Uploads land in `trendora/temp/<folder>/` and `moveFromTemp` (`src/utils/cloudinary.ts:14-25`)
@@ -1321,7 +1338,7 @@ because Cloudinary normalises consecutive slashes on rename. It also replaces th
 **P1 · M · media**
 
 **Now:** the frontend uploads straight to Cloudinary with an unsigned preset
-(`frontend/src/shared/utils/upload-to-cloudinary.ts:1-23`). Both
+(`frontend/src/shared/utils/upload-to-cloudinary.ts:3-30`). Both
 `NEXT_PUBLIC_CLOUDINARY_PRESET_NAME` and `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` are `NEXT_PUBLIC_`,
 so they ship in the client bundle and anyone can read them from devtools.
 
@@ -1347,7 +1364,8 @@ Cloudinary randomness and is not published anywhere (except in the BE-41 case).
 
 Payout eligibility is *delivered + buyer paid + unattached*, and "buyer paid" is written as
 `order: { paymentStatus: PaymentStatus.PAID }`. That appears three times: `payout.service.ts:44`,
-`:75` and `:366`. The vendor dashboard's earnings aggregate uses the same rule.
+`:75` and `:366`. The vendor dashboard's earnings aggregate uses the same rule
+(`vendor.service.ts:771`, pending payout `:799`).
 
 But `recomputePaymentRefundState` (`helpers/refund.ts`) moves the **order's** `paymentStatus` to
 `PARTIALLY_REFUNDED` as soon as **any** refund on it succeeds. So:
@@ -1370,6 +1388,48 @@ full, or nets the refund off `vendorEarning`, is a **business decision** that ha
 coding it. Apply the same rule to the vendor dashboard aggregate and to `getMyBalance`, or the
 numbers disagree.
 
+**The same test hides the order from every sales figure (added 2026-09-29).** Analytics count a sale
+only when `paymentStatus === PAID`, so the moment one parcel is refunded the **whole order** —
+including the parcels that were delivered and kept — drops out of GMV and commission:
+
+| figure | anchor |
+| --- | --- |
+| admin GMV tile | `order.service.ts:982-988` |
+| admin commission / vendor-earnings tiles | `order.service.ts:991-998` |
+| admin sales trend (`GET /orders/analytics/sales-trend`) | `order.service.ts:1233` |
+| vendor gross / net earnings tiles | `vendor.service.ts:766-779` |
+| vendor sales trend (`buildSalesTrend`) | `vendor.service.ts:704-711` |
+
+A refund therefore *lowers* reported GMV by the full order total, not by the refunded amount, and
+the trend's dip lands on the day the order was placed. Whatever rule is chosen for payouts should
+be the rule here, applied per parcel (`VendorOrder`), not per order.
+
+---
+
+### BE-51 · `markPaid` accepts a FAILED payout whose earnings were already released
+**P1 · S · payouts** — found 2026-09-29
+
+`markFailed` (`payout.service.ts:216-245`) detaches every vendor order from the payout
+(`payoutId: null`) so the next run can claim them. `markPaid` (`:184-210`) refuses only a payout
+that is already `PAID` (`:191`), so a `FAILED` one can still be marked paid — and the admin payouts
+table offers exactly that button on every non-PAID row
+(`frontend/src/features/payouts/components/admin/payout-admin-table.tsx:166-197`).
+
+The sequence that follows is ordinary operator use:
+
+1. A transfer bounces; the admin marks payout A **failed**. Its earnings return to the pool.
+2. The next run creates payout B over the same vendor orders.
+3. The bank later confirms A did go through after all, and the admin marks A **paid**.
+
+A is now `PAID` with its full `amount` and **no vendor orders attached**, B is still open over the
+same earnings, and `getMyBalance`'s `totalPaidOut` (`:81-85`) counts the money twice. If B is then
+paid too, the store has been paid twice for one set of parcels and nothing in the ledger says so.
+
+**Fix:** `markPaid` should accept only `PENDING` / `PROCESSING`; a failed payout is terminal and a
+late success is recorded against the payout that now owns the earnings. `markFailed` should reject
+a payout that is already `FAILED` for the same reason. Hide "Mark paid" on FAILED rows in the admin
+table (frontend).
+
 ---
 
 ## P2 — cleanup, and features never started
@@ -1377,8 +1437,10 @@ numbers disagree.
 ### BE-04 · `POST /cloudinary/delete-temp` is unauthenticated
 **P2 · S · security** — _downgraded from P0 on 2026-09-22 after re-assessment._
 
-**Now:** `src/modules/cloudinary/cloudinary.route.ts:7` registers an inline handler with no
-`authGuard` and no `validateRequest`. The only check is `publicId.includes("/temp/")` at `:10`.
+**Now:** `src/modules/cloudinary/cloudinary.route.ts:16-20` registers the handler with a
+`validateRequest` but no `authGuard`. The only authorisation is the prefix check
+`startsWith("trendora/temp/")` (`cloudinary.service.ts:11,27`). _(Originally an inline handler at
+`:7` checking `includes("/temp/")`; see the BE-26 bullets below.)_
 
 **Why this is P2, not P0.** The original rating assumed "unauthenticated delete of Cloudinary
 assets" meant live assets were reachable. They are not, in normal operation: only publicIds
@@ -1392,7 +1454,7 @@ publicId is readable from the `<img src>`. Fix BE-41 and this endpoint's residua
 nil.
 
 **Note that adding `authGuard` alone would break the app.** `deleteTempImage`
-(`frontend/src/shared/lib/delete-temp-image.ts:5-11`) is a raw `fetch` sending only
+(`frontend/src/shared/lib/delete-temp-image.ts:13-30`) is a raw `fetch` sending only
 `Content-Type` — it is one of the two deliberate exceptions to "all server data goes through RTK
 Query", so it never picks up the token injection in `base-api.ts`. Guarding the route without also
 sending `session.accessToken` from the frontend turns every image replace and remove into a silent
@@ -1440,7 +1502,7 @@ full router tree with the packages uninstalled.
 
 Re-checked all six. **Two had already been wired up by the BE-11 scheduler fix** and are no longer
 dead: `expireStaleCheckoutSessions` (`scheduler/index.ts:72`, hourly) and `retrieveStripeRefund`
-(`refund.ts:498`, inside `reconcileProcessingRefunds`). That entry was written before BE-11 landed.
+(`refund.ts:526`, inside `reconcileProcessingRefunds`). That entry was written before BE-11 landed.
 
 **Deleted — three:**
 
@@ -1450,7 +1512,7 @@ dead: `expireStaleCheckoutSessions` (`scheduler/index.ts:72`, hourly) and `retri
 | `uuidSchema` (`utils/utils.ts`) | zero callers — the one mention was a *comment* in `product.validation.ts` saying its fields differ from it, which has been reworded |
 | `cancelCheckoutSession` (`helpers/checkout.ts`) | zero callers **and unreachable**: nothing can trigger it — `/payment-cancel` is a frontend-only redirect that never calls the backend, and abandonment is already handled twice over by the `checkout.session.expired` webhook and the hourly sweep. Two lines to re-add if a "cancel my checkout" endpoint is ever built |
 
-**Kept — one, deliberately:** `outstandingRefundForOrder` (`helpers/refund.ts:543`) still has no
+**Kept — one, deliberately:** `outstandingRefundForOrder` (`helpers/refund.ts:571`) still has no
 callers, but `CLAUDE.md` names it as the contract for how "what a buyer is owed" is computed —
 derived from the cancelled parcels, never stored, so it cannot go stale. It is not the same thing
 as `/refunds/admin/outstanding`, which is a queue of *stuck Refund rows* across all orders rather
@@ -1579,7 +1641,7 @@ to these endpoints. See **XR-02**.
 **P2 · M · types**
 
 `src/lib/PrismaQueryBuilder.ts:1` carries a file-level
-`/* eslint-disable @typescript-eslint/no-explicit-any */` and uses ~18 `any`s. Every list endpoint
+`/* eslint-disable @typescript-eslint/no-explicit-any */` and uses ~26 `any`s. Every list endpoint
 in the app goes through it, so the one piece of shared infrastructure handling untrusted query
 input has no type safety. (Credit where due: there is **zero** `any` in any `*.service.ts`.)
 
@@ -1590,7 +1652,8 @@ input has no type safety. (Credit where due: there is **zero** `any` in any `*.s
 
 **Was:** the `Payment` model had full gateway fields but was only ever written, by the webhook.
 No `GET /payments*` route existed, while the frontend declared a `payments` RTK Query tag that
-nothing provided — refund mutations still invalidate it (`refund.api.ts:70,78,91,103`).
+nothing provided — refund mutations invalidated it (`refund.api.ts:70,78,91,103`; as of 2026-09-29
+those lines invalidate only `refunds` and `orders`).
 (The original entry cited **XR-07** for that; XR-07 is the free-shipping-at-zero divergence. The
 tag claim is correct, the cross-reference was wrong.)
 
@@ -1657,14 +1720,14 @@ it already declares is now providable.
 
 | ID | Capability | Nearest existing thing |
 | --- | --- | --- |
-| BE-29 | **Coupons / promo codes.** No model, no module. `Order.discount` and `OrderItem.discount` (`schema.prisma:397,491`) are always derived from `basePrice − discountPrice`; `DISCOUNT_RATE` sits unread in `.env.example:46` | per-product `discountPrice` |
-| BE-30 | **Returns / RMA.** There is a refund *ledger* but no return request, RMA number, return shipping or restocking flow. `OrderStatus` has no `RETURNED` (`schema.prisma:687-693`) | `Refund` |
-| BE-31 | **Shipping methods, zones, carriers.** One flat fee + one threshold per store (`schema.prisma:123-124`). `VendorOrder.carrier` / `trackingNumber` (`:450-451`) are free text with no carrier registry or tracking API | flat per-vendor fee |
+| BE-29 | **Coupons / promo codes.** No model, no module. `Order.discount` and `OrderItem.discount` (`schema.prisma:452,549`) are always derived from `basePrice − discountPrice`; `DISCOUNT_RATE` sits unread in `.env.example:49` | per-product `discountPrice` |
+| BE-30 | **Returns / RMA.** There is a refund *ledger* but no return request, RMA number, return shipping or restocking flow. `OrderStatus` has no `RETURNED` (`schema.prisma:787-793`) | `Refund` |
+| BE-31 | **Shipping methods, zones, carriers.** One flat fee + one threshold per store (`schema.prisma:153-154`). `VendorOrder.carrier` / `trackingNumber` (`:508-509`) are free text with no carrier registry or tracking API | flat per-vendor fee |
 | BE-32 | **Stock reservation and low-stock alerts.** Stock is deducted at COD creation or at the Stripe webhook, so the last unit can be sold twice between checkout and charge — the webhook then fails the stock guard and that charge needs refunding by hand | conditional `updateMany` guard |
-| BE-33 | **Search facets / full-text.** `.search()` is a naive `contains` over `name` and `description` (`product.service.ts:172`). No price/rating/colour/size/in-stock facet counts, no full-text index | `?search=` substring |
+| BE-33 | **Full-text search.** ~~No facet counts~~ — **done 2026-09-23**: `GET /products/filters` (`findFilterFacets`, `product.service.ts:387`) returns category/brand/size/gender/store/price/rating facets with disjunctive counts (no colour facet). Still open: `.search()` is a naive `contains` over `name` and `description` (`product.service.ts:170`), with no full-text index or relevance ranking | `?search=` substring |
 | ~~BE-34~~ | ~~**Admin user management.**~~ ✅ **FIXED 2026-09-22** — see its own section below | `GET /users` |
 | ~~BE-35~~ | ~~**Vendor moderation audit log.**~~ ✅ **FIXED 2026-09-22** — see its own section below | three columns |
-| BE-36 | **Support tickets, disputes, buyer↔vendor messaging.** None. Refund `reason` is free text (`schema.prisma:557`) | — |
+| BE-36 | **Support tickets, disputes, buyer↔vendor messaging.** None. Refund `reason` is free text (`schema.prisma:622`) | — |
 | BE-37 | **Reporting.** Two hand-rolled endpoints: `GET /orders/analytics` and `GET /vendors/me/dashboard`. Date ranges exist; sales-by-period is `GET /orders/analytics/sales-trend` (admin, 2026-09-28). No export, no cohorts | two dashboards |
 | BE-38 | ~~**Tax rules.** No per-category rate~~ — **done 2026-09-22**, see below. Jurisdiction rates, exemptions and VAT/GST ids on orders remain unbuilt, by choice | `Category.taxRate` |
 | ~~BE-39~~ | ~~**Schema warnings.**~~ ✅ **FIXED 2026-09-22** — see its own section below | — |
@@ -1726,7 +1789,8 @@ Migrations `20260922...category_tax_rate` and `..._order_item_tax_snapshot` are 
   admin uses to set a **tax rate**. `categoryUpdateSchema` now guards it, and `taxRate` is range-
   and precision-checked (0–1, at most 4dp, matching `Decimal(5,4)`) so a value the column would
   silently truncate is a 400.
-- **Product payloads now carry `category.taxRate`**, on every read a cart line can be built from.
+- **Product payloads now carry `category.taxRate`**, on every read a cart line can be built from
+  — _not quite: the slug, id and new-arrival reads were missed; see BE-52 (2026-09-29)._
   Without it the frontend could not mirror the new maths, and `CLAUDE.md` promises the two agree to
   the cent.
 
@@ -1945,30 +2009,107 @@ screen, no role control, no restore. This is the backend half.
 
 ---
 
+### BE-52 · Three product reads a cart line is built from carry no `category.taxRate`
+**P2 · S · tax** — found 2026-09-29; latent until the frontend adopts per-category tax
+
+BE-38 says product payloads carry `category.taxRate` "on every read a cart line can be built from".
+Three of them do not:
+
+| read | used for | anchor |
+| --- | --- | --- |
+| `GET /products/by-slug/:slug` (`findBySlug`) | the product page's **Add to cart** | `product.service.ts:695-713` — `brand`, no `category` |
+| `GET /products/:id` (`findById`) | quick view / direct reads | `product.service.ts:645-653` — no `category`, no `brand` |
+| `GET /products/new-arrival` | the home page rail's cards | `product.service.ts:1073-1083` — no `category` |
+
+Every card-list read (`findAllFromDB`, best sellers, store page, vendor/admin lists) does include it.
+Harmless today, because the frontend still applies one platform rate. The day
+`calculate-order-total.ts` reads `category.taxRate`, a line added from the product page has no rate
+and falls back to `NEXT_PUBLIC_TAX_RATE` — so a zero-rated or re-rated category is quoted wrongly
+from exactly the page most carts are filled from.
+
+**Fix:** add `category: { select: { id, name, slug, taxRate } }` to all three includes, matching
+`findMyProductById` (`:671`).
+
+---
+
+### BE-53 · No money-moving payout rail
+**P2 · L · payouts** — product gap, not a bug
+
+Refunds are the only money this backend moves (a real Stripe refund). Payouts are a ledger with no
+rail behind it: `PATCH /payouts/:id/mark-paid` (`payout.route.ts:43-48`) only **records** that an
+admin already paid the store out-of-band — `reference` is an admin-typed receipt (3–120 chars) and
+`method` is free text (`payout.validation.ts:24-32`); `markPaid` (`payout.service.ts:184-210`)
+writes them and sends the notification. Nothing verifies the transfer happened, `PayoutStatus.PROCESSING`
+is never written (see BE-25), and nothing reconciles a payout against a bank or gateway.
+
+`Vendor.payoutDetails` is free-form `Json`, snapshotted onto `Payout.payoutDetails`, so a rail such
+as Stripe Connect transfers can be added without a schema change — the missing pieces are
+onboarding (a connected-account id per store), the transfer call (outside the DB transaction, the
+same two-phase shape as `helpers/refund.ts`), and webhook reconciliation of `transfer.*` / `payout.*`.
+
+---
+
+### BE-54 · Analytics tiles and trend disagree on a one-sided date range
+**P2 · S · analytics** — found 2026-09-29
+
+`parseDateRange` (`src/helpers/date-range.ts:10-29`) accepts either bound alone. The **tiles** apply
+a range only when both are present — admin `order.service.ts:958-966`, vendor
+`vendor.service.ts:743-746` — while the **trends** honour either bound: admin `getSalesTrend`
+defaults the missing end to now and the missing start to the first order (`order.service.ts:1186-1196`),
+vendor `getMyDashboard` defaults to a 30-day window (`vendor.service.ts:736-741`).
+
+So `GET /orders/analytics?startDate=2026-09-01` returns **all-time** tiles, and the sales-trend
+beside it covers September onward; the two cannot be reconciled, although `getSalesTrend`'s own doc
+comment promises the series sums to the tiles for the same window. The frontend's
+`DateRangeSelect` always sends both bounds or neither
+(`frontend/src/shared/components/date-range-select.tsx:37-53`), so the dashboards are unaffected —
+this bites any other client, and any future "since" picker.
+
+(With **no** range the vendor tiles are all-time and the vendor trend is 30 days. That one is
+deliberate — the comment at `vendor.service.ts:734-735` says so.)
+
+**Fix:** resolve the window once, in one place, and pass the same `{ start, end }` to tiles and trend
+— or have `parseDateRange` 400 on a lone bound.
+
+---
+
 ## Cross-repo contract
 
 _Mirrored in `docs/FEATURE-GAPS.md` of the frontend repo. The two repos share only HTTP, so a
 change here is always two commits on two branches._
 
-### XR-01 · Tax and port defaults disagree across four files
-**P1 · S · config**
+### XR-01 · ~~Tax and~~ port defaults disagree — tax half fixed
+**P2 · S · config** — _was P1; the tax half, which was the money risk, closed 2026-09-22 (BE-19)_
+
+**Tax — ✅ fixed.** Every source now agrees on 0.05, and neither side can silently default to
+anything else:
 
 | Source | `TAX_RATE` |
 | --- | --- |
-| `src/config/env-config.ts:32` (code fallback) | **0.08** |
-| `.env.example:40` and the live `.env` | **0.05** |
-| `frontend/.env.local` (`NEXT_PUBLIC_TAX_RATE`) | **0.05** |
-| ~~`frontend/src/features/cart/utils/calculate-order-total.ts:26` (code fallback)~~ | ~~**0**~~ — **no fallback since frontend FE-30**: the value is required, and a build without it fails |
+| `src/config/env-config.ts:84-85` (code fallback) | **0.05** since the BE-19 env schema (`3ea39ea`, 2026-09-22), range-checked 0–1 |
+| `.env.example:43` and the live `.env` | **0.05** |
+| `frontend/.env.local` / `frontend/.env.example:15` (`NEXT_PUBLIC_TAX_RATE`) | **0.05** |
+| ~~`frontend/src/features/cart/utils/calculate-order-total.ts:26` (code fallback)~~ | ~~**0**~~ — **no fallback since frontend FE-30** (`:28` reads the validated value): a build without it fails |
 
-The running pair agrees at 0.05, so checkout is correct today. But a deploy that forgets the
-variable charges **8% server-side while the cart displays 0%** — the buyer is billed more than
-they were quoted, silently, because the backend recomputes and never trusts the client.
+The original risk — a deploy that forgets the variable charging 8% while the cart shows 0% — no
+longer exists. A deploy that sets the two sides to *different* values still mis-quotes, which the
+admin settings screen (`GET /settings`) now flags. _(The root `CLAUDE.md` still says the backend
+falls back to 0.08; it does not.)_
 
-`PORT` is similarly muddled: `env-config.ts:8` defaults to `5000`, `.env` and `.env.example` say
-`5001`, `pnpm stripe:listen` forwards to `5001`, and the root `CLAUDE.md` documents `5000`.
+**Port — still open.** `env-config.ts:70` defaults `PORT` to `5000`; `.env` and `.env.example:14`
+say `5001`, `pnpm stripe:listen` forwards to `localhost:5001/webhook/stripe` (`package.json:15`),
+and the frontend's `NEXT_PUBLIC_BACKEND_URL` points at `5001` (`frontend/.env.example:12`). A deploy
+or fresh checkout that omits `PORT` listens on 5000 and every frontend request fails to connect.
+The root `CLAUDE.md` now documents 5001 and the fallback.
 
-**Fix:** Make both code fallbacks match `.env.example`, or (better) make `TAX_RATE` required by
-the env validation in BE-19 so it can never silently default. Settle on one port everywhere.
+**Also unread, and misleading:** `.env.example:16-17` sets `ACCESS_TOKEN_EXPIRES=1d` and
+`REFRESH_TOKEN_EXPIRES=30d`, but token lifetimes are hardcoded `20m` / `30d`
+(`src/helpers/jwt.ts:4,9`) and neither key is in the env schema. An operator who sets
+`ACCESS_TOKEN_EXPIRES` expecting it to apply gets 20 minutes. `DISCOUNT_RATE` (`:49`) is likewise
+read by nothing (BE-29).
+
+**Fix:** change the `PORT` fallback to 5001. Either wire the two token-lifetime keys into the env
+schema and `jwt.ts`, or delete them (and `DISCOUNT_RATE`) from `.env.example`.
 
 ---
 
@@ -1976,10 +2117,10 @@ the env validation in BE-19 so it can never silently default. Settle on one port
 **P2 · S · contract**
 
 **Frontend calls that would 404 here** — both currently unmounted, so latent rather than live:
-- `GET /auth/google` (`frontend/src/features/auth/api/auth.api.ts:38-43`) — wrong path *and*
-  wrong verb; the real endpoint is `POST /auth/oauth-login` (`src/modules/auth/auth.route.ts:22`),
+- `GET /auth/google` (`frontend/src/features/auth/api/auth.api.ts:36-41`) — wrong path *and*
+  wrong verb; the real endpoint is `POST /auth/oauth-login` (`src/modules/auth/auth.route.ts:37-41`),
   which NextAuth correctly calls directly.
-- ~~`DELETE /users/:id` (`frontend/src/features/users/api/user.api.ts:48-53`) — no such route~~
+- ~~`DELETE /users/:id` (`frontend/src/features/users/api/user.api.ts:52-57`) — no such route~~
   **✅ fixed (BE-34)**: the route exists and soft-deletes (disables) the account. The mutation
   should now work as written; there is still no admin UI for restore or role assignment.
 
@@ -2041,15 +2182,15 @@ comment cannot be removed by clearing it. It needs an explicit `null` if that is
 | What the frontend expects | What this side returns |
 | --- | --- |
 | ~~`TUser.email`, `TUser.role` required; `meta` for pagination~~ | ~~`GET /users` sends neither~~ — **fixed (BE-15 + BE-20)**: `meta` is returned and both fields arrive **flat**, exactly as `TUser` declares them |
-| `TProductVariant.size` required | `findAllFromDB` (`product.service.ts:176-184`) and `findById` (`:266-276`) include `variants: true` with **no `size` relation**; only `findBySlug` (`:312-330`) and the vendor read do. `variant.size.name` throws off `/products` and `/products/:id` |
-| `TProductImage.productId`, `.publicId`, `.isDeleted` required | list reads select only `{id, url, isMain}` (`product.service.ts:178,220,247`) |
-| `TOrder.user.email` flat | nested as `user.auth.email` (`order.service.ts:194-205, 332-341`) — always `undefined` on the frontend |
-| `TOrder.user` required | `GET /orders/my-orders` (`order.service.ts:233-289`) does not include `user` at all |
-| Order money fields required `string` | `getOrderById` deliberately returns them `undefined` for a VENDOR (`order.service.ts:365-372`) |
-| `TVendor._count.payouts` | `findAllForAdmin` selects `_count: { products, vendorOrders }` only (`vendor.service.ts:278`) |
-| `TSlide` has no `sortOrder`/`isActive` | the columns exist here and drive BE-16 |
-| `TReview.rating: number` | `Review.rating` is `Decimal` (`schema.prisma:329`) → JSON **string** |
-| `ShippingSnapshot.state` required, no `email` | `Address.state` is nullable and `email` is required (`schema.prisma:65,69`) |
+| `TProductVariant.size` required | `findAllFromDB` (`product.service.ts:180-188`) and `findById` (`:645-653`) include `variants: liveVariants` with **no `size` relation**; only `findBySlug` (`:699-709`) and the vendor read `findMyProductById` (`:668`, `:686`) do. `variant.size.name` throws off `/products` and `/products/:id` |
+| `TProductImage.productId`, `.publicId`, `.isDeleted` required | list reads select only `{id, url, isMain}` (`product.service.ts:181-183, 253, 599, 626, 1157`) |
+| `TOrder.user.email` flat | nested as `user.auth.email` (`order.service.ts:253-263, 395-405`) — always `undefined` on the frontend |
+| `TOrder.user` required | `GET /orders/my-orders` (`order.service.ts:291-351`) does not include `user` at all |
+| Order money fields required `string` | `getOrderById` deliberately returns them `undefined` for a VENDOR (`order.service.ts:476-480`) |
+| `TVendor._count.payouts` | `findAllForAdmin` selects `_count: { products, vendorOrders }` only (`vendor.service.ts:320`). The frontend made all three optional (`vendor.types.ts:82-86`), so nothing throws — but `payouts` is never populated |
+| ~~`TSlide` has no `sortOrder`/`isActive`~~ | ~~the columns exist here and drive BE-16~~ — **fixed on the frontend**: `TSlide` declares both, plus `photoPublicId` (`frontend/src/features/home/types/slide.types.ts:1-16`) |
+| `TReview.rating: number` | `Review.rating` is `Decimal` (`schema.prisma:384`) → JSON **string** |
+| `ShippingSnapshot.state` required, no `email` | `Address.state` is nullable and `email` is required (`schema.prisma:99,95`) |
 
 Most of these are frontend type corrections; **BE-20 and the missing `size` include are ours.**
 
@@ -2076,10 +2217,10 @@ Most of these are frontend type corrections; **BE-20 and the missing `size` incl
 ### XR-07 · Free shipping diverges when the threshold is `0`
 **P1 · S · money**
 
-`src/helpers/order.ts:238-241` charges `subtotal >= freeShippingThreshold ? 0 : shippingFee`. At a
+`src/helpers/order.ts:252-258` charges `subtotal >= freeShippingThreshold ? 0 : shippingFee`. At a
 threshold of `0`, `subtotal >= 0` is always true, so **shipping is free**. The frontend requires
 `freeShippingThreshold > 0 && subtotal >= threshold`
-(`frontend/src/features/cart/utils/calculate-order-total.ts:61-62`), so at `0` it **charges the
+(`frontend/src/features/cart/utils/calculate-order-total.ts:62-63`), so at `0` it **charges the
 full fee**.
 
 The vendor settings form explicitly permits `0` (`.min(0)`), so a seller can put their store into
@@ -2096,7 +2237,7 @@ drop its `> 0` guard to match this side, since this side is authoritative.
 **P2 · S · query**
 
 The reserved names and defaults match: `buildQueryParams` defaults `page:1, limit:10, search:"",
-sortBy:"createdAt:desc"`, and `PrismaQueryBuilder.ts:156-164` reserves `search, page, limit,
+sortBy:"createdAt:desc"`, and `PrismaQueryBuilder.ts:144-153` (defaults) and `:300-308` (reserved keys) reserve `search, page, limit,
 sortBy, sort, orderBy, order` with the same defaults. **No list screen currently sends a param
 that would become a bogus column filter.** Two caveats:
 
@@ -2116,7 +2257,7 @@ that would become a bogus column filter.** Two caveats:
 ### ~~XR-09~~ · Enum drift
 **✅ FIXED 2026-09-24 on both sides · contract**
 
-`prisma/schema.prisma:667-748` and `src/helpers/enum.ts:10-66` **agree on all nine mirrored
+`prisma/schema.prisma:767-848` and `src/helpers/enum.ts:10-75` **agree on all nine mirrored
 enums**. The gaps are at the edges:
 
 - ~~**`AuthProvider` has no Zod mirror**, and the inline copy at `auth.validation.ts:37-43` drops
@@ -2131,19 +2272,23 @@ enums**. The gaps are at the edges:
 
 ---
 
-### XR-10 · CORS is hardcoded; the frontend has no `.env.example`
+### XR-10 · CORS is hardcoded; ~~the frontend has no `.env.example`~~
 **P1 · S · config**
 
-`src/app.ts:18` pins `origin: ["http://localhost:3000"]` while `FRONTEND_URL` is defined in env
-(`env-config.ts:12`) and used only for Stripe redirect URLs (`src/helpers/stripe.ts:83-84`). The
-backend therefore **cannot be deployed without editing source**.
+`src/app.ts:39-44` pins `origin: ["http://localhost:3000"]` (`:42`) while `FRONTEND_URL` is
+defined in env (`env-config.ts:71`) and read for everything *except* CORS — the Stripe redirect
+URLs (`src/helpers/stripe.ts:83-84`), the password-reset link (`auth.service.ts:412`) and the
+store link in notification mail (`helpers/notifications.ts:236`). `app.ts` already imports
+`envConfig` (`:11`). The backend therefore **cannot be deployed, or the frontend served on any other
+port, without editing source** — and setting `FRONTEND_URL` for a deploy makes the emailed links
+point at an origin the API then refuses. _(Re-checked 2026-09-29: unchanged.)_
 
 ~~Symmetrically, the frontend has no `.env.example`~~ — **added 2026-09-24 (frontend FE-29)**,
 with all ten variables. The frontend also validates them now (FE-30). The hardcoded CORS origin
 above is still open.
 
-**Fix:** Read the origin from `envConfig.front_end_url` (accept a comma-separated list). Add
-`frontend/.env.example`.
+**Fix:** Read the origin from `envConfig.front_end_url` (accept a comma-separated list).
+~~Add `frontend/.env.example`.~~
 
 ---
 
@@ -2152,14 +2297,21 @@ above is still open.
 
 **Updated 2026-09-22.** The backend half is complete (BE-01); the frontend half is not.
 
+**Re-checked 2026-09-29: the frontend half is built but NOT merged.** It lives on the frontend
+branch `FE-04-Forgot-password-form-submits-to-console-log` (`b28f2f4`), which is not an ancestor of
+the frontend's current branch (`customise-dashboard-design-with-api-data`) or of `origin/main`. On
+the current branch `forgot-password-form.tsx:23-24` still `console.log`s the email, `auth.api.ts`
+has no `forgotPassword`/`resetPassword` mutation, and there is no `app/(auth)/reset-password` route,
+so the link this backend emails 404s. The ✅ rows below describe that branch.
+
 | Piece | State |
 | --- | --- |
 | `POST /auth/forgot-password` | ✅ emails a single-use link, returns a generic 200, never returns the token |
 | `POST /auth/reset-password` | ✅ redeems the token and sets the new password |
 | Email delivery | ✅ `src/utils/sendEmail.ts` + `passwordResetEmail` template |
 | Token storage | ✅ `PasswordResetToken`, SHA-256 hashed, TTL + single-use + supersede |
-| Forgot-password form (frontend) | ✅ wired (frontend FE-04) |
-| `/reset-password` page (frontend) | ✅ built (frontend FE-04) |
+| Forgot-password form (frontend) | ✅ wired on the FE-04 branch — **not merged** |
+| `/reset-password` page (frontend) | ✅ built on the FE-04 branch — **not merged** |
 
 **The contract the frontend must meet:**
 
@@ -2187,15 +2339,62 @@ dead end worth handling on the frontend copy eventually.
 
 ---
 
+### XR-12 · The cart quotes one platform tax rate; this side charges per category
+**P1 · S · money** — logged 2026-09-29 (follows BE-38)
+
+This side is correct: each line is taxed at `category.taxRate ?? TAX_RATE`
+(`src/helpers/order.ts:196-200`). The frontend still applies one flat `NEXT_PUBLIC_TAX_RATE`
+(`frontend/src/features/cart/utils/calculate-order-total.ts:69`) and its cart line carries no rate,
+so the moment any `Category.taxRate` is set the cart quotes a tax this backend will not charge.
+The fix is frontend-side (see the frontend doc's XR-12), with one backend prerequisite: **BE-52** —
+three product reads a cart line is built from do not return `category.taxRate` yet.
+
+---
+
+### ~~XR-13~~ · Variant products' stock is `stockQuantity`, which nothing keeps current
+**P1 · M · contract** — found 2026-09-29
+
+**✅ FIXED 2026-09-29 (code; backfill migration written, not yet applied).** `Product.stockQuantity`
+is now DERIVED for any product with live variants: `syncVariantStock` (`backend/src/helpers/product.ts`)
+sets it to the sum of live variant stock inside the same transaction as every write that moves it —
+the sale (`persistOrder`), the cancellation restock, product create/update (overriding any
+client-sent value) and the `/variants` sub-resource; deleting the last variant resets it to 0.
+`validateAndCalculateOrder` now 400s on a cart line with no `variantId` for a product that has
+variants — that path used to sell straight from `stockQuantity`, bypassing every variant. The
+seed re-derives it too. Frontend: product card and wishlist send variant products to the product
+page ("Choose options"); the product page requires an option, disables sold-out variants and caps
+quantity; the product form shows the variant total read-only. Existing rows are corrected by
+`prisma/migrations/20260929120000_sync_variant_stock` (at time of writing, 3 of 4 variant products
+had drifted, e.g. Levi's 501: 299 vs 200).
+
+
+A variant sale decrements only `ProductVariant.stock`; `Product.stockQuantity` is decremented only
+for products without variants (`src/helpers/create-order.ts:68-90`), and nothing recomputes it
+from the variants. Yet the storefront's `inStock=true` filter tests `stockQuantity > 0`
+(`src/helpers/product-filter.ts:166-167`), and every frontend stock column, "Out of stock" filter
+and stock sort reads the same column. A product whose variants are all sold out stays "In stock"
+and fails at checkout with "Insufficient stock"; a variant product saved with `stockQuantity: 0`
+is hidden while its variants have units.
+
+**Fix (backend-side is cleanest):** maintain `stockQuantity` as the sum of live variant stock in
+the same transaction as every variant write and every sale — or compute it on read — so the filter
+and every frontend consumer stay correct unchanged. The frontend doc's XR-13 lists its surfaces.
+
+---
+
 ## Verified NOT a gap
 
 Things that look wrong at a glance and are deliberate. Please do not re-raise these without
 reading the reasoning.
 
-- **The Stripe webhook is not in `routes-array.ts`.** It is mounted at `/webhook` in `app.ts:12`,
+- **The Stripe webhook is not in `routes-array.ts`.** It is mounted at `/webhook` in `app.ts:70`,
   above `express.json()`, because signature verification needs the raw body. Registering it under
   `/api/v1` would expose a second path whose body was already parsed, failing every signature
-  check. The reasoning is at `routes-array.ts:33-37`.
+  check. The reasoning is at `routes-array.ts:38-42`.
+- **`POST /webhook` is registered below the `stripeWebhookRouter` export** (`payment.route.ts:77`,
+  while `/webhook/stripe` is at `:28-32` and the export at `:34`). It works — the export is the same
+  router object, and every route is attached at import time before `app.ts` mounts it. It only
+  *looks* like dead code after the read router; keep the two together if that file is reshuffled.
 - **`PATCH /orders/:orderId/status` and `DELETE /orders/:orderId` are gone.** With several sellers
   on one order there is no single status to set; fulfilment is per `VendorOrder`
   (`order.route.ts:10-14`).
@@ -2224,7 +2423,7 @@ reading the reasoning.
 ## Corrections made to existing docs during this audit
 
 - `backend/CLAUDE.md` said three `.env.example` keys are unread. There are **four** —
-  `DISCOUNT_RATE` (`.env.example:46`) is also read by nothing.
+  `DISCOUNT_RATE` (`.env.example:49`) is also read by nothing.
 - The root `CLAUDE.md` documented the backend port as `5000`; `.env`, `.env.example` and
   `pnpm stripe:listen` all use `5001` (XR-01).
 - The root `CLAUDE.md` said `TAX_RATE` defaults to `0.08` as though that were the intended value;

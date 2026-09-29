@@ -174,6 +174,17 @@ export async function validateAndCalculateOrder(
             if (variant.size) details.push(variant.size.name);
             variantDetails = details.join(", ");
         } else {
+            // A product with variants is sold BY variant. A line that names none
+            // would be priced off the product and drawn from `stockQuantity`,
+            // which for such a product is only the derived total of its
+            // variants — the sale would bypass every variant's own count.
+            if (product.variants.length > 0) {
+                throw new CustomError(
+                    400,
+                    `Please choose an option (size / colour) for ${product.name} before checking out.`,
+                );
+            }
+
             // Use product price
             actualPrice = toNumber(product.discountPrice ?? product.basePrice);
             originalPrice = toNumber(product.basePrice);

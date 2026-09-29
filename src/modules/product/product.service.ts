@@ -9,7 +9,11 @@ import {
 	vendorListScope,
 } from "@/helpers/vendor";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
-import { liveVariants, promoteImages } from "@/helpers/product";
+import {
+	liveVariants,
+	promoteImages,
+	syncVariantStock,
+} from "@/helpers/product";
 import {
 	facetWhere,
 	splitStorefrontQuery,
@@ -120,6 +124,16 @@ const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
 	const data = await prisma.product.create({
 		data: {
 			...others,
+			// With variants the product's stock is their total, not whatever
+			// the form sent (see syncVariantStock).
+			...(variants?.length
+				? {
+					stockQuantity: variants.reduce(
+						(sum, v) => sum + v.stock,
+						0,
+					),
+				}
+				: {}),
 			vendorId,
 			slug,
 			discountPrice: dis_Price,
@@ -903,14 +917,21 @@ const updateData = async (
 					}
 					: {}),
 			},
+			select: { id: true },
+		});
+
+		// Runs after the update above so that a client-sent
+		// `stockQuantity` cannot overwrite the variants' total.
+		await syncVariantStock(tx, [updated.id]);
+
+		return tx.product.findUniqueOrThrow({
+			where: { id: updated.id },
 			include: {
 				variants: liveVariants,
 				images: true,
 				vendor: { select: vendorCardSelect },
 			},
 		});
-
-		return updated;
 	});
 
 	return updatedProduct;

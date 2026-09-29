@@ -106,6 +106,14 @@ const findByUserId = async (id: string, query: Record<string, unknown> = {}) => 
 					basePrice: true,
 					discountPrice: true,
 					images: true,
+					// So the card can tell "add straight to cart" from "pick a
+					// size first" and show sold-out (a line with no variant is
+					// rejected at checkout for a product that has variants).
+					stockQuantity: true,
+					variants: {
+						where: { isDeleted: false },
+						select: { id: true, stock: true },
+					},
 				},
 			},
 		})

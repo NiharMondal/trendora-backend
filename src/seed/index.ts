@@ -2,6 +2,7 @@
 import { envConfig } from "@/config/env-config";
 import { prisma } from "@/config/db";
 import { makePasswordHash } from "@/helpers/password";
+import { syncVariantStock } from "@/helpers/product";
 import { generateSlug } from "@/helpers/slug";
 import { ProductStatus } from "@/lib/prisma-client";
 import {
@@ -222,6 +223,10 @@ async function seedProducts(
 			});
 			variantCount++;
 		}
+
+		// The seed's own `stockQuantity` is overridden once variants exist —
+		// a variant product's stock is their total (XR-13).
+		await syncVariantStock(prisma, [row.id]);
 	}
 
 	console.log(

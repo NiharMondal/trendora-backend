@@ -38,6 +38,7 @@ import {
 	requireApprovedVendor,
 } from "@/helpers/vendor";
 import { sanitizePayment, sanitizeRefund } from "@/helpers/payment";
+import { syncVariantStock } from "@/helpers/product";
 import { TCreateOrderSchema, TUpdateVendorOrderStatus } from "./order.validation";
 
 export type TBasicInfo = {
@@ -750,6 +751,13 @@ const updateVendorOrderStatus = async (
 					});
 				}
 			}
+
+			await syncVariantStock(
+				tx,
+				vendorOrder.items
+					.filter((item) => item.variantId)
+					.map((item) => item.productId),
+			);
 		}
 
 		// 4. Write the slice

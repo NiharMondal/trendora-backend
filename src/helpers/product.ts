@@ -26,6 +26,44 @@ export const liveVariants = { where: { isDeleted: false } } satisfies {
 };
 
 /**
+ * For a product WITH live variants, `Product.stockQuantity` is derived: the sum
+ * of its live variants' `stock`. Only a product with no variants owns the
+ * column outright.
+ *
+ * A sale and a cancellation move the VARIANT's stock (`persistOrder`,
+ * `updateVendorOrderStatus`), yet the storefront's `inStock` filter and every
+ * dashboard stock column and sort read `stockQuantity`. Left alone the column
+ * keeps whatever the product form last stamped on it, so a jacket with every
+ * variant sold out still reads "200 in stock" and fails only at checkout
+ * (`docs/FEATURE-GAPS.md` XR-13).
+ *
+ * Call it inside the same transaction as every write that changes a variant's
+ * stock or liveness, AFTER that write — including any `product.update` that
+ * carries a client-supplied `stockQuantity`, which this then overrides.
+ * Products with no live variants are left untouched.
+ */
+export const syncVariantStock = async (
+    tx: Prisma.TransactionClient,
+    productIds: string[],
+) => {
+    const ids = [...new Set(productIds)];
+    if (ids.length === 0) return;
+
+    const totals = await tx.productVariant.groupBy({
+        by: ["productId"],
+        where: { productId: { in: ids }, isDeleted: false },
+        _sum: { stock: true },
+    });
+
+    for (const total of totals) {
+        await tx.product.update({
+            where: { id: total.productId },
+            data: { stockQuantity: total._sum.stock ?? 0 },
+        });
+    }
+};
+
+/**
  * The product a sub-resource WRITE applies to, or 404.
  *
  * 404 rather than 403, for the same reason `assertVendorOwnsProduct` does it:

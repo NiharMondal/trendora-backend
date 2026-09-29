@@ -8,6 +8,7 @@ import { OrderCalculation } from "@/types/common.types";
 import CustomError from "@/utils/customError";
 import { buildVendorOrderNumber, logStatusChange } from "./order";
 import { deriveOrderStatus } from "./order";
+import { syncVariantStock } from "./product";
 
 /**
  * The single place an Order is written.
@@ -94,6 +95,15 @@ export async function persistOrder(
             }
         }
     }
+
+    // A variant sale moved only the variant's stock; bring each product's
+    // derived total back in line in the same transaction (XR-13).
+    await syncVariantStock(
+        tx,
+        calculation.items
+            .filter((item) => item.variantId)
+            .map((item) => item.productId),
+    );
 
     // 2. Create the buyer-facing order. `orderStatus` is the derived rollup of
     //    the slices we are about to create.
