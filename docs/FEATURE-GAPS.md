@@ -45,7 +45,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-48~~ | ~~Product reviews are not gated on purchase, and not one per buyer~~ | ✅ **FIXED** 2026-09-24 | — | reviews |
 | ~~BE-49~~ | ~~No buyer-side summary: lifetime spend needs every order paged down~~ | ✅ **FIXED** 2026-09-24 | — | orders |
 | BE-50 | Any refund on one parcel makes every parcel of that order unpayable — and drops it from every sales figure | P1 | S | payouts |
-| BE-51 | `markPaid` accepts a FAILED payout whose earnings were already released | P1 | S | payouts |
+| ~~BE-51~~ | ~~`markPaid` accepts a FAILED payout whose earnings were already released~~ | ✅ **FIXED** 2026-09-29 | — | payouts |
 | BE-52 | Three product reads a cart line is built from carry no `category.taxRate` | P2 | S | tax |
 | BE-53 | No money-moving payout rail — `markPaid` only records a transfer | P2 | L | payouts |
 | BE-54 | Analytics tiles and trend disagree on a one-sided date range | P2 | S | analytics |
@@ -1425,8 +1425,19 @@ be the rule here, applied per parcel (`VendorOrder`), not per order.
 
 ---
 
-### BE-51 · `markPaid` accepts a FAILED payout whose earnings were already released
-**P1 · S · payouts** — found 2026-09-29
+### ~~BE-51~~ · `markPaid` accepts a FAILED payout whose earnings were already released
+**✅ FIXED — 2026-09-29 · payouts**
+
+**Now:** only an open payout (`PENDING` / `PROCESSING`) can be marked paid or failed —
+`assertPayoutOpen` in `payout.service.ts`. `markPaid` on a FAILED payout is a 400 that says to
+record the transfer against the payout that now owns the earnings; `markFailed` on a FAILED one is
+a 400 too. Both writes are now conditional `updateMany`s on the status still being open (409 if
+another admin got there first), and `markFailed` claims the transition before it releases the
+vendor orders, so a race cannot release earnings from a payout that was just paid. The admin
+payouts table shows no actions on a FAILED row. Verified against the dev DB: PAID and FAILED
+payouts are refused by both actions, and no write is reached.
+
+**Was (original entry):**
 
 `markFailed` (`payout.service.ts:216-245`) detaches every vendor order from the payout
 (`payoutId: null`) so the next run can claim them. `markPaid` (`:184-210`) refuses only a payout

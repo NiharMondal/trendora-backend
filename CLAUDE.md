@@ -767,8 +767,7 @@ not point liveness at the database**; a DB blip becomes a restart loop across ev
 > there). Still open and most likely to bite (no P0 remains): **BE-41** / **BE-42** / **BE-04** (Cloudinary: a failed temp
 > promotion leaves a live image publicly deletable; the unsigned preset is an open upload
 > endpoint; `/cloudinary/delete-temp` is unauthenticated), **BE-50** (one refund on a multi-store
-> order makes every other parcel unpayable), **BE-51** (a FAILED payout can still be marked paid)
-> and **BE-47** (hard-deleting an order leaves the
+> order makes every other parcel unpayable) and **BE-47** (hard-deleting an order leaves the
 > store rating stale). Read the relevant entry before touching media or payouts.
 
 - **This Stripe test account is shared with another project.** The only

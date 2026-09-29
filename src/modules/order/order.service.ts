@@ -188,6 +188,7 @@ const createOrder = async (payload: TCreateOrderSchema & TBasicInfo) => {
 			checkoutSessionId: draft.id,
 			orderNumber,
 			calculation,
+			customerEmail: shippingAddress.email,
 		});
 
 		await attachStripeSession(draft.id, stripeSessionId);
@@ -239,6 +240,25 @@ const summariseVendorGroup = (vendor: {
 });
 
 /**
+ * The buyer's email lives on `Auth`, one table over from `User`, but that is
+ * storage, not API shape — the same rule `flattenAuth` applies to `GET /users`
+ * (BE-20). Order reads return `user.email` flat; nesting it as
+ * `user.auth.email` left the admin order list showing a placeholder address
+ * for every buyer and the detail page's Email row blank (frontend FE-41).
+ */
+const flattenBuyerEmail = <T extends object>(order: T) => {
+	// Loosely typed on purpose: the admin list comes back through
+	// PrismaQueryBuilder, whose `build()` is untyped (BE-27), so its rows do
+	// not carry the included `user` at the type level.
+	const { user, ...rest } = order as T & {
+		user?: ({ auth?: { email: string } | null } & object) | null;
+	};
+	if (!user) return order;
+	const { auth, ...buyer } = user;
+	return { ...rest, user: { ...buyer, email: auth?.email ?? null } };
+};
+
+/**
  * All orders, platform-wide. ADMIN only.
  */
 const findAllFromDB = async (query: Record<string, unknown>) => {
@@ -282,7 +302,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 		builder.getMeta(prisma.order),
 	]);
 
-	return { meta, orders };
+	return { meta, orders: orders.map(flattenBuyerEmail) };
 };
 
 /**
@@ -359,7 +379,7 @@ const getMyOrders = async (userId: string, query: Record<string, unknown>) => {
  * their own slice — they must not see what the buyer bought from competitors.
  */
 const getOrderById = async (orderId: string, actor: TActor) => {
-	const order = await prisma.order.findUnique({
+	const found = await prisma.order.findUnique({
 		where: { id: orderId },
 		include: {
 			vendorOrders: {
@@ -407,10 +427,11 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 		},
 	});
 
-	if (!order) {
+	if (!found) {
 		throw new CustomError(404, "Order not found");
 	}
 
+	const order = flattenBuyerEmail(found);
 	const isAdmin = actor.role === Role.ADMIN;
 
 	/**
@@ -1160,7 +1181,7 @@ const getDashboardAnalytics = async (startDate?: Date, endDate?: Date) => {
 			commission: toNumber(item._sum.commissionAmount),
 			vendorEarnings: toNumber(item._sum.vendorEarning),
 		})),
-		recentOrders,
+		recentOrders: recentOrders.map(flattenBuyerEmail),
 	};
 };
 
