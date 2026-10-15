@@ -1,0 +1,17 @@
+# Host-built artifacts: the image builds its own. node_modules and generated/
+# from macOS carry darwin native binaries (Prisma engine, bcrypt) that fail on Linux.
+node_modules
+generated
+dist
+
+# Secrets are passed at runtime (--env-file), never baked into a layer.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+Dockerfile
+.dockerignore
+docs
+*.md
