@@ -11,14 +11,17 @@ const imageSchema = zod_1.z.object({
     url: zod_1.z.string().trim(),
     publicId: zod_1.z.string().trim(),
 });
+const optionalId = zod_1.z.preprocess((value) => (value === "" ? null : value), zod_1.z.string().nullish());
 exports.categorySchema = zod_1.z.object({
     name: zod_1.z
         .string("Category name is required")
         .nonempty("Category name is required")
         .min(2, "Category must be at least 2 characters long")
         .trim(),
-    parentId: zod_1.z.string().nullish().nullable(),
-    sizeGroupId: zod_1.z.string().nullish().nullable(),
+    // "" is "none", not an id: passed through, it lands in the foreign key and
+    // Postgres rejects the whole write (a 409 blaming a delete).
+    parentId: optionalId,
+    sizeGroupId: optionalId,
     /**
      * Sales tax for this category, as a fraction: 0.18 is 18%.
      *

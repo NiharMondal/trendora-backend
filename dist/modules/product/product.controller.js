@@ -109,6 +109,16 @@ const submitForReview = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
         data,
     });
 });
+const setFeatured = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await product_service_1.productServices.setFeatured(req.params.id, req.body.isFeatured);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: req.body.isFeatured
+            ? "Product featured on the home page"
+            : "Product removed from featured",
+        data,
+    });
+});
 const setPublished = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const data = await product_service_1.productServices.setPublished(actorOf(req), req.params.id, req.body.isPublished);
     (0, sendResponse_1.sendResponse)(res, {
@@ -183,6 +193,7 @@ exports.productControllers = {
     findMyProductById,
     submitForReview,
     setPublished,
+    setFeatured,
     //
     findAllForAdmin,
     approveProduct,

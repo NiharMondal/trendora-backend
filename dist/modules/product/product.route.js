@@ -32,6 +32,7 @@ router.patch("/:id/publish", (0, authGuard_1.authGuard)(prisma_client_1.Role.VEN
 // ----------------------------------------------------------------------- admin
 router.get("/admin/all", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), product_controller_1.productControllers.findAllForAdmin);
 router.patch("/:id/approve", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), product_controller_1.productControllers.approveProduct);
+router.patch("/:id/feature", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(product_validation_1.productValidation.featureProductSchema), product_controller_1.productControllers.setFeatured);
 router.patch("/:id/reject", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(product_validation_1.productValidation.rejectProductSchema), product_controller_1.productControllers.rejectProduct);
 // ------------------------------------------------------------------ crud
 router

@@ -7,6 +7,7 @@ exports.vendorServices = void 0;
 const prisma_client_1 = require("../../lib/prisma-client.js");
 const db_1 = require("../../config/db.js");
 const env_config_1 = require("../../config/env-config.js");
+const date_range_1 = require("../../helpers/date-range.js");
 const money_1 = require("../../helpers/money.js");
 const slug_1 = require("../../helpers/slug.js");
 const vendor_1 = require("../../helpers/vendor.js");
@@ -522,12 +523,10 @@ const deleteVendor = async (vendorId, actor) => {
     });
 };
 // -------------------------------------------------------------------- analytics
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** The trend's window when the caller names none. */
 const DEFAULT_TREND_DAYS = 30;
 /** One point per day, so a window is capped to keep the series chartable. */
 const MAX_TREND_DAYS = 366;
-const startOfUtcDay = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 /**
  * One point per UTC day across the window, zero-filled so a quiet day is a
  * visible dip rather than a gap the chart silently joins across.
@@ -548,7 +547,7 @@ const buildSalesTrend = async (vendorId, start, end) => {
         },
     });
     const buckets = new Map();
-    for (let day = startOfUtcDay(start).getTime(); day <= end.getTime(); day += DAY_MS) {
+    for (let day = (0, date_range_1.startOfUtcDay)(start).getTime(); day <= end.getTime(); day += date_range_1.DAY_MS) {
         const date = new Date(day).toISOString().slice(0, 10);
         buckets.set(date, { date, orders: 0, grossSales: 0, netEarnings: 0 });
     }
@@ -579,8 +578,8 @@ const getMyDashboard = async (userId, range) => {
     // The headline figures are all-time without a range; the trend always has
     // a window, since a series from the store's first day is not chartable.
     const trendEnd = endDate ?? new Date();
-    const trendStart = startDate ?? new Date(startOfUtcDay(trendEnd).getTime() - (DEFAULT_TREND_DAYS - 1) * DAY_MS);
-    if (trendEnd.getTime() - trendStart.getTime() > MAX_TREND_DAYS * DAY_MS) {
+    const trendStart = startDate ?? new Date((0, date_range_1.startOfUtcDay)(trendEnd).getTime() - (DEFAULT_TREND_DAYS - 1) * date_range_1.DAY_MS);
+    if (trendEnd.getTime() - trendStart.getTime() > MAX_TREND_DAYS * date_range_1.DAY_MS) {
         throw new customError_1.default(400, `The date range may span at most ${MAX_TREND_DAYS} days`);
     }
     const dateFilter = range?.startDate && range?.endDate

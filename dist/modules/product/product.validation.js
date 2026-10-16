@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.productValidation = exports.publishProductSchema = exports.rejectProductSchema = exports.updateProductSchema = exports.productSchema = exports.productVariantSchema = exports.productImageSchema = void 0;
+exports.productValidation = exports.featureProductSchema = exports.publishProductSchema = exports.rejectProductSchema = exports.updateProductSchema = exports.productSchema = exports.productVariantSchema = exports.productImageSchema = void 0;
 const zod_1 = require("zod");
 const utils_1 = require("../../utils/utils.js");
 const enum_1 = require("../../helpers/enum.js");
@@ -40,7 +40,9 @@ exports.productSchema = zod_1.z.object({
     brandId: zod_1.z.uuid({ version: "v4", error: "Brand is required" }),
     vendorId: zod_1.z.uuid({ version: "v4" }).optional(),
     isPublished: zod_1.z.boolean().optional(),
-    isFeatured: zod_1.z.boolean().optional(),
+    // No `isFeatured`: featuring is an admin action with its own endpoint
+    // (PATCH /products/:id/feature). Left out of this schema, zod strips it,
+    // so a create or edit can never feature a listing — for anyone.
     /** Submit for review straight away instead of saving as a draft. */
     submitForReview: zod_1.z.boolean().optional(),
     variants: zod_1.z.array(exports.productVariantSchema).optional(),
@@ -59,9 +61,13 @@ exports.rejectProductSchema = zod_1.z.object({
 exports.publishProductSchema = zod_1.z.object({
     isPublished: zod_1.z.boolean({ error: "isPublished is required" }),
 });
+exports.featureProductSchema = zod_1.z.object({
+    isFeatured: zod_1.z.boolean({ error: "isFeatured is required" }),
+});
 exports.productValidation = {
     productSchema: exports.productSchema,
     updateProductSchema: exports.updateProductSchema,
     rejectProductSchema: exports.rejectProductSchema,
     publishProductSchema: exports.publishProductSchema,
+    featureProductSchema: exports.featureProductSchema,
 };

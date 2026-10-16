@@ -64,13 +64,12 @@ const createStripePaymentUrl = async (params) => {
     }
     const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
-        billing_address_collection: "required",
-        shipping_address_collection: {
-            allowed_countries: ["US"],
-        },
-        phone_number_collection: {
-            enabled: true,
-        },
+        // The shipping address (name, phone, email, street) is collected by our
+        // own checkout form and stored on the order, so Stripe asks only for
+        // card details. "auto" still lets Stripe request a postal code when the
+        // card network needs one for verification.
+        billing_address_collection: "auto",
+        customer_email: params.customerEmail,
         line_items: lineItems,
         mode: "payment",
         success_url: `${env_config_1.envConfig.front_end_url}/payment-success?order=${params.orderNumber}`,

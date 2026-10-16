@@ -4,6 +4,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const env_config_1 = require("../config/env-config.js");
 const db_1 = require("../config/db.js");
 const password_1 = require("../helpers/password.js");
+const product_1 = require("../helpers/product.js");
 const slug_1 = require("../helpers/slug.js");
 const prisma_client_1 = require("../lib/prisma-client.js");
 const seed_data_1 = require("./seed-data");
@@ -169,6 +170,9 @@ async function seedProducts(brandIds, categoryIds, sizeIds, vendorIds) {
             });
             variantCount++;
         }
+        // The seed's own `stockQuantity` is overridden once variants exist —
+        // a variant product's stock is their total (XR-13).
+        await (0, product_1.syncVariantStock)(db_1.prisma, [row.id]);
     }
     console.log(`  products:    ${seed_data_1.products.length} (+${variantCount} new variants, +${imageCount} new images)`);
 }

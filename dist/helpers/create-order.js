@@ -8,6 +8,7 @@ const prisma_client_1 = require("../lib/prisma-client.js");
 const customError_1 = __importDefault(require("../utils/customError.js"));
 const order_1 = require("./order");
 const order_2 = require("./order");
+const product_1 = require("./product");
 async function persistOrder(tx, input) {
     const { calculation } = input;
     if (calculation.vendors.length === 0) {
@@ -47,6 +48,11 @@ async function persistOrder(tx, input) {
             }
         }
     }
+    // A variant sale moved only the variant's stock; bring each product's
+    // derived total back in line in the same transaction (XR-13).
+    await (0, product_1.syncVariantStock)(tx, calculation.items
+        .filter((item) => item.variantId)
+        .map((item) => item.productId));
     // 2. Create the buyer-facing order. `orderStatus` is the derived rollup of
     //    the slices we are about to create.
     const order = await tx.order.create({

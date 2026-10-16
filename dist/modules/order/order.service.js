@@ -13,11 +13,13 @@ const stripe_1 = require("../../helpers/stripe.js");
 const order_1 = require("../../helpers/order.js");
 const cod_1 = require("../../helpers/cod.js");
 const checkout_1 = require("../../helpers/checkout.js");
+const date_range_1 = require("../../helpers/date-range.js");
 const money_1 = require("../../helpers/money.js");
 const refund_1 = require("../../helpers/refund.js");
 const notifications_1 = require("../../helpers/notifications.js");
 const vendor_1 = require("../../helpers/vendor.js");
 const payment_1 = require("../../helpers/payment.js");
+const product_1 = require("../../helpers/product.js");
 /** Store identity shown next to each slice of an order. */
 /**
  * What `OrderStatusHistory` may leave the server as.
@@ -127,6 +129,7 @@ const createOrder = async (payload) => {
             checkoutSessionId: draft.id,
             orderNumber,
             calculation,
+            customerEmail: shippingAddress.email,
         });
         await (0, checkout_1.attachStripeSession)(draft.id, stripeSessionId);
         return {
@@ -165,6 +168,23 @@ const summariseVendorGroup = (vendor) => ({
     totalAmount: vendor.totalAmount,
     itemCount: vendor.items.length,
 });
+/**
+ * The buyer's email lives on `Auth`, one table over from `User`, but that is
+ * storage, not API shape — the same rule `flattenAuth` applies to `GET /users`
+ * (BE-20). Order reads return `user.email` flat; nesting it as
+ * `user.auth.email` left the admin order list showing a placeholder address
+ * for every buyer and the detail page's Email row blank (frontend FE-41).
+ */
+const flattenBuyerEmail = (order) => {
+    // Loosely typed on purpose: the admin list comes back through
+    // PrismaQueryBuilder, whose `build()` is untyped (BE-27), so its rows do
+    // not carry the included `user` at the type level.
+    const { user, ...rest } = order;
+    if (!user)
+        return order;
+    const { auth, ...buyer } = user;
+    return { ...rest, user: { ...buyer, email: auth?.email ?? null } };
+};
 /**
  * All orders, platform-wide. ADMIN only.
  */
@@ -206,7 +226,7 @@ const findAllFromDB = async (query) => {
         db_1.prisma.order.findMany(prismaArgs),
         builder.getMeta(db_1.prisma.order),
     ]);
-    return { meta, orders };
+    return { meta, orders: orders.map(flattenBuyerEmail) };
 };
 /**
  * A buyer's own orders, each with its per-vendor slices so the UI can show
@@ -278,7 +298,7 @@ const getMyOrders = async (userId, query) => {
  * their own slice — they must not see what the buyer bought from competitors.
  */
 const getOrderById = async (orderId, actor) => {
-    const order = await db_1.prisma.order.findUnique({
+    const found = await db_1.prisma.order.findUnique({
         where: { id: orderId },
         include: {
             vendorOrders: {
@@ -325,9 +345,10 @@ const getOrderById = async (orderId, actor) => {
             },
         },
     });
-    if (!order) {
+    if (!found) {
         throw new customError_1.default(404, "Order not found");
     }
+    const order = flattenBuyerEmail(found);
     const isAdmin = actor.role === prisma_client_1.Role.ADMIN;
     /**
      * Re-attach each parcel's history and refund, narrowed for this caller.
@@ -604,6 +625,9 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
                     });
                 }
             }
+            await (0, product_1.syncVariantStock)(tx, vendorOrder.items
+                .filter((item) => item.variantId)
+                .map((item) => item.productId));
         }
         // 4. Write the slice
         const now = new Date();
@@ -806,14 +830,17 @@ const getDashboardAnalytics = async (startDate, endDate) => {
             where: dateFilter,
             _count: { id: true },
         }),
-        // Top products
+        // Top products — units that actually sold, so a cancelled parcel
+        // does not count (the same rule as the vendor dashboard).
         db_1.prisma.orderItem.groupBy({
             by: ["productId", "productName"],
             where: {
                 order: dateFilter,
+                vendorOrder: { orderStatus: { not: prisma_client_1.OrderStatus.CANCELED } },
             },
             _sum: {
                 quantity: true,
+                subtotal: true,
             },
             orderBy: {
                 _sum: {
@@ -874,6 +901,27 @@ const getDashboardAnalytics = async (startDate, endDate) => {
         })
         : [];
     const vendorNameById = new Map(vendorNames.map((vendor) => [vendor.id, vendor]));
+    // Thumbnail, slug and store for the top-product rows. `productName` stays
+    // the name AT PURCHASE, so a renamed or deleted listing still reads right.
+    const topProductIds = topProducts.map((row) => row.productId);
+    const topProductDetails = topProductIds.length
+        ? await db_1.prisma.product.findMany({
+            where: { id: { in: topProductIds } },
+            select: {
+                id: true,
+                slug: true,
+                isDeleted: true,
+                images: {
+                    where: { isDeleted: false },
+                    select: { url: true },
+                    orderBy: { isMain: "desc" },
+                    take: 1,
+                },
+                vendor: { select: { storeName: true, slug: true } },
+            },
+        })
+        : [];
+    const productById = new Map(topProductDetails.map((product) => [product.id, product]));
     return {
         overview: {
             totalOrders,
@@ -895,11 +943,20 @@ const getDashboardAnalytics = async (startDate, endDate) => {
             status: item.status,
             count: item._count.id,
         })),
-        topProducts: topProducts.map((item) => ({
-            productId: item.productId,
-            productName: item.productName,
-            quantitySold: item._sum.quantity || 0,
-        })),
+        topProducts: topProducts.map((item) => {
+            const product = productById.get(item.productId);
+            return {
+                productId: item.productId,
+                productName: item.productName,
+                quantitySold: item._sum.quantity || 0,
+                // Merchandise value of those units, before tax and shipping.
+                revenue: (0, money_1.toNumber)(item._sum.subtotal),
+                slug: product && !product.isDeleted ? product.slug : null,
+                image: product?.images[0]?.url ?? null,
+                storeName: product?.vendor.storeName ?? null,
+                storeSlug: product?.vendor.slug ?? null,
+            };
+        }),
         topVendors: topVendors.map((item) => ({
             vendorId: item.vendorId,
             storeName: vendorNameById.get(item.vendorId)?.storeName ?? null,
@@ -909,7 +966,86 @@ const getDashboardAnalytics = async (startDate, endDate) => {
             commission: (0, money_1.toNumber)(item._sum.commissionAmount),
             vendorEarnings: (0, money_1.toNumber)(item._sum.vendorEarning),
         })),
-        recentOrders,
+        recentOrders: recentOrders.map(flattenBuyerEmail),
+    };
+};
+/** A window longer than this is bucketed by month instead of by day. */
+const MAX_DAILY_TREND_DAYS = 90;
+/** The window when the caller names none and there are no orders yet. */
+const DEFAULT_TREND_DAYS = 30;
+/** `YYYY-MM-DD` of the bucket a timestamp falls in (UTC). */
+const trendBucketKey = (date, granularity) => granularity === "day"
+    ? date.toISOString().slice(0, 10)
+    : `${date.toISOString().slice(0, 7)}-01`;
+/**
+ * Platform sales over time, for the admin dashboard's chart. ADMIN only.
+ *
+ * Zero-filled, so a quiet period is a visible dip rather than a gap the chart
+ * silently joins across. Up to 90 days is one point per UTC day; anything
+ * longer (including "all time", which starts at the first order) is one point
+ * per UTC month, since a year of daily points is unreadable at chart width.
+ *
+ * Each point uses the same rules as `getDashboardAnalytics().overview`, so the
+ * series sums to the headline tiles for the same window:
+ * - `orders` counts every order placed;
+ * - `grossSales` is GMV — the total of PAID orders;
+ * - `commission` is the platform's cut of paid, non-cancelled parcels.
+ */
+const getSalesTrend = async (startDate, endDate) => {
+    const end = endDate ?? new Date();
+    let start = startDate;
+    if (!start) {
+        const first = await db_1.prisma.order.aggregate({ _min: { createdAt: true } });
+        start =
+            first._min.createdAt ??
+                new Date((0, date_range_1.startOfUtcDay)(end).getTime() - (DEFAULT_TREND_DAYS - 1) * date_range_1.DAY_MS);
+    }
+    start = (0, date_range_1.startOfUtcDay)(start);
+    const granularity = end.getTime() - start.getTime() <= MAX_DAILY_TREND_DAYS * date_range_1.DAY_MS
+        ? "day"
+        : "month";
+    const buckets = new Map();
+    const cursor = new Date(start);
+    if (granularity === "month")
+        cursor.setUTCDate(1);
+    while (cursor <= end) {
+        const date = trendBucketKey(cursor, granularity);
+        buckets.set(date, { date, orders: 0, grossSales: 0, commission: 0 });
+        if (granularity === "day")
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+        else
+            cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    const orders = await db_1.prisma.order.findMany({
+        where: { createdAt: { gte: start, lte: end } },
+        select: {
+            createdAt: true,
+            paymentStatus: true,
+            totalAmount: true,
+            vendorOrders: {
+                select: { orderStatus: true, commissionAmount: true },
+            },
+        },
+    });
+    for (const order of orders) {
+        const bucket = buckets.get(trendBucketKey(order.createdAt, granularity));
+        if (!bucket)
+            continue;
+        bucket.orders += 1;
+        if (order.paymentStatus !== prisma_client_1.PaymentStatus.PAID)
+            continue;
+        bucket.grossSales = (0, money_1.round2)(bucket.grossSales + (0, money_1.toNumber)(order.totalAmount));
+        for (const parcel of order.vendorOrders) {
+            if (parcel.orderStatus === prisma_client_1.OrderStatus.CANCELED)
+                continue;
+            bucket.commission = (0, money_1.round2)(bucket.commission + (0, money_1.toNumber)(parcel.commissionAmount));
+        }
+    }
+    return {
+        granularity,
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        points: [...buckets.values()],
     };
 };
 /**
@@ -1018,4 +1154,5 @@ exports.orderServices = {
     updateVendorOrderStatus,
     //
     getDashboardAnalytics,
+    getSalesTrend,
 };

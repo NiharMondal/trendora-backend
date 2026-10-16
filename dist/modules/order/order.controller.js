@@ -99,6 +99,15 @@ const getDashboardAnalytics = (0, asyncHandler_1.asyncHandler)(async (req, res) 
         data,
     });
 });
+const getSalesTrend = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const { startDate, endDate } = (0, date_range_1.parseDateRange)(req.query);
+    const data = await order_service_1.orderServices.getSalesTrend(startDate, endDate);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Sales trend fetched successfully",
+        data,
+    });
+});
 exports.orderControllers = {
     getMySummary,
     createOrder,
@@ -111,4 +120,5 @@ exports.orderControllers = {
     updateVendorOrderStatus,
     //
     getDashboardAnalytics,
+    getSalesTrend,
 };

@@ -31,6 +31,7 @@ router.get("/vendor/my-orders/:vendorOrderId", (0, authGuard_1.authGuard)(prisma
 router.patch("/vendor-orders/:vendorOrderId/status", (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(order_validation_1.orderValidation.updateVendorOrderStatusSchema), order_controller_1.orderControllers.updateVendorOrderStatus);
 // ----------------------------------------------------------------------- admin
 router.get("/analytics", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getDashboardAnalytics);
+router.get("/analytics/sales-trend", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getSalesTrend);
 // ------------------------------------------------------------------- shared
 router
     .route("/:orderId")

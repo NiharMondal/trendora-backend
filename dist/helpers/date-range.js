@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseDateRange = void 0;
+exports.startOfUtcDay = exports.DAY_MS = exports.parseDateRange = void 0;
 const customError_1 = __importDefault(require("../utils/customError.js"));
 /**
  * `?startDate=&endDate=` from a query string, for the analytics endpoints.
@@ -30,3 +30,7 @@ const parseDateRange = (query) => {
     return { startDate, endDate };
 };
 exports.parseDateRange = parseDateRange;
+exports.DAY_MS = 24 * 60 * 60 * 1000;
+/** Analytics series are bucketed by UTC day, so every window starts here. */
+const startOfUtcDay = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+exports.startOfUtcDay = startOfUtcDay;

@@ -83,6 +83,13 @@ const createIntoDB = async (actor, payload) => {
     const data = await db_1.prisma.product.create({
         data: {
             ...others,
+            // With variants the product's stock is their total, not whatever
+            // the form sent (see syncVariantStock).
+            ...(variants?.length
+                ? {
+                    stockQuantity: variants.reduce((sum, v) => sum + v.stock, 0),
+                }
+                : {}),
             vendorId,
             slug,
             discountPrice: dis_Price,
@@ -521,6 +528,8 @@ const findMyProductById = async (actor, id) => {
             include: {
                 variants: { ...product_1.liveVariants, include: { size: true } },
                 images: true,
+                brand: true,
+                category: { select: { id: true, name: true, slug: true, taxRate: true } },
                 vendor: { select: vendorCardSelect },
             },
         });
@@ -535,6 +544,8 @@ const findMyProductById = async (actor, id) => {
         include: {
             variants: { ...product_1.liveVariants, include: { size: true } },
             images: true,
+            brand: true,
+            category: { select: { id: true, name: true, slug: true, taxRate: true } },
             vendor: { select: vendorCardSelect },
         },
     });
@@ -713,13 +724,19 @@ const updateData = async (actor, id, payload) => {
                     }
                     : {}),
             },
+            select: { id: true },
+        });
+        // Runs after the update above so that a client-sent
+        // `stockQuantity` cannot overwrite the variants' total.
+        await (0, product_1.syncVariantStock)(tx, [updated.id]);
+        return tx.product.findUniqueOrThrow({
+            where: { id: updated.id },
             include: {
                 variants: product_1.liveVariants,
                 images: true,
                 vendor: { select: vendorCardSelect },
             },
         });
-        return updated;
     });
     return updatedProduct;
 };
@@ -760,6 +777,29 @@ const setPublished = async (actor, id, isPublished) => {
     return db_1.prisma.product.update({
         where: { id },
         data: { isPublished },
+    });
+};
+/**
+ * Admin puts a listing in (or takes it out of) the storefront home page's
+ * "Featured" rail. Its own endpoint rather than a field on the general edit:
+ * the guard is visible on the route, the body can carry nothing else, and a
+ * future cap on featured listings or an audit entry has one place to live.
+ *
+ * Any non-deleted listing may be featured — the rail reads through
+ * `publicProductFilter`, so a featured draft simply appears once it is
+ * approved and published.
+ */
+const setFeatured = async (id, isFeatured) => {
+    const product = await db_1.prisma.product.findFirst({
+        where: { id, isDeleted: false },
+        select: { id: true },
+    });
+    if (!product) {
+        throw new customError_1.default(404, "Product not found");
+    }
+    return db_1.prisma.product.update({
+        where: { id },
+        data: { isFeatured },
     });
 };
 // ------------------------------------------------------------ admin moderation
@@ -914,6 +954,7 @@ exports.productServices = {
     findMyProductById,
     submitForReview,
     setPublished,
+    setFeatured,
     //
     findAllForAdmin,
     approveProduct,

@@ -52,14 +52,17 @@ const findByProductId = async (productId) => {
 const addVariants = async (actor, productId, payload) => {
     await (0, product_1.resolveEditableProduct)(actor, productId);
     await assertNoDuplicates(productId, payload.variants);
-    await db_1.prisma.productVariant.createMany({
-        data: payload.variants.map((variant) => ({
-            productId,
-            sizeId: variant.sizeId ?? null,
-            color: variant.color,
-            stock: variant.stock,
-            price: variant.price,
-        })),
+    await db_1.prisma.$transaction(async (tx) => {
+        await tx.productVariant.createMany({
+            data: payload.variants.map((variant) => ({
+                productId,
+                sizeId: variant.sizeId ?? null,
+                color: variant.color,
+                stock: variant.stock,
+                price: variant.price,
+            })),
+        });
+        await (0, product_1.syncVariantStock)(tx, [productId]);
     });
     return listLive(productId);
 };
@@ -82,16 +85,25 @@ const updateVariant = async (actor, productId, variantId, payload) => {
             },
         ], variantId);
     }
-    await db_1.prisma.productVariant.update({
-        where: { id: variantId },
-        data: {
-            ...(payload.sizeId !== undefined
-                ? { sizeId: payload.sizeId ?? null }
-                : {}),
-            ...(payload.color !== undefined ? { color: payload.color } : {}),
-            ...(payload.stock !== undefined ? { stock: payload.stock } : {}),
-            ...(payload.price !== undefined ? { price: payload.price } : {}),
-        },
+    await db_1.prisma.$transaction(async (tx) => {
+        await tx.productVariant.update({
+            where: { id: variantId },
+            data: {
+                ...(payload.sizeId !== undefined
+                    ? { sizeId: payload.sizeId ?? null }
+                    : {}),
+                ...(payload.color !== undefined
+                    ? { color: payload.color }
+                    : {}),
+                ...(payload.stock !== undefined
+                    ? { stock: payload.stock }
+                    : {}),
+                ...(payload.price !== undefined
+                    ? { price: payload.price }
+                    : {}),
+            },
+        });
+        await (0, product_1.syncVariantStock)(tx, [productId]);
     });
     return listLive(productId);
 };
@@ -103,13 +115,30 @@ const updateVariant = async (actor, productId, variantId, payload) => {
  */
 const deleteVariant = async (actor, productId, variantId) => {
     await (0, product_1.resolveEditableProduct)(actor, productId);
-    const removed = await db_1.prisma.productVariant.updateMany({
-        where: { id: variantId, productId, isDeleted: false },
-        data: { isDeleted: true },
+    await db_1.prisma.$transaction(async (tx) => {
+        const removed = await tx.productVariant.updateMany({
+            where: { id: variantId, productId, isDeleted: false },
+            data: { isDeleted: true },
+        });
+        if (removed.count === 0) {
+            throw new customError_1.default(404, "Variant not found");
+        }
+        const remaining = await tx.productVariant.count({
+            where: { productId, isDeleted: false },
+        });
+        // Removing the last variant turns this back into a product that owns
+        // its `stockQuantity`. The old figure was the variants' total — stock
+        // that no longer exists — so it starts at 0 until the seller sets it.
+        if (remaining === 0) {
+            await tx.product.update({
+                where: { id: productId },
+                data: { stockQuantity: 0 },
+            });
+        }
+        else {
+            await (0, product_1.syncVariantStock)(tx, [productId]);
+        }
     });
-    if (removed.count === 0) {
-        throw new customError_1.default(404, "Variant not found");
-    }
     return listLive(productId);
 };
 exports.variantServices = {

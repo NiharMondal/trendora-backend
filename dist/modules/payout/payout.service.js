@@ -136,16 +136,40 @@ const generatePayout = async (payload) => {
         });
     });
 };
+/**
+ * Only an OPEN payout (PENDING / PROCESSING) can be settled or failed.
+ *
+ * FAILED is terminal because `markFailed` hands the earnings back to the pool,
+ * where the next run attaches them to a NEW payout. Marking the failed one paid
+ * afterwards left it PAID with its full `amount` and no vendor orders, while
+ * the new payout still owed the same earnings — `totalPaidOut` counted the
+ * money twice, and paying both paid the store twice (BE-51). A transfer that
+ * bounced and later cleared is recorded against the payout that now owns those
+ * earnings, not the failed one.
+ */
+const OPEN_PAYOUT_STATUSES = [prisma_client_1.PayoutStatus.PENDING, prisma_client_1.PayoutStatus.PROCESSING];
+const assertPayoutOpen = (status, action) => {
+    if (status === prisma_client_1.PayoutStatus.PAID) {
+        throw new customError_1.default(400, action === "paid"
+            ? "This payout is already marked as paid"
+            : "This payout is already paid. Reverse it at the gateway first.");
+    }
+    if (status === prisma_client_1.PayoutStatus.FAILED) {
+        throw new customError_1.default(400, action === "paid"
+            ? "This payout failed and its earnings were released to a new payout. Record the transfer against that payout instead."
+            : "This payout is already marked as failed");
+    }
+};
 const markPaid = async (payoutId, payload) => {
     const payout = await db_1.prisma.payout.findUnique({ where: { id: payoutId } });
     if (!payout) {
         throw new customError_1.default(404, "Payout not found");
     }
-    if (payout.status === prisma_client_1.PayoutStatus.PAID) {
-        throw new customError_1.default(400, "This payout is already marked as paid");
-    }
-    const paid = await db_1.prisma.payout.update({
-        where: { id: payoutId },
+    assertPayoutOpen(payout.status, "paid");
+    // Conditional on the status still being open, so two admins acting at once
+    // (or a mark-failed racing this) cannot both win.
+    const settled = await db_1.prisma.payout.updateMany({
+        where: { id: payoutId, status: { in: OPEN_PAYOUT_STATUSES } },
         data: {
             status: prisma_client_1.PayoutStatus.PAID,
             reference: payload.reference,
@@ -155,34 +179,42 @@ const markPaid = async (payoutId, payload) => {
             processedAt: new Date(),
         },
     });
+    if (settled.count === 0) {
+        throw new customError_1.default(409, "This payout was just updated by someone else. Refresh and try again.");
+    }
     await (0, notifications_1.notifyPayoutPaid)(payoutId);
-    return paid;
+    return db_1.prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
 };
 /**
  * Settlement failed at the bank. The attached earnings are released back to
- * the pool so the next run can pick them up.
+ * the pool so the next run can pick them up — which is why a FAILED payout can
+ * never be marked paid afterwards (see `assertPayoutOpen`).
  */
 const markFailed = async (payoutId, payload) => {
     const payout = await db_1.prisma.payout.findUnique({ where: { id: payoutId } });
     if (!payout) {
         throw new customError_1.default(404, "Payout not found");
     }
-    if (payout.status === prisma_client_1.PayoutStatus.PAID) {
-        throw new customError_1.default(400, "This payout is already paid. Reverse it at the gateway first.");
-    }
+    assertPayoutOpen(payout.status, "failed");
     return db_1.prisma.$transaction(async (tx) => {
-        await tx.vendorOrder.updateMany({
-            where: { payoutId },
-            data: { payoutId: null },
-        });
-        return tx.payout.update({
-            where: { id: payoutId },
+        // Claim the transition first: only if the payout is still open do its
+        // earnings get released.
+        const failed = await tx.payout.updateMany({
+            where: { id: payoutId, status: { in: OPEN_PAYOUT_STATUSES } },
             data: {
                 status: prisma_client_1.PayoutStatus.FAILED,
                 failureReason: payload.failureReason,
                 processedAt: new Date(),
             },
         });
+        if (failed.count === 0) {
+            throw new customError_1.default(409, "This payout was just updated by someone else. Refresh and try again.");
+        }
+        await tx.vendorOrder.updateMany({
+            where: { payoutId },
+            data: { payoutId: null },
+        });
+        return tx.payout.findUniqueOrThrow({ where: { id: payoutId } });
     });
 };
 /** The vendor's own payout history. */

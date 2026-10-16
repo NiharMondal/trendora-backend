@@ -56,7 +56,6 @@ const rawBody = express_1.default.raw({ type: "application/json" });
  *
  * `/webhook/stripe` is kept so an endpoint already pointed at it keeps working.
  */
-router.post("/", rawBody, payment_controller_1.paymentControllers.createPaymentWithStripeWebhook);
 router.post("/stripe", rawBody, payment_controller_1.paymentControllers.createPaymentWithStripeWebhook);
 exports.stripeWebhookRouter = router;
 /**
@@ -83,4 +82,5 @@ readRouter.get("/order/:orderId", (0, authGuard_1.authGuard)(prisma_client_1.Rol
 readRouter.get("/admin/all", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), payment_controller_1.paymentControllers.findAllForAdmin);
 // Last: a literal segment above must not be swallowed as an id.
 readRouter.get("/:id", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), payment_controller_1.paymentControllers.findById);
+router.post("/", rawBody, payment_controller_1.paymentControllers.createPaymentWithStripeWebhook);
 exports.paymentRouter = readRouter;
