@@ -37,8 +37,8 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-42 | The unsigned Cloudinary preset is an open upload endpoint | P1 | M | media |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
-| BE-07 | `authGuard` trusts the role in the JWT, not the DB | P0 | S | security |
-| BE-08 | `PATCH /users/my-profile-update` has no validation | P0 | S | security |
+| ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
+| ~~BE-08~~ | ~~`PATCH /users/my-profile-update` has no validation~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-09 | A customer cannot cancel their own order | P1 | M | orders |
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
 | BE-11 | Nothing schedules the refund / checkout sweeps | P1 | M | refunds |
@@ -288,37 +288,96 @@ the full error server-side through the logger from BE-05 instead of returning it
 
 ---
 
-### BE-07 · `authGuard` trusts the role in the JWT rather than the database
-**P0 · S · security**
+### ~~BE-07~~ · `authGuard` trusts the role in the JWT rather than the database
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/middleware/authGuard.ts:20` destructures `role` out of the decoded token, and `:43`
-checks `roles.includes(role)` — even though `:30-38` has *already loaded* the `User` row with
-`auth` included.
+**Was:** the guard destructured `role` out of the decoded token and authorized against it — after
+already loading the `User` row with `auth` included. It did the query, then ignored the
+authoritative answer it came back with.
 
-**Gap:** Role changes do not take effect until the access token expires. An admin demoted to
-CUSTOMER, or a VENDOR whose store is suspended, keeps their old privileges for up to 20 minutes
-(`src/helpers/jwt.ts:4`). The correct value is sitting unused in `user.auth.role`.
+**This was worse than a stale-routing bug.** `req.user` was set to the decoded token, so the stale
+`role` claim propagated into `resolveVendorScope` and `vendorListScope`
+(`src/helpers/vendor.ts:108,143`), where `ADMIN` means *may act on any store* and returns an
+unrestricted product filter. A demoted admin kept **write scope over every vendor's catalogue** for
+the rest of the token's 20-minute life, not just access to admin routes.
 
-**Fix:** Authorize against `user.auth.role`, not `decodeToken.role`. The row is already fetched,
-so this costs nothing.
+It failed in the other direction too: approving a seller flips `Auth.role` to `VENDOR`
+(`src/modules/vendor/vendor.service.ts:337-341`), but the old token knew nothing about it, so a
+newly approved vendor was locked out of their own dashboard until the token refreshed.
+
+**Now:** `src/middleware/authGuard.ts` authorizes against `user.auth.role`, and sets
+`req.user = { ...decodeToken, role: currentRole }` so every downstream decision sees the same role
+the guard enforced. Costs nothing — the row was already being loaded.
+
+Two smaller corrections in the same function:
+- `findUniqueOrThrow` → `findUnique` + an explicit 401. A token naming a deleted user is an
+  authentication failure; letting Prisma raise `P2025` surfaced it as a **400** through the global
+  handler, and the existing `if (!user)` check was unreachable dead code.
+- `User.auth` is optional in the schema, so a `null` auth row is now an explicit 401 rather than a
+  `TypeError`.
+
+**Verified** against the dev database with a real token whose claim was deliberately made stale:
+- **Promotion is instant** — DB role set to ADMIN, the *old CUSTOMER-claim* token immediately
+  reached `GET /users` and `GET /orders` (200) with no re-login.
+- **Demotion is instant** — a token minted while ADMIN, then demoted in the DB, got **403** on
+  `/users` and `/vendors/admin/all`.
+- **The propagation test:** with an ADMIN-claim token and DB role `VENDOR`,
+  `GET /products/vendor/my-products` was scoped as a vendor ("You do not have a vendor account"),
+  **not** given the unrestricted admin filter — proving `req.user.role` reaches
+  `vendorListScope`.
+- Unknown user id → 401 (was 400); user row with no `Auth` → 401.
+- Regression across all three seeded roles: ADMIN reaches its four admin routes; VENDOR reaches
+  its store routes and is 403 on `/users`; CUSTOMER reaches wishlist/address/orders and is 403 on
+  `/users`; a VENDOR still reaches `/orders/my-orders` as a shopper.
+
+**Note:** `req.user.email` is still whatever the token carried. There is no email-change endpoint
+today, so it cannot go stale — revisit if one is ever added.
 
 ---
 
-### BE-08 · `PATCH /users/my-profile-update` has no `validateRequest`
-**P0 · S · security**
+### ~~BE-08~~ · `PATCH /users/my-profile-update` has no `validateRequest`
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/modules/user/user.route.ts:8-12` wires the controller directly. `userUpdateSchema`
-exists at `src/modules/user/user.validation.ts:3-12` and the service even imports its inferred
-type — but the middleware is never applied.
+**Was:** the route wired the controller directly. `userUpdateSchema` existed and the service even
+imported its inferred type, but the middleware was never applied — the only unvalidated write route
+in the repo.
 
-**Gap:** An unvalidated `req.body` reaches `prisma.user.update`. Every other write route in the
-repo is validated; this one is the exception.
+Measured before the fix:
 
-**Fix:** Add `validateRequest(userUpdateSchema)`. Note the schema currently requires
-`name.min(5)` while the frontend form allows `min(1)`
-(`frontend/src/features/users/schemas/profile-form.schema.ts:4`) — relax the backend to `min(1)`
-or tighten the frontend in the same change, or wiring it up will start rejecting short names.
-See **XR-04**.
+| Request | Result |
+| --- | --- |
+| `{}` (empty body) | **200 "Information updated successfully"** — a no-op reported as success |
+| `name` as a number | 400, but leaking a raw `PrismaClientValidationError` |
+| `avatar.publicId` as a number | **500 `tempPublicId.includes is not a function`** |
+| unknown fields (`isDeleted`, `role`, `id`) | 200 |
+
+**Now:** `validateRequest(userUpdateSchema)` is applied (`src/modules/user/user.route.ts:10-15`).
+All four cases above return a clean 400 with field-level messages, except the last, where Zod
+strips the unknown keys.
+
+**`name` was relaxed from `min(5)` to `min(1)`** — this was XR-06's open question, and the backend
+is the side that was wrong. Registration accepts any non-empty name
+(`authSchema.registerUser`), so `min(5)` would have locked anyone who signed up as "Li" or "Ann"
+out of their own profile permanently. Plenty of real names are shorter than five characters. It now
+matches both registration and the frontend's `profileFormSchema`. `.trim()` runs before `.min(1)`,
+so a whitespace-only name is rejected rather than stored blank.
+
+**Mass assignment was never possible here** — `updateData` builds an explicit `transformData`
+projection (`src/modules/user/user.service.ts:36-41`), so extra body keys were already ignored.
+Verified: sending `isDeleted: true`, `role: "ADMIN"` and `id: "hacked"` left all three untouched.
+Validation now rejects them one layer earlier rather than relying on that projection staying
+correct.
+
+**Verified** against the dev database: empty body, whitespace-only name, non-string `name`,
+non-string `avatar.publicId` and missing `phone` all return 400 with per-field messages; `"Li"`
+is accepted; a valid update round-trips through `GET /users/my-profile` with the name trimmed;
+`avatar` omitted entirely is accepted (it is optional). The seeded customer record used for the
+probes was restored afterwards.
+
+**Still open:** this is a full replace, not a partial patch — `name` and `phone` are both required,
+which is what the profile form always sends, but the verb is `PATCH`. Also `User.phone` is
+`@unique`, so two accounts claiming the same number surface as a generic "Duplicate key error"
+rather than a field-level message.
 
 ---
 
@@ -902,8 +961,10 @@ Most of these are frontend type corrections; **BE-20 and the missing `size` incl
   from the UI. *(Frontend fix.)*
 - **Size group:** frontend marks `sizeGroupId` optional; `size.validation.ts:5` requires it — a
   400 the form cannot prevent. *(Frontend fix.)*
-- **Profile name:** `userUpdateSchema` requires `min(5)`, the frontend form `min(1)`. Currently
-  invisible because BE-08 never applies the schema; wiring it up makes short names start failing.
+- ~~**Profile name:** `userUpdateSchema` requires `min(5)`, the frontend form `min(1)`.~~
+  **Settled 2026-09-22 (BE-08):** the backend relaxed to `min(1)` to match registration and the
+  frontend. `min(5)` would have locked anyone who registered as "Li" out of their own profile.
+  No frontend change needed.
 - **Vendor `payoutDetails`:** `applySchema` accepts it (`vendor.validation.ts:42`) but the
   frontend application form never sends it, so a seller can never supply bank details at
   application time. *(Either side.)*

@@ -108,7 +108,8 @@ Keep DB/business logic in services, not controllers.
 - **`src/utils/customError.ts`** — `throw new CustomError(statusCode, message)` for domain errors.
 - **`src/middleware/globalErrorHandler.ts`** — central error formatter. Special-cases `ZodError` (400 validation), and Prisma `PrismaClientValidationError` / `PrismaClientKnownRequestError` (`P2002` duplicate, `P2025` not found). Error responses are `{ success: false, message, errorDetails }`.
 - **`src/middleware/validateRequest.ts`** — `validateRequest(zodSchema)`; validates and replaces `req.body` with parsed data.
-- **`src/middleware/authGuard.ts`** — `authGuard(...roles)`; verifies the JWT, loads the user, and enforces roles. **The access token is read directly from the `Authorization` header with no `Bearer ` prefix.** `req.user` is the decoded JWT payload (typed globally in `index.d.ts`).
+- **`src/middleware/authGuard.ts`** — `authGuard(...roles)`; verifies the JWT, loads the user, and enforces roles. **The access token is read directly from the `Authorization` header with no `Bearer ` prefix.** `req.user` is the decoded JWT payload **with `role` overwritten by the database value** (typed globally in `index.d.ts`).
+  **Authorization reads `Auth.role` from the database, never the token's `role` claim.** The claim is a 20-minute-old snapshot, and `req.user.role` flows into `resolveVendorScope` / `vendorListScope`, where ADMIN means "may act on any store" — so trusting a stale claim is a write-scope escalation, not a routing detail. It also means a newly approved vendor reaches their dashboard immediately instead of waiting for a token refresh. The row is loaded anyway; do not change this back.
 - **`src/lib/PrismaQueryBuilder.ts`** — fluent builder for list endpoints (search / filter / paginate / sort / include). Standard usage in a service:
 
   ```ts
