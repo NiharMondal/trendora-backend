@@ -38,7 +38,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
-| BE-08 | `PATCH /users/my-profile-update` has no validation | P0 | S | security |
+| ~~BE-08~~ | ~~`PATCH /users/my-profile-update` has no validation~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-09 | A customer cannot cancel their own order | P1 | M | orders |
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
 | BE-11 | Nothing schedules the refund / checkout sweeps | P1 | M | refunds |
@@ -335,21 +335,49 @@ today, so it cannot go stale — revisit if one is ever added.
 
 ---
 
-### BE-08 · `PATCH /users/my-profile-update` has no `validateRequest`
-**P0 · S · security**
+### ~~BE-08~~ · `PATCH /users/my-profile-update` has no `validateRequest`
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/modules/user/user.route.ts:8-12` wires the controller directly. `userUpdateSchema`
-exists at `src/modules/user/user.validation.ts:3-12` and the service even imports its inferred
-type — but the middleware is never applied.
+**Was:** the route wired the controller directly. `userUpdateSchema` existed and the service even
+imported its inferred type, but the middleware was never applied — the only unvalidated write route
+in the repo.
 
-**Gap:** An unvalidated `req.body` reaches `prisma.user.update`. Every other write route in the
-repo is validated; this one is the exception.
+Measured before the fix:
 
-**Fix:** Add `validateRequest(userUpdateSchema)`. Note the schema currently requires
-`name.min(5)` while the frontend form allows `min(1)`
-(`frontend/src/features/users/schemas/profile-form.schema.ts:4`) — relax the backend to `min(1)`
-or tighten the frontend in the same change, or wiring it up will start rejecting short names.
-See **XR-04**.
+| Request | Result |
+| --- | --- |
+| `{}` (empty body) | **200 "Information updated successfully"** — a no-op reported as success |
+| `name` as a number | 400, but leaking a raw `PrismaClientValidationError` |
+| `avatar.publicId` as a number | **500 `tempPublicId.includes is not a function`** |
+| unknown fields (`isDeleted`, `role`, `id`) | 200 |
+
+**Now:** `validateRequest(userUpdateSchema)` is applied (`src/modules/user/user.route.ts:10-15`).
+All four cases above return a clean 400 with field-level messages, except the last, where Zod
+strips the unknown keys.
+
+**`name` was relaxed from `min(5)` to `min(1)`** — this was XR-06's open question, and the backend
+is the side that was wrong. Registration accepts any non-empty name
+(`authSchema.registerUser`), so `min(5)` would have locked anyone who signed up as "Li" or "Ann"
+out of their own profile permanently. Plenty of real names are shorter than five characters. It now
+matches both registration and the frontend's `profileFormSchema`. `.trim()` runs before `.min(1)`,
+so a whitespace-only name is rejected rather than stored blank.
+
+**Mass assignment was never possible here** — `updateData` builds an explicit `transformData`
+projection (`src/modules/user/user.service.ts:36-41`), so extra body keys were already ignored.
+Verified: sending `isDeleted: true`, `role: "ADMIN"` and `id: "hacked"` left all three untouched.
+Validation now rejects them one layer earlier rather than relying on that projection staying
+correct.
+
+**Verified** against the dev database: empty body, whitespace-only name, non-string `name`,
+non-string `avatar.publicId` and missing `phone` all return 400 with per-field messages; `"Li"`
+is accepted; a valid update round-trips through `GET /users/my-profile` with the name trimmed;
+`avatar` omitted entirely is accepted (it is optional). The seeded customer record used for the
+probes was restored afterwards.
+
+**Still open:** this is a full replace, not a partial patch — `name` and `phone` are both required,
+which is what the profile form always sends, but the verb is `PATCH`. Also `User.phone` is
+`@unique`, so two accounts claiming the same number surface as a generic "Duplicate key error"
+rather than a field-level message.
 
 ---
 
@@ -933,8 +961,10 @@ Most of these are frontend type corrections; **BE-20 and the missing `size` incl
   from the UI. *(Frontend fix.)*
 - **Size group:** frontend marks `sizeGroupId` optional; `size.validation.ts:5` requires it — a
   400 the form cannot prevent. *(Frontend fix.)*
-- **Profile name:** `userUpdateSchema` requires `min(5)`, the frontend form `min(1)`. Currently
-  invisible because BE-08 never applies the schema; wiring it up makes short names start failing.
+- ~~**Profile name:** `userUpdateSchema` requires `min(5)`, the frontend form `min(1)`.~~
+  **Settled 2026-09-22 (BE-08):** the backend relaxed to `min(1)` to match registration and the
+  frontend. `min(5)` would have locked anyone who registered as "Li" out of their own profile.
+  No frontend change needed.
 - **Vendor `payoutDetails`:** `applySchema` accepts it (`vendor.validation.ts:42`) but the
   frontend application form never sends it, so a seller can never supply bank details at
   application time. *(Either side.)*
