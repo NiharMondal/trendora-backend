@@ -37,7 +37,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-42 | The unsigned Cloudinary preset is an open upload endpoint | P1 | M | media |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
-| BE-07 | `authGuard` trusts the role in the JWT, not the DB | P0 | S | security |
+| ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-08 | `PATCH /users/my-profile-update` has no validation | P0 | S | security |
 | BE-09 | A customer cannot cancel their own order | P1 | M | orders |
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
@@ -288,19 +288,50 @@ the full error server-side through the logger from BE-05 instead of returning it
 
 ---
 
-### BE-07 · `authGuard` trusts the role in the JWT rather than the database
-**P0 · S · security**
+### ~~BE-07~~ · `authGuard` trusts the role in the JWT rather than the database
+**✅ FIXED — 2026-09-22 · security**
 
-**Now:** `src/middleware/authGuard.ts:20` destructures `role` out of the decoded token, and `:43`
-checks `roles.includes(role)` — even though `:30-38` has *already loaded* the `User` row with
-`auth` included.
+**Was:** the guard destructured `role` out of the decoded token and authorized against it — after
+already loading the `User` row with `auth` included. It did the query, then ignored the
+authoritative answer it came back with.
 
-**Gap:** Role changes do not take effect until the access token expires. An admin demoted to
-CUSTOMER, or a VENDOR whose store is suspended, keeps their old privileges for up to 20 minutes
-(`src/helpers/jwt.ts:4`). The correct value is sitting unused in `user.auth.role`.
+**This was worse than a stale-routing bug.** `req.user` was set to the decoded token, so the stale
+`role` claim propagated into `resolveVendorScope` and `vendorListScope`
+(`src/helpers/vendor.ts:108,143`), where `ADMIN` means *may act on any store* and returns an
+unrestricted product filter. A demoted admin kept **write scope over every vendor's catalogue** for
+the rest of the token's 20-minute life, not just access to admin routes.
 
-**Fix:** Authorize against `user.auth.role`, not `decodeToken.role`. The row is already fetched,
-so this costs nothing.
+It failed in the other direction too: approving a seller flips `Auth.role` to `VENDOR`
+(`src/modules/vendor/vendor.service.ts:337-341`), but the old token knew nothing about it, so a
+newly approved vendor was locked out of their own dashboard until the token refreshed.
+
+**Now:** `src/middleware/authGuard.ts` authorizes against `user.auth.role`, and sets
+`req.user = { ...decodeToken, role: currentRole }` so every downstream decision sees the same role
+the guard enforced. Costs nothing — the row was already being loaded.
+
+Two smaller corrections in the same function:
+- `findUniqueOrThrow` → `findUnique` + an explicit 401. A token naming a deleted user is an
+  authentication failure; letting Prisma raise `P2025` surfaced it as a **400** through the global
+  handler, and the existing `if (!user)` check was unreachable dead code.
+- `User.auth` is optional in the schema, so a `null` auth row is now an explicit 401 rather than a
+  `TypeError`.
+
+**Verified** against the dev database with a real token whose claim was deliberately made stale:
+- **Promotion is instant** — DB role set to ADMIN, the *old CUSTOMER-claim* token immediately
+  reached `GET /users` and `GET /orders` (200) with no re-login.
+- **Demotion is instant** — a token minted while ADMIN, then demoted in the DB, got **403** on
+  `/users` and `/vendors/admin/all`.
+- **The propagation test:** with an ADMIN-claim token and DB role `VENDOR`,
+  `GET /products/vendor/my-products` was scoped as a vendor ("You do not have a vendor account"),
+  **not** given the unrestricted admin filter — proving `req.user.role` reaches
+  `vendorListScope`.
+- Unknown user id → 401 (was 400); user row with no `Auth` → 401.
+- Regression across all three seeded roles: ADMIN reaches its four admin routes; VENDOR reaches
+  its store routes and is 403 on `/users`; CUSTOMER reaches wishlist/address/orders and is 403 on
+  `/users`; a VENDOR still reaches `/orders/my-orders` as a shopper.
+
+**Note:** `req.user.email` is still whatever the token carried. There is no email-change endpoint
+today, so it cannot go stale — revisit if one is ever added.
 
 ---
 
