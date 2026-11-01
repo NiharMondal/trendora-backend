@@ -243,9 +243,22 @@ rules live in `deriveOrderStatus`. Fulfilment moves through
 `PATCH /orders/:orderId/status` is gone, because with several sellers there is
 no single status to set.
 
-`ensureTransitionAllowedForRole(current, next, role)` layers role permissions on
-the state machine: a vendor may cancel while nothing has shipped, but
-cancelling an already-shipped order is a refund dispute and is ADMIN-only.
+`ensureTransitionAllowedForActor(current, next, capacity)` layers permissions on
+the state machine, where **capacity is not role**: `resolveOrderActorCapacity`
+decides whether the caller is the `admin`, the `seller` of that parcel, or its
+`buyer`. A VENDOR is also a shopper, so the same account is a seller on its own
+store's parcels and a buyer on parcels it ordered elsewhere — deciding from
+`Role` alone is what used to lock sellers out of cancelling their own purchases.
+
+- `seller` moves forward and may cancel while nothing has shipped; cancelling an
+  already-shipped parcel is a refund dispute and stays ADMIN-only.
+- `buyer` may do exactly one thing: **`PENDING -> CANCELED`**.
+
+**Buyer cancellation is gated on `OrderStatus`, never `PaymentStatus`.** A COD
+order stays `paymentStatus: PENDING` until every parcel is delivered (see
+`reconcilePayment`), so gating on payment would let a buyer cancel a parcel that
+had already shipped. Payment status decides whether a refund is owed
+(`recordRefundIntent`), not whether cancelling is allowed.
 
 ### The money formulas (duplicated on the frontend — keep in sync)
 
