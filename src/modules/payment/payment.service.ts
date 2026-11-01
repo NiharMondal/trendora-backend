@@ -11,7 +11,10 @@ import {
     RefundStatus,
 } from "@/lib/prisma-client";
 import { consumeCheckoutSession } from "@/helpers/checkout";
-import { recomputePaymentRefundState } from "@/helpers/refund";
+import {
+    mapStripeRefundStatus,
+    recomputePaymentRefundState,
+} from "@/helpers/refund";
 import { round2 } from "@/helpers/money";
 import { persistOrder } from "@/helpers/create-order";
 import { OrderCalculation } from "@/types/common.types";
@@ -277,13 +280,9 @@ async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
  * `Payment.refundAmount` still reflect reality.
  */
 async function handleRefundEvent(stripeRefund: Stripe.Refund) {
-    const status =
-        stripeRefund.status === "succeeded"
-            ? RefundStatus.SUCCEEDED
-            : stripeRefund.status === "failed" ||
-                stripeRefund.status === "canceled"
-              ? RefundStatus.FAILED
-              : RefundStatus.PROCESSING;
+    // Shared with the reconciliation sweep in `helpers/refund.ts` — one
+    // definition, so the webhook and the sweep cannot disagree.
+    const status = mapStripeRefundStatus(stripeRefund.status);
 
     const existing = await prisma.refund.findUnique({
         where: { gatewayRefundId: stripeRefund.id },

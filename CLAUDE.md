@@ -381,6 +381,23 @@ Cash on delivery has no gateway to call, so `recordRefundIntent` returns null
 for it; money handed back in person is recorded with `recordManualRefund`
 (`gateway` names the rail, e.g. `"cash"`, and there is no `gatewayRefundId`).
 
+### Background sweeps
+
+`src/scheduler/index.ts` runs three `node-cron` jobs, started from `server.ts` once the port is
+open: `process-pending-refunds` (10 min), `reconcile-processing-refunds` (30 min) and
+`expire-stale-checkout-sessions` (hourly).
+
+**The entry requirement for anything added here is that it be idempotent** — safe to run twice,
+safe to run alongside a request doing the same work, and safe to miss a tick. Three properties are
+enforced by the runner and must stay: a job never overlaps itself, a job never crashes the process
+(an unhandled rejection in a timer callback takes the server down), and the whole thing is
+per-instance, so `SCHEDULER_ENABLED=false` on all but one instance when several are deployed.
+
+`processPendingRefunds` retries PENDING and FAILED only. A `PROCESSING` refund is already in flight,
+so re-sending it would be a second refund attempt — `reconcileProcessingRefunds` handles those
+instead and is **read-only against Stripe**, settling the row from the gateway's view. Both it and
+the webhook map Stripe statuses through the single `mapStripeRefundStatus`.
+
 ### Which webhook events must be enabled
 
 `POST /webhook` handles nine event types, and the endpoint sending to it has to
@@ -449,21 +466,15 @@ All environment access goes through **`src/config/env-config.ts`** (`envConfig` 
   (api_version `2023-08-16`) — not Trendora's. There is no endpoint pointing at
   this backend, so a deployed Trendora needs one created with the nine events
   listed above. Local dev uses `pnpm stripe:listen` and needs none.
-- **Nothing schedules `processPendingRefunds()`.** A refund that failed at the
-  gateway is retried only when an admin presses retry (or hits
-  `POST /refunds/retry-all`). Wire it to a cron/worker when one exists — the
-  function is idempotent and safe to run on a timer.
-- **A `PROCESSING` refund is not polled.** Rails that settle asynchronously
-  rely on the `refund.updated` webhook to finish the story; if that webhook is
-  not configured, such a refund stays `PROCESSING` forever. `retrieveStripeRefund`
-  in `src/helpers/stripe.ts` is the hook for a reconciliation sweep.
+- ~~**Nothing schedules `processPendingRefunds()`.**~~ **Fixed** — see
+  **Background sweeps** above and `docs/FEATURE-GAPS.md` BE-11.
+- ~~**A `PROCESSING` refund is not polled.**~~ **Fixed** — `reconcileProcessingRefunds`
+  now polls them on a 30-minute sweep.
 - **No stock reservation.** Stock is deducted at order creation (COD) or at the
   webhook (Stripe); between starting a Stripe checkout and the charge landing,
   another buyer can take the last unit. The webhook then fails the stock guard
   and that charge needs refunding by hand.
-- **Expired checkout drafts are not swept.** `expireStaleCheckoutSessions()`
-  exists but nothing schedules it. Harmless — `consumeCheckoutSession` refuses
-  anything not `PENDING` — but the rows accumulate.
+- ~~**Expired checkout drafts are not swept.**~~ **Fixed** — swept hourly.
 - **No vendor moderation audit log.** `Vendor` keeps `rejectionReason`,
   `approvedAt` and `suspendedAt`, but not *which* admin acted, nor the history.
   Copy the `OrderStatusHistory` pattern if that becomes necessary.

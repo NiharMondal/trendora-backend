@@ -69,6 +69,15 @@ exports.envConfig = {
     },
     /** Maximum accepted request body size. */
     body_limit: process.env.BODY_LIMIT || "1mb",
+    /**
+     * Whether this process runs the background sweeps (`src/scheduler`).
+     *
+     * The scheduler is in-process, so **every** instance that has this on runs
+     * every sweep. The jobs tolerate it — gateway calls are idempotency-keyed
+     * and the sweeps are `updateMany` — but it is duplicated work, so with more
+     * than one instance deployed, leave it on for exactly one of them.
+     */
+    scheduler_enabled: (process.env.SCHEDULER_ENABLED ?? "true") !== "false",
     // dev seed (src/seed) — not used by the running server
     seed_password: process.env.SEED_PASSWORD || "Password123!",
     // order related
