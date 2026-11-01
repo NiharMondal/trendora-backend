@@ -18,7 +18,16 @@ router.get("/my-orders", (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOME
 // ---------------------------------------------------------------------- vendor
 router.get("/vendor/my-orders", (0, authGuard_1.authGuard)(prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getMyVendorOrders);
 router.get("/vendor/my-orders/:vendorOrderId", (0, authGuard_1.authGuard)(prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getVendorOrderById);
-router.patch("/vendor-orders/:vendorOrderId/status", (0, authGuard_1.authGuard)(prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(order_validation_1.orderValidation.updateVendorOrderStatusSchema), order_controller_1.orderControllers.updateVendorOrderStatus);
+/**
+ * Fulfilment AND buyer-side cancellation share this route, because they are the
+ * same state transition on the same row. The service works out whether the
+ * caller is the seller, the buyer or an admin and applies the matching
+ * transition table — a buyer may only take a PENDING parcel to CANCELED.
+ *
+ * CUSTOMER is in the guard for that reason; without it a buyer had no way to
+ * cancel their own order at all.
+ */
+router.patch("/vendor-orders/:vendorOrderId/status", (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), (0, validateRequest_1.validateRequest)(order_validation_1.orderValidation.updateVendorOrderStatusSchema), order_controller_1.orderControllers.updateVendorOrderStatus);
 // ----------------------------------------------------------------------- admin
 router.get("/analytics", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), order_controller_1.orderControllers.getDashboardAnalytics);
 // ------------------------------------------------------------------- shared

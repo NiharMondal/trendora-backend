@@ -402,14 +402,70 @@ const getVendorOrderById = async (actor, vendorOrderId) => {
  * and totals stay consistent. A VENDOR may only move their own slice, and only
  * through the transitions their role permits.
  */
+/**
+ * Works out what the caller is to this particular parcel, and 404s if they are
+ * nothing to it.
+ *
+ * Seller is checked before buyer so the existing vendor behaviour — including
+ * the precise "your store is pending/rejected/suspended" errors from
+ * `requireApprovedVendor` — is preserved exactly. A vendor who bought from
+ * their own store resolves as the seller, which is strictly more permissive and
+ * harmless: it is their own store and their own money.
+ */
+const resolveOrderActorCapacity = async (actor, vendorOrderId) => {
+    if (actor.role === prisma_client_1.Role.ADMIN) {
+        return "admin";
+    }
+    const vendorOrder = await db_1.prisma.vendorOrder.findUnique({
+        where: { id: vendorOrderId },
+        select: {
+            vendorId: true,
+            order: { select: { userId: true } },
+        },
+    });
+    if (!vendorOrder) {
+        throw new customError_1.default(404, "Order not found");
+    }
+    // Does this caller own the STORE that is shipping this parcel?
+    const ownsSellingStore = await db_1.prisma.vendor.findFirst({
+        where: {
+            id: vendorOrder.vendorId,
+            ownerId: actor.id,
+            isDeleted: false,
+        },
+        select: { id: true },
+    });
+    if (ownsSellingStore) {
+        // Re-runs the approval check so a suspended store still gets the
+        // specific message rather than falling through to a bare 404.
+        const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
+        await (0, vendor_1.assertVendorOwnsVendorOrder)(vendor.id, vendorOrderId);
+        return "seller";
+    }
+    // Otherwise: is this a parcel of an order they placed?
+    if (vendorOrder.order.userId === actor.id) {
+        return "buyer";
+    }
+    // Neither. 404 rather than 403, so another user's order ids stay
+    // unguessable — the convention used throughout `src/helpers/vendor.ts`.
+    throw new customError_1.default(404, "Order not found");
+};
+const defaultCancelReason = (capacity) => {
+    if (capacity === "buyer")
+        return "Canceled by customer";
+    if (capacity === "admin")
+        return "Canceled by admin";
+    return "Canceled by seller";
+};
 const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress) => {
     const newStatus = payload.orderStatus;
     // Ownership check happens outside the transaction so a 404 for someone
     // else's order costs nothing.
-    if (actor.role !== prisma_client_1.Role.ADMIN) {
-        const vendor = await (0, vendor_1.requireApprovedVendor)(actor.id);
-        await (0, vendor_1.assertVendorOwnsVendorOrder)(vendor.id, vendorOrderId);
-    }
+    //
+    // Capacity, not role. The same account can be the seller of one parcel and
+    // the buyer of another — a VENDOR is still a shopper — so this asks "what is
+    // this caller to THIS parcel?" rather than reading `actor.role`.
+    const capacity = await resolveOrderActorCapacity(actor, vendorOrderId);
     // The gateway call must NOT happen inside the transaction — it would hold
     // the transaction open across a network round trip, and a rollback after
     // Stripe had already moved money would leave a refund with no record of
@@ -427,8 +483,8 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
             throw new customError_1.default(404, "Order not found");
         }
         const previousStatus = vendorOrder.orderStatus;
-        // 1. State machine + role permissions
-        (0, allowedTransition_1.ensureTransitionAllowedForRole)(previousStatus, newStatus, actor.role);
+        // 1. State machine + what this capacity may do
+        (0, allowedTransition_1.ensureTransitionAllowedForActor)(previousStatus, newStatus, capacity);
         const order = vendorOrder.order;
         const isStripe = order.paymentMethod === prisma_client_1.PaymentMethod.STRIPE;
         // 2. A prepaid order must actually be paid before it moves goods.
@@ -463,10 +519,17 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
             where: { id: vendorOrderId },
             data: {
                 orderStatus: newStatus,
-                trackingNumber: payload.trackingNumber ?? undefined,
-                carrier: payload.carrier ?? undefined,
+                // Shipping details are the seller's to set; ignore them if a
+                // buyer sends them along with a cancel.
+                trackingNumber: capacity === "buyer"
+                    ? undefined
+                    : (payload.trackingNumber ?? undefined),
+                carrier: capacity === "buyer"
+                    ? undefined
+                    : (payload.carrier ?? undefined),
                 cancelReason: newStatus === prisma_client_1.OrderStatus.CANCELED
-                    ? (payload.cancelReason ?? "Canceled by seller")
+                    ? (payload.cancelReason ??
+                        defaultCancelReason(capacity))
                     : undefined,
                 shippedAt: newStatus === prisma_client_1.OrderStatus.SHIPPED ? now : undefined,
                 deliveredAt: newStatus === prisma_client_1.OrderStatus.DELIVERED ? now : undefined,
@@ -480,7 +543,8 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
             newStatus,
             userId: actor.id,
             note: newStatus === prisma_client_1.OrderStatus.CANCELED
-                ? (payload.cancelReason ?? "Canceled by seller")
+                ? (payload.cancelReason ??
+                    defaultCancelReason(capacity))
                 : undefined,
             ipAddress,
         });

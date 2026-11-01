@@ -39,9 +39,9 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | ~~BE-08~~ | ~~`PATCH /users/my-profile-update` has no validation~~ | ✅ **FIXED** 2026-09-22 | — | security |
-| BE-09 | A customer cannot cancel their own order | P1 | M | orders |
+| ~~BE-09~~ | ~~A customer cannot cancel their own order~~ | ✅ **FIXED** 2026-09-22 | — | orders |
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
-| BE-11 | Nothing schedules the refund / checkout sweeps | P1 | M | refunds |
+| ~~BE-11~~ | ~~Nothing schedules the refund / checkout sweeps~~ | ✅ **FIXED** 2026-09-22 | — | refunds |
 | BE-12 | No transactional email beyond password reset | P1 | L | notifications |
 | BE-13 | `OrderStatusHistory` is written and never read | P1 | M | orders |
 | BE-14 | `sortBy` is never validated against a column allowlist | P1 | S | query |
@@ -383,21 +383,68 @@ rather than a field-level message.
 
 ## P1 — a user or operator hits this
 
-### BE-09 · A customer cannot cancel their own order
-**P1 · M · orders**
+### ~~BE-09~~ · A customer cannot cancel their own order
+**✅ FIXED — 2026-09-22 · orders**
 
-**Now:** Fulfilment moves through `PATCH /orders/vendor-orders/:vendorOrderId/status`, guarded
-`authGuard(Role.VENDOR, Role.ADMIN)` (`src/modules/order/order.route.ts:36-40`). The old
-whole-order status route was deliberately removed (`:10-14`). No other cancel route exists.
+**Was:** the route was guarded `VENDOR, ADMIN`, and the service did
+`if (actor.role !== Role.ADMIN) requireApprovedVendor(actor.id)`. A buyer had no cancel route at
+all — and neither did a **VENDOR acting as a shopper**, since that call pinned them to their own
+store's parcels.
 
-**Gap:** A buyer has no way to cancel a parcel they just ordered. The refund ledger, the Stripe
-refund path and `ensureTransitionAllowedForRole` all exist and work — there is simply no door for
-a CUSTOMER to walk through. They must contact the seller.
+**Now:** the route accepts `CUSTOMER, VENDOR, ADMIN`, and the service resolves **capacity, not
+role** — `resolveOrderActorCapacity` asks "what is this caller to *this parcel*?" and returns
+`admin`, `seller` or `buyer`. That distinction is the point: role alone cannot answer it, because
+the same account is a seller on its own store's parcels and a buyer on parcels it ordered
+elsewhere.
 
-**Fix:** Either add `Role.CUSTOMER` to that guard and extend
-`ensureTransitionAllowedForRole` so a buyer may only move `PENDING|PROCESSING → CANCELED` on a
-parcel they own, or add a dedicated `POST /orders/vendor-orders/:id/cancel`. Reuse
-`assertVendorOwnsVendorOrder`'s 404-not-403 pattern for the ownership check.
+Each capacity gets its own transition table (`src/helpers/allowedTransition.ts`):
+
+| capacity | may do |
+| --- | --- |
+| `admin` | anything the state machine allows, including cancelling a SHIPPED parcel |
+| `seller` | move forward; cancel while nothing has shipped (unchanged) |
+| `buyer` | **`PENDING → CANCELED`, and nothing else** |
+
+**The gate is `OrderStatus`, never `PaymentStatus`.** This was the open design question, and the
+payment-status half of it is a trap: a cash-on-delivery order stays `paymentStatus: PENDING` right
+up until every parcel is delivered (`reconcilePayment`), so "allow cancel while payment is pending"
+would let a buyer cancel a parcel that had already **shipped**. Verified directly — a COD parcel
+sitting at `parcel=SHIPPED payment=PENDING` is correctly refused. Payment status decides what
+*happens* on cancel (whether `recordRefundIntent` owes money back), not whether cancel is allowed.
+
+Why `PENDING` only and not `PROCESSING`: once the seller has accepted and started packing, calling
+it off stops being a unilateral decision and becomes a request. The buyer gets an actionable 403
+naming the current status and telling them to contact the seller, rather than a bare "forbidden".
+Widening to `PROCESSING` is a one-line change to `buyerAllowedTransitions` if the window proves too
+tight in practice.
+
+Smaller points handled in the same change:
+- Shipping details are ignored when the caller is a buyer — no setting `trackingNumber` or
+  `carrier` by attaching them to a cancel.
+- `cancelReason` defaults to "Canceled by customer" / "Canceled by seller" / "Canceled by admin"
+  instead of always "Canceled by seller".
+- `requireApprovedVendor`'s precise pending/rejected/suspended errors are preserved: a caller who
+  owns the selling store still goes through it, so a suspended seller gets that message rather than
+  falling through to a 404.
+- A caller who is neither buyer nor seller of the parcel gets **404, not 403**, so order ids stay
+  unguessable.
+
+**Verified** end to end against the dev database with real COD orders:
+- Buyer cancels a PENDING parcel → 200; stock returned (297 → 299); `cancelReason` reads
+  "Canceled by customer".
+- Buyer → `PROCESSING` / `SHIPPED` → 403 / 400. Buyer → CANCELED after the seller moved it to
+  PROCESSING → 403 with the "contact the seller" message.
+- **Buyer → CANCELED on a SHIPPED COD parcel (`payment=PENDING`) → 403.** The case the
+  payment-status rule would have allowed.
+- A **VENDOR cancelling their own purchase** from another store → 200. Previously impossible.
+- An unrelated vendor targeting the parcel → 404.
+- Seller → CANCELED on SHIPPED still 403; **admin** → 200, so the override is intact.
+- `OrderStatusHistory` records the acting user and reason on every hop.
+- All test orders removed afterwards; product stock back to its original 300.
+
+**Note:** cancellation is per **parcel**, matching the architecture — `Order.orderStatus` is a
+derived rollup. A buyer with a two-store cart cancels each parcel separately; there is deliberately
+no whole-order cancel endpoint.
 
 ---
 
@@ -419,24 +466,58 @@ adding the same product twice still gets the 400.
 
 ---
 
-### BE-11 · Nothing schedules the refund and checkout sweeps
-**P1 · M · refunds**
+### ~~BE-11~~ · Nothing schedules the refund and checkout sweeps
+**✅ FIXED — 2026-09-22 · refunds**
 
-**Now:** `processPendingRefunds` (`src/helpers/refund.ts:427`) is reachable only from the manual
-`POST /refunds/retry-all` (`src/modules/refund/refund.service.ts:211`).
-`expireStaleCheckoutSessions` (`src/helpers/checkout.ts:136`) has **zero callers**. Both carry
-comments saying nothing schedules them yet. There is no `node-cron`, `bullmq`, `setInterval` or
-worker entrypoint anywhere in the repo.
+**Was:** `processPendingRefunds` was reachable only from the manual
+`POST /refunds/retry-all`; `expireStaleCheckoutSessions` had zero callers; and a refund stuck in
+`PROCESSING` was never polled at all. No scheduler of any kind existed.
 
-**Gap:** A refund that fails at the gateway sits `FAILED` until an admin notices `/admin/refunds`
-— that is a buyer who has not been paid back. A refund left `PROCESSING` is never polled at all
-(`retrieveStripeRefund`, `src/helpers/stripe.ts:142`, has zero callers), so if the
-`refund.updated` webhook is missing it stays `PROCESSING` forever. Expired checkout drafts
-accumulate harmlessly but indefinitely.
+**Now:** `src/scheduler/index.ts` runs three sweeps via `node-cron`, started from `server.ts` after
+the port is open (so a slow first sweep cannot delay the listen and fail a container health check).
 
-**Fix:** Add a scheduler entrypoint and run `processPendingRefunds()` and
-`expireStaleCheckoutSessions()` on a timer — both are idempotent and safe. Add a third sweep that
-polls `PROCESSING` refunds via `retrieveStripeRefund`.
+| job | cadence | why that cadence |
+| --- | --- | --- |
+| `process-pending-refunds` | every 10 min | a FAILED refund is a buyer who has not been paid back — retry promptly, but not so fast that a persistently failing refund hammers Stripe |
+| `reconcile-processing-refunds` | every 30 min | only needed when a `refund.updated` webhook was missed; read-only against Stripe, so a slow cadence costs only a little delay |
+| `expire-stale-checkout-sessions` | hourly | pure housekeeping — `consumeCheckoutSession` already refuses anything not PENDING |
+
+Three properties hold the design up, and each is tested:
+
+1. **A job never overlaps itself.** A sweep that outruns its interval is skipped rather than
+   re-entered — two copies of `processPendingRefunds` would attempt the same refund twice.
+2. **A job never crashes the process.** Every run is wrapped; an unhandled rejection in a timer
+   callback would take the server down.
+3. **It is per-instance.** The scheduler is in-process, so every instance with it enabled runs
+   every sweep. The jobs tolerate that (gateway calls are idempotency-keyed, sweeps are
+   `updateMany`) but it is duplicated work — set `SCHEDULER_ENABLED=false` on all but one instance.
+
+**New: `reconcileProcessingRefunds`** (`src/helpers/refund.ts`). `processPendingRefunds`
+deliberately retries only PENDING and FAILED; a PROCESSING refund is already in flight and
+re-sending it would be a second refund attempt. This one is **read-only against Stripe**
+(`retrieveStripeRefund`) so it can never move money — it settles the row from the gateway's view.
+A refund that cannot be reached is logged and counted, and the sweep continues to the next.
+
+While wiring it, the Stripe-status mapping was extracted to `mapStripeRefundStatus` and the webhook
+now shares it, so the webhook and the sweep cannot drift on what "canceled" means. (It maps to
+FAILED, not `RefundStatus.CANCELED`: our CANCELED means an operator abandoned the refund and no
+money moved, whereas a gateway-cancelled refund is money that was owed and did not arrive.)
+
+**Verified** against the dev database:
+- **Checkout sweep does real work** — a draft with `expiresAt` in the past flipped PENDING →
+  EXPIRED (`count: 1`) while a live draft was left alone; a second run was a no-op (`count: 0`).
+- **Refund sweeps contain failures** — a seeded FAILED refund was attempted and stayed FAILED
+  (`attempted: 1, failed: 1`); a PROCESSING refund pointing at a nonexistent Stripe id logged
+  `No such refund` and returned `checked: 1, errored: 1`. Neither crashed, and neither moved money
+  (both referenced Stripe objects that do not exist).
+- **Overlap guard** — firing the same job twice concurrently logged
+  `is still running from the last tick — skipping` and ran it once.
+- **`SCHEDULER_ENABLED=false`** starts nothing; `stopScheduler()` stops every task cleanly.
+- All probe data removed afterwards.
+
+**Still open:** `stopScheduler()` exists but nothing calls it, because there is no shutdown
+handler yet — that is **BE-18**. Until then a deploy can kill a sweep mid-flight, which is safe
+(every job is idempotent and re-runs on the next tick) but not tidy.
 
 ---
 
