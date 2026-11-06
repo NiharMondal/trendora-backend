@@ -43,7 +43,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-10~~ | ~~Wishlist duplicate check ignores `userId`~~ | ✅ **FIXED** 2026-09-22 | — | wishlist |
 | ~~BE-11~~ | ~~Nothing schedules the refund / checkout sweeps~~ | ✅ **FIXED** 2026-09-22 | — | refunds |
 | ~~BE-12~~ | ~~No transactional email beyond password reset~~ | ✅ **FIXED** 2026-09-22 | — | notifications |
-| BE-13 | `OrderStatusHistory` is written and never read | P1 | M | orders |
+| ~~BE-13~~ | ~~`OrderStatusHistory` is written and never read~~ — **premise was wrong**; it leaked instead | ✅ **FIXED** 2026-09-22 | — | privacy |
 | BE-14 | `sortBy` is never validated against a column allowlist | P1 | S | query |
 | BE-15 | Four list endpoints have no pagination | P1 | S | query |
 | BE-16 | `GET /slides` ignores its own `isActive` / `sortOrder` | P1 | S | content |
@@ -581,17 +581,56 @@ guests (there is no guest checkout yet) are the obvious next additions.
 
 ---
 
-### BE-13 · `OrderStatusHistory` is written and never read
-**P1 · M · orders**
+### ~~BE-13~~ · `OrderStatusHistory` — the audit was wrong, and the real bug was a leak
+**✅ FIXED — 2026-09-22 · privacy**
 
-**Now:** The model exists (`prisma/schema.prisma:584`) and is written in exactly one place,
-`src/helpers/order.ts:365`. Nothing reads it; no endpoint surfaces it.
+**Correction first.** This item claimed the table was "written once, never read, no endpoint
+surfaces it". **That was wrong.** `statusHistory` was already included in two reads —
+`getOrderById` and `getVendorOrderById` — and had been since commit `0ca4501`, before this audit
+was written. The original sweep grepped for `prisma.orderStatusHistory`, which only matches the
+*write*; the reads use the Prisma **relation field name**, so they were invisible to that search.
+The frontend even carries a `TVendorOrderStatusHistory` type for it.
 
-**Gap:** The fulfilment audit trail is collected and discarded. Neither a buyer, a seller nor an
-admin can see when a parcel changed hands — which is the first thing anyone asks in a dispute.
+**The actual defect was the opposite of the one recorded: it was over-exposed.** Both includes were
+bare `statusHistory: { orderBy: … }` with no `select`, so the whole row went out — including
+`ipAddress` and the acting `userId`. Both endpoints are reachable by the **buyer and by any vendor
+holding a slice** of that order, which meant:
 
-**Fix:** Include it on `getOrderById` and on the vendor-order detail read, or add
-`GET /orders/vendor-orders/:id/history`. The data is already there.
+- a seller could read the **buyer's IP address**, logged when the order was placed, off their own
+  parcel's trail;
+- a buyer could read the IP of the seller or admin who moved their parcel;
+- both got raw `userId`s they had no use for.
+
+Confirmed against a real order before the fix — a vendor's `GET /orders/:id` returned
+`"ipAddress": "::1", "userId": "4d6da573-…"` on the buyer's own order-placed event.
+
+**Now:** `statusHistorySelect` projects the rows, and `sanitizeStatusHistory(history, isAdmin)`
+narrows them per caller at each authorization branch:
+
+| caller | sees |
+| --- | --- |
+| buyer, seller | `id`, `oldStatus`, `newStatus`, `note`, `createdAt` — the timeline, nothing else |
+| ADMIN | the above plus `ipAddress` and a named `actor` |
+
+A buyer does not need the seller's personal name (the store name is already on the parcel), a
+seller does not need the buyer's, and an IP address exists for abuse investigation — an admin
+activity. Admins additionally gained something they did not have before: the actor is now a
+`{ id, name }` rather than a bare uuid, which is what makes the trail usable as an audit log.
+
+**Verified** against the dev database with a real COD order moved PENDING → PROCESSING:
+- Buyer and seller both get the four timeline fields and **no `ipAddress`**, on
+  `GET /orders/:orderId` **and** `GET /orders/vendor/my-orders/:id`.
+- ADMIN gets `ipAddress` plus `actor: { id, name }` — "Test Customer" placed it, "Ayesha Rahman"
+  moved it — on both endpoints.
+- Probe order removed afterwards; history table back to 0 rows, stock restored to 300.
+
+**Still open:** nothing *renders* the trail. The frontend has the type and now receives the data on
+order detail, but no screen shows a timeline — that is a frontend item, and the natural companion
+to FE-38 (order tracking).
+
+**Process note:** the same grep blind spot — searching for `prisma.<model>` when the access is via
+a relation include — could hide other "never read" claims in this document. `OAuthAccount` and
+`CheckoutSession` were assessed the same way and are worth re-checking before acting on them.
 
 ---
 

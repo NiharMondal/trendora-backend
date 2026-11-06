@@ -454,6 +454,13 @@ but pointless).
 - `VendorReview` rates a **store** (tied to a delivered vendor order, one per
   order); `Review` rates a **product**. Both maintain denormalised
   `averageRating` / `totalReviews` counters inside the write transaction.
+- **`OrderStatusHistory` is returned on order detail, narrowed by caller.**
+  `sanitizeStatusHistory` in `order.service.ts` gives buyers and sellers only the
+  timeline (`oldStatus`, `newStatus`, `note`, `createdAt`); `ipAddress` and the
+  acting user are **ADMIN only**. Both endpoints that return it are reachable by
+  the buyer *and* by any vendor with a slice, so returning the raw row let a
+  seller read the buyer's IP off their own parcel. Never widen that projection
+  without re-checking who can reach the endpoint.
 - Enums live in `prisma/schema.prisma`, as Zod mirrors in `src/helpers/enum.ts`,
   and as frontend constants — all three must stay in sync.
 
