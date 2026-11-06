@@ -59,7 +59,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-25~~ | ~~Unreachable enum values~~ — **premise partly wrong**; the mirror was the real gap | ✅ **FIXED** 2026-09-22 | — | cleanup |
 | ~~BE-26~~ | ~~`variant`/`image`/`cloudinary` modules are half-built~~ | ✅ **FIXED** 2026-09-22 | — | structure |
 | BE-27 | `PrismaQueryBuilder` is entirely `any`-typed | P2 | M | types |
-| BE-28 | No `Payment` read endpoint | P2 | S | payments |
+| ~~BE-28~~ | ~~No `Payment` read endpoint~~ — building it surfaced a gateway-blob leak | ✅ **FIXED** 2026-09-22 | — | payments |
 | BE-29 | No coupons or promotions | P2 | L | marketplace |
 | BE-30 | No returns / RMA workflow | P2 | L | marketplace |
 | BE-31 | No shipping methods, zones or carrier integration | P2 | L | marketplace |
@@ -1313,12 +1313,71 @@ input has no type safety. (Credit where due: there is **zero** `any` in any `*.s
 
 ---
 
-### BE-28 · No `Payment` read endpoint
-**P2 · S · payments**
+### ~~BE-28~~ · No `Payment` read endpoint
+**✅ FIXED — 2026-09-22 · payments**
 
-The `Payment` model (`prisma/schema.prisma:506`) has full gateway fields but is only ever written,
-by the webhook. There is no `GET /payments*` route. The frontend nonetheless declares a `payments`
-RTK Query tag, which no endpoint provides (**XR-07**).
+**Was:** the `Payment` model had full gateway fields but was only ever written, by the webhook.
+No `GET /payments*` route existed, while the frontend declared a `payments` RTK Query tag that
+nothing provided — refund mutations still invalidate it (`refund.api.ts:70,78,91,103`).
+(The original entry cited **XR-07** for that; XR-07 is the free-shipping-at-zero divergence. The
+tag claim is correct, the cross-reference was wrong.)
+
+**Now**, all read-only — payment state is owned by the gateway and reconciled by the webhook and
+`reconcilePayment`; there is no endpoint that lets a client set it, and there should not be:
+
+| route | who | returns |
+| --- | --- | --- |
+| `GET /payments/me` | buyer (all three roles — a VENDOR is also a shopper) | their own payments, paginated |
+| `GET /payments/order/:orderId` | that order's buyer, or ADMIN | one payment |
+| `GET /payments/admin/all` | ADMIN | the ledger, filterable (`?status=FAILED`) |
+| `GET /payments/:id` | ADMIN | full detail + its refunds |
+
+**A seller is deliberately not an audience.** One payment covers every store on the order, so
+there is no slice of it that belongs to one vendor; what a seller legitimately needs — *has the
+buyer paid?* — is already `order.paymentStatus` on their own parcel.
+
+`paymentRouter` is a **second router in the same module** and only it goes in `routes-array.ts`.
+`stripeWebhookRouter` must stay mounted at `/webhook` above `express.json()`; these reads must sit
+under `/api/v1` below it. One router could not be both, which is why they are separate.
+
+#### The leak this surfaced
+
+Deciding what a buyer may see meant looking at where `Payment` was *already* exposed — and
+`getOrderById` included `payment: true` and `refunds: true`, the **raw rows**.
+
+`Payment.gatewayResponse` holds the entire Stripe Checkout Session, which carries
+`customer_details`: the buyer's **name, email, phone and billing address**. `Refund.gatewayResponse`
+is the same for a refund, plus our `idempotencyKey`. That endpoint's own doc comment says it is
+reachable by *"the buyer who placed it, an ADMIN, or a VENDOR who has a slice of it"* — so **any
+seller holding one parcel of an order received the buyer's full Stripe session**, and the
+order-level `refunds` array handed them refund amounts for competitors' parcels of the same order.
+
+This is exactly BE-13 again (`OrderStatusHistory` leaking the buyer's IP to sellers), so it is
+fixed the same way — `sanitizePayment` / `sanitizeRefund` in `src/helpers/payment.ts`, narrowing
+by **audience, not role**:
+
+- **admin** — everything. `gatewayResponse` is kept precisely because it is what an operator
+  reconciles against the Stripe dashboard.
+- **buyer** — everything except `gatewayResponse`. Amounts stay: it is their basket.
+- **seller** — `{ method, status, paidAt }` and nothing else, and refunds filtered to their own
+  parcels. No basket total, for the same reason `getOrderById` already blanked the order's money
+  fields for a vendor.
+
+`buyerPaymentSelect` is written as a Prisma `select` rather than reusing the sanitizer, so on the
+new endpoints the blob is never loaded at all — a projection that cannot return a field cannot
+regress into returning it.
+
+**Verified against a running server — 39 assertions, all passing.** A real two-store COD order was
+placed through `POST /orders`, given a `gatewayResponse` containing a `customer_details` block, and
+read back by all four accounts: the buyer and both sellers get no `gatewayResponse` anywhere, a
+seller's `payment` has exactly the three keys above, a seller 404s on `/payments/order/:id`,
+`/payments/admin/all` and `/payments/:id` are 403 for both non-admins, `?status=` filters and
+`?sortBy=nonsense:asc` 400s through `PrismaQueryBuilder`, and the admin still sees the blob. The
+order, its payment, its parcels and the address it created were deleted afterwards and both
+products' stock restored — the database is back to 0 orders and 0 payments.
+
+**Still open:** the frontend has no `payments` feature folder, so nothing calls these yet. The tag
+it already declares is now providable.
 
 ---
 

@@ -33,8 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.stripeWebhookRouter = void 0;
+exports.paymentRouter = exports.stripeWebhookRouter = void 0;
 const express_1 = __importStar(require("express"));
+const prisma_client_1 = require("../../lib/prisma-client.js");
+const authGuard_1 = require("../../middleware/authGuard.js");
 const payment_controller_1 = require("./payment.controller");
 const router = (0, express_1.Router)();
 /**
@@ -57,3 +59,28 @@ const rawBody = express_1.default.raw({ type: "application/json" });
 router.post("/", rawBody, payment_controller_1.paymentControllers.createPaymentWithStripeWebhook);
 router.post("/stripe", rawBody, payment_controller_1.paymentControllers.createPaymentWithStripeWebhook);
 exports.stripeWebhookRouter = router;
+/**
+ * The READ side, and a completely separate router on purpose.
+ *
+ * `stripeWebhookRouter` above must be mounted at /webhook BEFORE
+ * `express.json()`; this one must be mounted under /api/v1 AFTER it, like every
+ * other resource. Putting both on one router would force one of them to be
+ * wrong. Only this one belongs in `routes-array.ts`.
+ *
+ * Everything here is read-only. Payment state is owned by the gateway and
+ * reconciled by the webhook and `reconcilePayment` — there is no endpoint that
+ * lets a client set it, and there should not be.
+ */
+const readRouter = (0, express_1.Router)();
+/** A buyer's own payments. A VENDOR is also a shopper, hence all three roles. */
+readRouter.get("/me", (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), payment_controller_1.paymentControllers.findMine);
+/**
+ * The payment on one order, for its buyer or an ADMIN. A seller is not an
+ * audience: one payment spans every store on the order, and what a seller
+ * needs — has the buyer paid? — is already on their own parcel.
+ */
+readRouter.get("/order/:orderId", (0, authGuard_1.authGuard)(prisma_client_1.Role.CUSTOMER, prisma_client_1.Role.VENDOR, prisma_client_1.Role.ADMIN), payment_controller_1.paymentControllers.findByOrderId);
+readRouter.get("/admin/all", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), payment_controller_1.paymentControllers.findAllForAdmin);
+// Last: a literal segment above must not be swallowed as an id.
+readRouter.get("/:id", (0, authGuard_1.authGuard)(prisma_client_1.Role.ADMIN), payment_controller_1.paymentControllers.findById);
+exports.paymentRouter = readRouter;

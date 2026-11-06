@@ -516,6 +516,18 @@ but pointless).
 - `VendorReview` rates a **store** (tied to a delivered vendor order, one per
   order); `Review` rates a **product**. Both maintain denormalised
   `averageRating` / `totalReviews` counters inside the write transaction.
+- **`Payment` and `Refund` are narrowed by caller on order detail, and the
+  `Payment` read endpoints are read-only.** `gatewayResponse` holds the entire
+  Stripe session — including the buyer's name, email and billing address — so
+  `sanitizePayment` / `sanitizeRefund` (`src/helpers/payment.ts`) give it to an
+  **admin only**. A buyer sees their payment minus the blob; a **seller** sees
+  `{ method, status, paidAt }` and refunds on their own parcels only, because one
+  payment spans every store on the order. `GET /payments*` exists for reads
+  (`/me`, `/order/:orderId`, `/admin/all`, `/:id`) and there is deliberately no
+  write route — payment state is the gateway's, reconciled by the webhook and
+  `reconcilePayment`. Note `payment.route.ts` exports **two** routers: only
+  `paymentRouter` belongs in `routes-array.ts`; `stripeWebhookRouter` must stay
+  at `/webhook` above `express.json()`.
 - **`OrderStatusHistory` is returned on order detail, narrowed by caller.**
   `sanitizeStatusHistory` in `order.service.ts` gives buyers and sellers only the
   timeline (`oldStatus`, `newStatus`, `note`, `createdAt`); `ipAddress` and the
