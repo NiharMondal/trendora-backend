@@ -271,6 +271,40 @@ accepted from the request body.
 stores may both sell "Nike Air Max 90". `slug` stays globally unique and
 `generateUniqueProductSlug` appends the store slug on collision.
 
+### Variants and images are editable as sub-resources
+
+`PATCH /products/:id` takes the **whole** `variants` and `images` arrays and
+deletes any row whose `id` the client did not round-trip — for an image, that
+destroys the Cloudinary asset too. Prefer the per-row endpoints under
+`/products/:productId`, which cannot touch a row the request did not name:
+
+```
+GET|POST /variants        PATCH|DELETE /variants/:variantId
+GET|POST /images          PATCH|DELETE /images/:imageId
+```
+
+Both modules share `src/helpers/product.ts`, and anything added there must keep
+these rules:
+
+- **The GETs are public and gated by `resolveViewableProduct`**, which composes
+  `publicProductFilter`. They 404 on a draft for the same reason
+  `GET /products/:id` does; a vendor reads their own unpublished listing through
+  `/products/vendor/my-products/:id`, which returns both collections nested.
+  Writes go through `resolveEditableProduct` — 404, never 403.
+- **Variants are SOFT deleted.** `OrderItem.variantId` is `ON DELETE SET NULL`,
+  so a hard delete detaches every past order line from the variant it sold.
+  Every read filters through the shared `liveVariants`; forgetting it makes
+  deleted variants reappear on the storefront. Images have no such reference and
+  are hard deleted, because the Cloudinary asset goes with them.
+- **Imagery is material, variants are not.** Adding or removing an image
+  re-opens moderation on an APPROVED listing
+  (`reopenModerationIfApproved`) and the response says so; changing stock, price
+  or which image is the hero does not. This mirrors `MATERIAL_FIELDS` — keep the
+  two in step.
+- Exactly one image is `isMain`, enforced in-transaction because the column is a
+  plain boolean; the last image cannot be deleted; a variant's (size, colour)
+  pair is unique per product, enforced in code because the DB does not.
+
 ### Orders split across two levels
 
 | model | role |

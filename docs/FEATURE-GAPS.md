@@ -57,7 +57,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-23~~ | ~~SSLCommerz is dead dependency + dead config~~ | ✅ **FIXED** 2026-09-22 | — | cleanup |
 | ~~BE-24~~ | ~~Six exported helpers have zero callers~~ | ✅ **FIXED** 2026-09-22 | — | cleanup |
 | ~~BE-25~~ | ~~Unreachable enum values~~ — **premise partly wrong**; the mirror was the real gap | ✅ **FIXED** 2026-09-22 | — | cleanup |
-| BE-26 | `address`/`wishlist`/`variant`/`image` modules are half-built | P2 | M | structure |
+| ~~BE-26~~ | ~~`variant`/`image`/`cloudinary` modules are half-built~~ | ✅ **FIXED** 2026-09-22 | — | structure |
 | BE-27 | `PrismaQueryBuilder` is entirely `any`-typed | P2 | M | types |
 | BE-28 | No `Payment` read endpoint | P2 | S | payments |
 | BE-29 | No coupons or promotions | P2 | L | marketplace |
@@ -1127,14 +1127,17 @@ sending `session.accessToken` from the frontend turns every image replace and re
 401. This is a two-sided change or nothing.
 
 **Fix (worth doing, low urgency):**
-- `publicId` is read straight off `req.body` with no null check, so a request without it throws a
-  TypeError on `.includes` and returns a 500. Guard it, or give the route the `validateRequest`
-  schema the module never got.
-- Tighten `includes("/temp/")` to `startsWith("trendora/temp/")` — strictly narrower, costs nothing.
-- Give the module the standard route/controller/service/validation shape; today the logic is inline
-  in the route and there is no service file (BE-26).
-- Authentication itself is best handled by **BE-42**'s signed-upload migration rather than bolted on
-  here.
+- ~~`publicId` is read straight off `req.body` with no null check, so a request without it throws a
+  TypeError on `.includes` and returns a 500.~~ **✅ done (BE-26)** — the module has a
+  `validateRequest` schema; a body without `publicId` is now a field-level 400.
+- ~~Tighten `includes("/temp/")` to `startsWith("trendora/temp/")`.~~ **✅ done (BE-26)** — verified
+  that `trendora/products/temp/x`, an ordinary final publicId the old substring check accepted, is
+  now rejected. The frontend uploads to `trendora/<folder>` with every staging caller passing
+  `temp/...`, so the anchored prefix matches every real staged asset.
+- ~~Give the module the standard route/controller/service/validation shape.~~ **✅ done (BE-26).**
+- **Still open:** authentication itself, best handled by **BE-42**'s signed-upload migration rather
+  than bolted on here. The route stays public — `deleteTempImage` sends no token, so guarding one
+  side alone turns every image replace into a silent 401.
 
 ---
 
@@ -1229,15 +1232,74 @@ Confirmed against the dev database that no row uses any of the three
 
 ---
 
-### BE-26 · Four modules are half-built
-**P2 · M · structure**
+### ~~BE-26~~ · Four modules are half-built
+**✅ FIXED — 2026-09-22 · structure**
 
-- `src/modules/product-variant/` and `src/modules/product-image/` expose **GET only**
-  (`variant.route.ts:6`, `image.route.ts:6`); every write is buried in `product.service.ts`.
-  `image.service.ts:4` even names its variable `variants` — a copy-paste from the sibling module.
-  Both read endpoints are called by nothing (**XR-02**).
-- `src/modules/cloudinary/` has no controller, service or validation file (see BE-04).
-- `payment.validation.ts` and `image.validation.ts` are **0-byte files**.
+**The decision:** the two sub-resource modules were **completed, not deleted.** `PATCH
+/products/:id` takes the whole `variants` and `images` arrays and deletes any row whose `id` the
+client failed to round-trip — and for an image that **destroys the Cloudinary asset**. That is the
+footgun `CLAUDE.md` warns about, and the only way to avoid it was for every caller to resend both
+collections in full just to change one price. Per-row endpoints remove the need to resend anything.
+
+**Now, under `/products/:productId`:**
+
+| | variants | images |
+| --- | --- | --- |
+| `GET` | list | list |
+| `POST` | add one or many | add one or many |
+| `PATCH /:id` | `sizeId`, `color`, `stock`, `price` | `isMain`, `altText` |
+| `DELETE /:id` | soft delete | hard delete + Cloudinary |
+
+Every write answers with the **whole refreshed collection**, so a dashboard never needs a follow-up
+GET.
+
+**Four things that fell out of building it, each of which was a live defect:**
+
+1. **The two GETs were ungated — a storefront leak.** `GET /products/:id` applies
+   `publicProductFilter` and 404s on a draft, an unpublished listing or one whose store is
+   suspended. `GET /products/:id/variants` applied nothing, so anyone could read the pricing and
+   stock of an unreleased listing by guessing a product id. Both GETs now go through
+   `resolveViewableProduct`. Verified: unpublishing the test product turns both into 404s.
+2. **Variants were HARD deleted.** `OrderItem.variantId` is `ON DELETE SET NULL` (init migration
+   line 439), so removing a variant silently detached every past order line that sold it from what
+   it sold. `ProductVariant.isDeleted` existed for this and was never used — exactly the rule
+   `CLAUDE.md` states for `Address`. Variant deletes are now soft, in the new endpoint **and in
+   `PATCH /products/:id`**, and all 13 read sites filter through the shared `liveVariants`.
+   `helpers/order.ts` already filtered this way, so the convention was half-adopted.
+3. **`variant.validation.ts` did not match the model.** It declared `size: z.string()` where the
+   column is `sizeId`, made it required where it is nullable, and used `.positive()` for `stock` —
+   which made "sold out" unsettable. Rewritten.
+4. **Nothing stopped two variants sharing a (size, colour) pair.** There is no DB constraint and
+   the cart could not tell them apart; both write paths now 409.
+
+**Moderation is wired to match `MATERIAL_FIELDS`, not guessed:** adding or removing an image
+re-opens moderation on an APPROVED listing (imagery is material) and the response *says so*, so a
+vendor is not left wondering why their live product dropped to Pending. Variant writes deliberately
+do not — same reason `price` and `stockQuantity` are absent from `MATERIAL_FIELDS`. Setting a hero
+image or editing alt text does not either: that is presentation of imagery already approved.
+
+Also handled: exactly one `isMain` per product (enforced in-transaction, since the column is a
+plain boolean); the last image cannot be deleted (`productSchema` requires one to create);
+deleting the hero promotes another; and `assertPromoted` refuses to persist a publicId still under
+`temp/` (BE-41's invariant).
+
+**`src/modules/cloudinary/`** now has the standard four files. Two fixes from BE-04 came with the
+split — see that entry. **`payment.validation.ts`** (0 bytes) was **deleted**: the webhook body is
+a raw Stripe event authenticated by signature, so there is nothing for Zod to validate.
+**`image.validation.ts`** (0 bytes) is now real. `image.service.ts`'s copy-pasted `variants`
+variable is gone.
+
+**Verified against a running server and the dev database — 52 assertions, all passing:** auth
+(401), cross-store ownership (404 both directions, never 403), the visibility fix, duplicate 409s,
+empty-body 400s, `stock: 0` now accepted, soft delete invisible in three separate read paths, the
+APPROVED→PENDING flip on image add *and* delete with `approvedAt` cleared, variants leaving status
+untouched, and `isMain` exclusivity surviving an add/delete cycle. Every row the run created was
+purged afterwards and the product was returned to its exact prior state (8 variants, 2 images, 1
+main, APPROVED, published).
+
+**Still open — the frontend does not call any of this yet.** The product form still submits both
+collections through `PATCH /products/:id`, so the round-trip-the-ids footgun is live until it moves
+to these endpoints. See **XR-02**.
 
 ---
 
@@ -1321,7 +1383,10 @@ the env validation in BE-19 so it can never silently default. Settle on one port
 
 **Routes here that no frontend code calls:** `POST /auth/forgot-password` and `POST /auth/reset-password` (both now correct and waiting on the frontend — XR-11);
 `GET /products/:productId/variants` and `GET /products/:productId/images` (variants and images
-always arrive nested); `GET /wishlists/:id`; `PATCH`/`DELETE /vendor-reviews/:id`;
+always arrive nested) **— plus, as of BE-26, the `POST`/`PATCH`/`DELETE` now sitting beside them.
+Those are worth wiring up rather than noting: the product form currently edits imagery through
+`PATCH /products/:id`, which deletes any image whose `id` it fails to round-trip and destroys the
+Cloudinary asset with it**; `GET /wishlists/:id`; `PATCH`/`DELETE /vendor-reviews/:id`;
 `GET /vendor-reviews/my-reviews`; `GET /address` (admin list); the whole slide write CRUD;
 `GET /payouts/:id`; `GET /refunds/:id`. Each is a screen the frontend planned and did not build —
 see FE-14 and the frontend's unused-hook list. The Stripe webhook routes are correctly excluded
