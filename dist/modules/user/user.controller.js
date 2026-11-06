@@ -29,4 +29,44 @@ const updateData = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
         data: data,
     });
 });
-exports.userControllers = { getAllFromDB, myProfile, updateData };
+const findById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await user_service_1.userServices.findById(req.params.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "User fetched successfully",
+        data: data,
+    });
+});
+const disableUser = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await user_service_1.userServices.disableUser(req.user.id, req.params.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Account disabled successfully",
+        data: data,
+    });
+});
+const restoreUser = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await user_service_1.userServices.restoreUser(req.params.id);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Account restored successfully",
+        data: data,
+    });
+});
+const updateRole = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const data = await user_service_1.userServices.updateRole(req.user.id, req.params.id, req.body);
+    (0, sendResponse_1.sendResponse)(res, {
+        statusCode: 200,
+        message: "Role updated successfully",
+        data: data,
+    });
+});
+exports.userControllers = {
+    getAllFromDB,
+    myProfile,
+    updateData,
+    findById,
+    disableUser,
+    restoreUser,
+    updateRole,
+};

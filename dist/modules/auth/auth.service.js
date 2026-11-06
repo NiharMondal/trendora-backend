@@ -224,9 +224,17 @@ const refreshToken = async (token) => {
     catch (error) {
         throw new customError_1.default(401, "Invalid or expired refresh token");
     }
-    const auth = await db_1.prisma.auth.findUniqueOrThrow({
+    const auth = await db_1.prisma.auth.findUnique({
         where: { userId: data.id },
+        include: { user: { select: { isDeleted: true } } },
     });
+    // A disabled account must not be able to mint fresh access tokens for the
+    // remaining 30 days of its refresh token. `authGuard` would reject those
+    // tokens anyway, but a refresh that keeps succeeding tells the client the
+    // session is healthy and quietly renews it forever.
+    if (!auth || auth.user.isDeleted) {
+        throw new customError_1.default(401, "Invalid or expired refresh token");
+    }
     const tokenPayload = {
         id: auth.userId,
         role: auth.role,
