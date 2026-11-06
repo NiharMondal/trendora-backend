@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import { prisma } from "@/config/db";
+import { envConfig } from "@/config/env-config";
 import { OrderStatus, PaymentMethod, RefundStatus } from "@/lib/prisma-client";
 import { toNumber } from "./money";
 import { sendEmailSafely } from "@/utils/sendEmail";
@@ -232,7 +233,7 @@ export const notifyVendorApplicationDecision = (
 				approved,
 				rejectionReason: vendor.rejectionReason,
 				storeUrl: approved
-					? `${process.env.FRONTEND_URL ?? ""}/stores/${vendor.slug}`
+					? `${envConfig.front_end_url}/stores/${vendor.slug}`
 					: undefined,
 			}),
 		});

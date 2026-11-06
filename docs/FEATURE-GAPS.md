@@ -47,9 +47,9 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-14~~ | ~~`sortBy` is never validated against a column allowlist~~ | ✅ **FIXED** 2026-09-22 | — | query |
 | ~~BE-15~~ | ~~Four list endpoints have no pagination~~ | ✅ **FIXED** 2026-09-22 | — | query |
 | ~~BE-16~~ | ~~`GET /slides` ignores its own `isActive` / `sortOrder`~~ | ✅ **FIXED** 2026-09-22 | — | content |
-| BE-17 | No health check endpoint | P1 | S | ops |
-| BE-18 | No graceful shutdown; server lies about the DB | P1 | S | ops |
-| BE-19 | No env validation at boot | P1 | S | ops |
+| ~~BE-17~~ | ~~No health check endpoint~~ | ✅ **FIXED** 2026-09-22 | — | ops |
+| ~~BE-18~~ | ~~No graceful shutdown; server lies about the DB~~ | ✅ **FIXED** 2026-09-22 | — | ops |
+| ~~BE-19~~ | ~~No env validation at boot~~ | ✅ **FIXED** 2026-09-22 | — | ops |
 | BE-20 | `GET /users` returns no email, role or pagination meta | P1 | S | users |
 | BE-21 | Brand validation silently drops `logo` | P1 | S | catalogue |
 | BE-22 | No test runner, no CI, no Dockerfile | P1 | L | ops |
@@ -780,52 +780,96 @@ missing.
 
 ---
 
-### BE-17 · No health check endpoint
-**P1 · S · ops**
+### ~~BE-17~~ · No health check endpoint
+**✅ FIXED — 2026-09-22 · ops**
 
-**Now:** The only root handler is **commented out** at `src/app.ts:23-25`. Grep for `health` or
-`ping` across `src/` returns nothing.
+`src/routes/health.route.ts`, mounted at `/health` in `app.ts` — **outside `/api/v1` and above the
+rate limiter**, so an orchestrator polling it is never throttled into looking unhealthy.
 
-**Gap:** No load balancer, container orchestrator or uptime monitor can tell whether the process
-is alive, let alone whether it can reach the database.
+Two probes, and the split matters:
 
-**Fix:** Add `GET /health` returning 200, and a `GET /health/ready` that runs `SELECT 1` through
-Prisma. Register it in `src/app.ts` above `rootRouter` so it is not behind `/api/v1`.
+| probe | checks | why |
+| --- | --- | --- |
+| `GET /health` | nothing external — process is up, plus uptime | Liveness decides whether to **restart** the container. Wiring it to the database would turn a brief DB blip into a restart loop across every instance, and restarting the app does not fix the database. |
+| `GET /health/ready` | `SELECT 1` through Prisma | Readiness decides whether to **send requests**. An instance that cannot reach its database should leave the pool without being killed. Returns **503**, not 500 — "temporarily unable to serve" is what a load balancer needs to hear. |
 
----
+The failure body carries the error *message* only, never the error object: this endpoint is
+unauthenticated and a connection error carries the DSN.
 
-### BE-18 · No graceful shutdown, and the server lies about the database
-**P1 · S · ops**
+**Verified:** `/health` → `{"status":"ok","uptimeSeconds":7}`; `/health/ready` →
+`{"status":"ready","database":"up"}`; `/api/v1/health` → 404 (correctly not behind the prefix); no
+`RateLimit` header on either; and both are **absent from the request log** — six probe hits
+produced zero log lines while a real request was logged.
 
-**Now:** `src/server.ts:5-10` is `app.listen` and two `console.log`s. One of them prints
-`"Database connected"` — unconditionally, without ever connecting. There is no SIGTERM/SIGINT
-handler, no `prisma.$disconnect()`, no `unhandledRejection` or `uncaughtException` handler.
-
-**Gap:** A deploy or container stop kills in-flight requests mid-transaction. The misleading log
-line will cost someone an hour the first time the DB is actually down.
-
-**Fix:** `await prisma.$connect()` before `listen` (and log honestly), keep the server handle, and
-on SIGTERM/SIGINT stop accepting connections, drain, then `$disconnect()`. Add process-level
-handlers that log and exit non-zero.
+That last part needed a fix of its own: morgan's `skip` runs on the response's `finish` event, by
+which point a mounted router has rewritten `req.path` to be relative to its mount point. It now
+tests `req.originalUrl`, which is never rewritten.
 
 ---
 
-### BE-19 · No env validation at boot
-**P1 · S · ops**
+### ~~BE-18~~ · No graceful shutdown, and the server lies about the database
+**✅ FIXED — 2026-09-22 · ops**
 
-**Now:** `src/config/env-config.ts` reads 22 keys with no validation layer. A missing
-`ACCESS_TOKEN_SECRET` is papered over with `as string` at `src/middleware/authGuard.ts:18`.
+**Was:** `app.listen` and two `console.log`s, one of which printed `"Database connected"`
+**unconditionally, having never connected** — so a down database looked like a healthy boot.
 
-**Gap:** A misconfigured deploy boots successfully and fails at the first authenticated request,
-with an error that does not name the missing variable.
+**Now:** `src/server.ts` connects first and only logs once `prisma.$connect()` resolves; a failure
+exits 1 with the real reason instead of pretending.
 
-**Gap, concretely:** the live `.env` is currently missing `PLATFORM_COMMISSION_RATE`,
-`CHECKOUT_SESSION_TTL_MINUTES` and `SEED_PASSWORD`, so the server is silently running on the
-hardcoded fallbacks at `env-config.ts:44,48,30` — including the platform's commission rate.
+Shutdown runs in a deliberate order on SIGTERM/SIGINT:
 
-**Fix:** Parse `process.env` through a Zod schema in `env-config.ts` and throw at import time.
-Note `src/config/db.ts:7` reads `process.env.NODE_ENV` directly, bypassing `envConfig` and
-contradicting the convention in `CLAUDE.md` § Config.
+1. **Stop the scheduler** — so no sweep starts while the process is closing. (`stopScheduler()` has
+   existed since BE-11 with nothing calling it; this is that caller.)
+2. **Close the HTTP server and drain** in-flight requests. Killing them mid-request can abort a
+   transaction between the order write and the refund intent.
+3. **Then** `prisma.$disconnect()`.
+
+With a 10s force-exit timer (`unref`'d, kept under the 30s most orchestrators allow before
+SIGKILL) so a hung keep-alive socket cannot hold the process past the orchestrator's patience, and
+a re-entrancy guard so a second Ctrl-C does not start a second shutdown.
+
+`unhandledRejection` and `uncaughtException` log and shut down with exit 1 — the process is in an
+unknown state after either, and staying up risks serving requests from corrupted state.
+
+**Verified:** SIGTERM produced `draining… → http server closed → database disconnected`, and the
+port was closed afterwards.
+
+---
+
+### ~~BE-19~~ · No env validation at boot
+**✅ FIXED — 2026-09-22 · ops**
+
+`src/config/env-config.ts` now parses `process.env` through a Zod schema at import time and throws,
+listing **every** problem at once rather than one per restart.
+
+Three tiers, chosen deliberately rather than making everything required:
+
+- **Required** — `DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`. No safe default
+  exists and silent failure is worst; a missing token secret used to be papered over with
+  `as string` and surfaced as a confusing 500 on the first authenticated request.
+- **Optional with a default** — every number and tunable, now **parsed and range-checked**. This is
+  the part that catches real bugs: `TAX_RATE=abc` used to become `NaN` through an unguarded
+  `parseFloat` and make every order's tax `NaN`. `TAX_RATE=5` (500%) is likewise refused.
+- **Feature-gated** — Stripe, Cloudinary, SMTP. The code already degrades without them
+  (`isEmailConfigured`, the scheduler's Stripe check), so a developer can still boot;
+  `warnAboutDisabledFeatures()` prints exactly what is switched off at startup instead of leaving
+  it to be discovered when a checkout silently fails.
+
+Making `PLATFORM_COMMISSION_RATE` / `CHECKOUT_SESSION_TTL_MINUTES` / `SEED_PASSWORD` *required*
+would have been the wrong reading of this item — the live `.env` omits all three and they have
+sensible defaults. They are validated and defaulted instead.
+
+**The convention is now actually true:** `grep process.env src/` returns nothing outside
+`env-config.ts`. Two stragglers were fixed — `db.ts` (called out in this item) and
+`helpers/notifications.ts`, which was introduced by BE-12.
+
+**Verified:** a missing `ACCESS_TOKEN_SECRET`, `TAX_RATE=abc`, `TAX_RATE=5` and
+`PLATFORM_COMMISSION_RATE=-1` each fail the boot with a message naming the variable and the rule;
+two bad values are reported together; and with Stripe and SMTP blanked the process boots and logs
+`running with these features DISABLED`.
+
+Full regression after the rewrite: login, products, slides, users, orders, vendors, the Stripe
+webhook signature check, both probes and an unauthenticated 401 all behave as before.
 
 ---
 

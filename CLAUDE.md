@@ -474,7 +474,36 @@ but pointless).
 
 ### Config
 
-All environment access goes through **`src/config/env-config.ts`** (`envConfig` object). Add new env vars there rather than reading `process.env` directly. See `.env.example` for required keys (DB, JWT secrets, Cloudinary, Stripe, SSLCommerz, email).
+All environment access goes through **`src/config/env-config.ts`** (`envConfig` object) — and this
+is now enforced rather than merely encouraged: `grep process.env src/` returns nothing outside that
+file. Add new vars to its Zod schema, not to `process.env` reads.
+
+**The schema is validated at import time and the process refuses to boot on a bad value**, listing
+every problem at once. Three tiers:
+
+- **Required** — `DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`.
+- **Optional with a default** — every number, range-checked. `TAX_RATE=abc` is a boot error, not a
+  `NaN` that silently makes every order's tax `NaN`.
+- **Feature-gated** — Stripe, Cloudinary, SMTP. The server boots without them and
+  `warnAboutDisabledFeatures()` logs which features are off.
+
+See `.env.example`, whose header repeats this contract.
+
+### Boot and shutdown
+
+`src/server.ts` connects to the database **before** opening the port, and only then logs
+"Database connected" — that line used to print unconditionally, so a down database looked like a
+healthy boot.
+
+On SIGTERM/SIGINT it drains in order: **stop the scheduler → close the HTTP server and let
+in-flight requests finish → `prisma.$disconnect()`**. Killing requests mid-flight can abort a
+transaction between the order write and the refund intent. A 10s force-exit timer bounds it, and
+`unhandledRejection`/`uncaughtException` log and exit 1.
+
+Probes are at **`/health`** (liveness, touches nothing external) and **`/health/ready`** (readiness,
+`SELECT 1`, returns 503 when the database is unreachable). They sit outside `/api/v1` and above the
+rate limiter, and are skipped by the request log. **Do not point liveness at the database** — that
+turns a brief DB blip into a restart loop across every instance.
 
 ## Conventions
 
