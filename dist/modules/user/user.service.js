@@ -5,11 +5,31 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.userServices = void 0;
 const db_1 = require("../../config/db.js");
+const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 const cloudinary_1 = require("../../utils/cloudinary.js");
 const customError_1 = __importDefault(require("../../utils/customError.js"));
-const getAllFromDB = async () => {
-    const users = db_1.prisma.user.findMany();
-    return users;
+/**
+ * Admin-only list of every user. Paginated because it grows without bound —
+ * this is the one endpoint whose result set is the whole user base.
+ *
+ * Soft-deleted users are excluded; they were previously returned.
+ */
+const getAllFromDB = async (query) => {
+    const builder = new PrismaQueryBuilder_1.default(query, {
+        model: "User",
+    });
+    const prismaArgs = builder
+        .withDefaultFilter({ isDeleted: false })
+        .search(["name", "phone"])
+        .filter()
+        .paginate()
+        .sort()
+        .build();
+    const [users, meta] = await Promise.all([
+        db_1.prisma.user.findMany(prismaArgs),
+        builder.getMeta(db_1.prisma.user),
+    ]);
+    return { meta, users };
 };
 const myProfile = async (userId) => {
     const user = await db_1.prisma.user.findUnique({ where: { id: userId } });

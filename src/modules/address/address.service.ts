@@ -1,4 +1,6 @@
+import { Prisma } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import CustomError from "@/utils/customError";
 import { TAddressValues } from "./address.validation";
 
@@ -48,13 +50,32 @@ const createIntoDB = async (payload: TAddressValues, userId: string) => {
 	return address;
 };
 
-/** Admin-only list. Soft-deleted rows stay hidden. */
-const findAllFromDB = async () => {
-	const addresses = await prisma.address.findMany({
-		where: { isDeleted: false },
+/**
+ * Admin-only list of every address. Paginated because this is a PII table that
+ * grows with the customer base — returning all of it in one response was the
+ * sharpest edge of BE-15.
+ *
+ * Soft-deleted rows stay hidden.
+ */
+const findAllFromDB = async (query: Record<string, unknown>) => {
+	const builder = new PrismaQueryBuilder<Prisma.AddressWhereInput>(query, {
+		model: "Address",
 	});
 
-	return addresses;
+	const prismaArgs = builder
+		.withDefaultFilter({ isDeleted: false })
+		.search(["fullName", "phone", "city"])
+		.filter()
+		.paginate()
+		.sort()
+		.build();
+
+	const [addresses, meta] = await Promise.all([
+		prisma.address.findMany(prismaArgs),
+		builder.getMeta(prisma.address),
+	]);
+
+	return { meta, addresses };
 };
 
 const findMyAddress = async (userId: string) => {

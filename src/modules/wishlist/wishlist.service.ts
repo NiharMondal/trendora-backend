@@ -1,4 +1,6 @@
+import { Prisma } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
+import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import CustomError from "@/utils/customError";
 import { TCreateWishListType } from "./wishlist.validation";
 
@@ -71,12 +73,31 @@ const createIntoDB = async (payload: TCreateWishListType, userId: string) => {
 	return data;
 };
 
-const findByUserId = async (id: string) => {
-	const myWishLists = await prisma.wishlist.findMany({
-		where: {
-			userId: id,
-		},
-		include: {
+/**
+ * One user's wishlist.
+ *
+ * Unlike the admin lists, this is already scoped to a single person, so it was
+ * never going to return the whole table. It is paginated anyway to put a
+ * ceiling on it — nothing stops someone wishlisting thousands of products.
+ *
+ * **The default limit is deliberately 100, not the usual 10.** The storefront
+ * calls this with no pagination params, so a default of 10 would silently show
+ * a shopper only the first ten items of their own wishlist. 100 supports paging
+ * for a client that asks while not truncating anyone in practice; drop it to
+ * the standard default once the frontend pages properly.
+ */
+const findByUserId = async (id: string, query: Record<string, unknown> = {}) => {
+	const builder = new PrismaQueryBuilder<Prisma.WishlistWhereInput>(query, {
+		model: "Wishlist",
+		limit: 100,
+	});
+
+	const prismaArgs = builder
+		.withDefaultFilter({ userId: id })
+		.filter()
+		.paginate()
+		.sort()
+		.include({
 			product: {
 				select: {
 					name: true,
@@ -87,10 +108,15 @@ const findByUserId = async (id: string) => {
 					images: true,
 				},
 			},
-		},
-	});
+		})
+		.build();
 
-	return myWishLists;
+	const [myWishLists, meta] = await Promise.all([
+		prisma.wishlist.findMany(prismaArgs),
+		builder.getMeta(prisma.wishlist),
+	]);
+
+	return { meta, wishlists: myWishLists };
 };
 
 const findById = async (id: string, userId: string) => {
