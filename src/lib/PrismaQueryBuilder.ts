@@ -1,5 +1,7 @@
  
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { Prisma } from "@/lib/prisma-client";
+import CustomError from "@/utils/customError";
 
 interface PaginationMeta {
     currentPage: number;
@@ -19,8 +21,60 @@ interface PaginationConfig {
 interface SortConfig {
     defaultField?: string;
     defaultOrder?: "asc" | "desc";
+    /**
+     * Restrict sorting further than the model allows. Leave unset to permit
+     * every scalar column of `model`, which is the usual case.
+     */
     allowedFields?: string[];
 }
+
+/**
+ * Every builder must name its Prisma model.
+ *
+ * `sortBy` arrives from the query string and is written straight into Prisma's
+ * `orderBy`. Without knowing the model there is nothing to validate it against,
+ * so a typo'd column reached the database and came back as a 500. The model
+ * name is the one thing the builder cannot infer — the generic
+ * (`Prisma.ProductWhereInput`) is erased at runtime — so it is **required**,
+ * which makes it impossible to add a new list endpoint that silently skips the
+ * check.
+ */
+interface ModelConfig {
+    /** Prisma model name exactly as declared in schema.prisma, e.g. "Product". */
+    model: Prisma.ModelName;
+}
+
+/**
+ * Sortable columns per model, read from the generated schema and cached.
+ *
+ * Derived rather than hand-listed on purpose: a hand-maintained allowlist goes
+ * stale the first time someone adds a column, and the failure mode is a field
+ * that legitimately exists being rejected. Scalars and enums are sortable;
+ * relations and lists are not.
+ */
+const sortableFieldCache = new Map<string, Set<string>>();
+
+const sortableFieldsFor = (model: string): Set<string> => {
+    const cached = sortableFieldCache.get(model);
+    if (cached) return cached;
+
+    const definition = Prisma.dmmf.datamodel.models.find(
+        (candidate) => candidate.name === model,
+    );
+
+    const fields = new Set(
+        (definition?.fields ?? [])
+            .filter(
+                (field) =>
+                    (field.kind === "scalar" || field.kind === "enum") &&
+                    !field.isList,
+            )
+            .map((field) => field.name),
+    );
+
+    sortableFieldCache.set(model, fields);
+    return fields;
+};
 
 interface QueryBuilderResult {
     where: any;
@@ -57,22 +111,21 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
     private includeFields: Record<string, any> = {};
     private selectFields: Record<string, boolean> = {};
 
+    private readonly model: Prisma.ModelName;
+
     constructor(
         private readonly query: Record<string, any>,
-        config?: Partial<PaginationConfig & SortConfig>,
+        config: Partial<PaginationConfig & SortConfig> & ModelConfig,
     ) {
-        if (config) {
-            this.paginationConfig = { ...this.paginationConfig, ...config };
-            this.sortConfig = {
-                ...this.sortConfig,
-                defaultField:
-                    config.defaultField || this.sortConfig.defaultField,
-                defaultOrder:
-                    config.defaultOrder || this.sortConfig.defaultOrder,
-                allowedFields:
-                    config.allowedFields || this.sortConfig.allowedFields,
-            };
-        }
+        this.model = config.model;
+        this.paginationConfig = { ...this.paginationConfig, ...config };
+        this.sortConfig = {
+            ...this.sortConfig,
+            defaultField: config.defaultField || this.sortConfig.defaultField,
+            defaultOrder: config.defaultOrder || this.sortConfig.defaultOrder,
+            allowedFields:
+                config.allowedFields || this.sortConfig.allowedFields,
+        };
     }
 
     /**
@@ -288,16 +341,24 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
         if (sortBy) {
             const [sortField, sortOrder] = String(sortBy).split(":");
 
-            // Validate against allowed fields if configured
-            if (
-                this.sortConfig.allowedFields.length > 0 &&
-                !this.sortConfig.allowedFields.includes(sortField)
-            ) {
-                // console.warn(
-                //     `Sort field "${sortField}" not allowed. Using default: ${field}`
-                // );
-                this.orderByCondition = { [field]: order };
-                return this;
+            // An explicit `allowedFields` narrows further; otherwise every
+            // scalar column of the model is sortable.
+            const allowed =
+                this.sortConfig.allowedFields.length > 0
+                    ? new Set(this.sortConfig.allowedFields)
+                    : sortableFieldsFor(this.model);
+
+            if (!allowed.has(sortField)) {
+                // 400, not a silent fallback. Quietly ignoring the caller's
+                // sort returns a differently-ordered page with no hint why,
+                // which is harder to debug than an error; and before this
+                // check the unknown column reached Prisma and came back a 500.
+                throw new CustomError(
+                    400,
+                    `Cannot sort by "${sortField}". Sortable fields: ${[...allowed]
+                        .sort()
+                        .join(", ")}`,
+                );
             }
 
             this.orderByCondition = {
@@ -489,7 +550,7 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
     clone(): PrismaQueryBuilder<TWhereInput, TModel> {
         const cloned = new PrismaQueryBuilder<TWhereInput, TModel>(
             { ...this.query },
-            { ...this.paginationConfig, ...this.sortConfig },
+            { ...this.paginationConfig, ...this.sortConfig, model: this.model },
         );
 
         cloned.whereConditions = [...this.whereConditions];

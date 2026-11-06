@@ -165,7 +165,7 @@ const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
  * stores — see publicProductFilter for the three gates.
  */
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter(publicProductFilter())
@@ -208,7 +208,7 @@ const findMyProducts = async (
 	// vendorId is consumed by the scope; leaving it in would double-filter.
 	const { vendorId: _ignored, ...rest } = query;
 
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(rest);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(rest, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false, ...scope })
@@ -235,7 +235,7 @@ const findMyProducts = async (
 
 /** Every product in any state, for the admin moderation queue. */
 const findAllForAdmin = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
@@ -732,7 +732,7 @@ const findByVendorSlug = async (
 		throw new CustomError(404, "Store not found");
 	}
 
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter(publicProductFilter({ vendorId: vendor.id }))

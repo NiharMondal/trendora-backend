@@ -18,7 +18,7 @@ const createIntoDB = async (payload: Category) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query, { model: "Category" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })

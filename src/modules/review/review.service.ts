@@ -60,7 +60,7 @@ const createIntoDB = async (payload: Review) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ReviewWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.ReviewWhereInput>(query, { model: "Review" });
 
 	const prismaArgs = builder
 		.search(["comment"])

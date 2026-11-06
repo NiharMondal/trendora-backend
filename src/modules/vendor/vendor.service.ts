@@ -211,7 +211,7 @@ const updateMyStore = async (userId: string, payload: TUpdateMyStore) => {
 
 /** Approved, non-deleted stores for the storefront's vendor directory. */
 const findAllPublic = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.VendorWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.VendorWhereInput>(query, { model: "Vendor" });
 
     const prismaArgs = builder
         .withDefaultFilter({
@@ -258,7 +258,7 @@ const findBySlug = async (slug: string) => {
  * `?status=PENDING` narrows it via the standard filter handling.
  */
 const findAllForAdmin = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.VendorWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.VendorWhereInput>(query, { model: "Vendor" });
 
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })

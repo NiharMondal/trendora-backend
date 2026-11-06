@@ -256,7 +256,7 @@ const getMyPayouts = async (
 
     const { vendorId: _ignored, ...rest } = query;
 
-    const builder = new PrismaQueryBuilder<Prisma.PayoutWhereInput>(rest);
+    const builder = new PrismaQueryBuilder<Prisma.PayoutWhereInput>(rest, { model: "Payout" });
 
     const prismaArgs = builder
         .withDefaultFilter({ vendorId })
@@ -282,7 +282,7 @@ const getMyPayouts = async (
 
 /** Every payout across all vendors. ADMIN only. */
 const findAllForAdmin = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.PayoutWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.PayoutWhereInput>(query, { model: "Payout" });
 
     const prismaArgs = builder
         .filter()

@@ -113,7 +113,9 @@ Keep DB/business logic in services, not controllers.
 - **`src/lib/PrismaQueryBuilder.ts`** — fluent builder for list endpoints (search / filter / paginate / sort / include). Standard usage in a service:
 
   ```ts
-  const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query)
+  const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, {
+      model: "Product",          // REQUIRED — see below
+  })
       .withDefaultFilter({ isDeleted: false })
       .search(["name", "description"])
       .filter().paginate().sort()
@@ -126,6 +128,12 @@ Keep DB/business logic in services, not controllers.
   ```
 
   Reserved query params: `search`, `page`, `limit`, `sortBy`/`sort`, `orderBy`/`order`. Any other query key becomes a filter (comma-separated → `in`, `true`/`false` → boolean, numeric strings → number). Sort format is `?sortBy=field:asc`.
+
+  **`model` is required.** `sortBy` comes from the query string and is written straight into
+  Prisma's `orderBy`, so the builder needs to know the model to validate it — and it cannot infer
+  one, because the generic is erased at runtime. It reads the model's scalar and enum fields from
+  `Prisma.dmmf` (derived, so it never goes stale as columns are added) and **400s on anything
+  else**, naming the valid fields. Pass `allowedFields` only to narrow further than the schema.
 
 ### Auth & tokens
 

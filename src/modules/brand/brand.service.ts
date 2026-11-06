@@ -12,7 +12,7 @@ const createIntoDB = async (payload: Brand) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.BrandWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.BrandWhereInput>(query, { model: "Brand" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })

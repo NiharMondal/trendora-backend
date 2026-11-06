@@ -125,7 +125,7 @@ const createIntoDB = async (actor, payload) => {
  * stores — see publicProductFilter for the three gates.
  */
 const findAllFromDB = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter((0, vendor_1.publicProductFilter)())
         .search(["name", "description"])
@@ -156,7 +156,7 @@ const findMyProducts = async (actor, query) => {
     const scope = await (0, vendor_1.vendorListScope)(actor, query.vendorId ? String(query.vendorId) : undefined);
     // vendorId is consumed by the scope; leaving it in would double-filter.
     const { vendorId: _ignored, ...rest } = query;
-    const builder = new PrismaQueryBuilder_1.default(rest);
+    const builder = new PrismaQueryBuilder_1.default(rest, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false, ...scope })
         .search(["name", "description"])
@@ -179,7 +179,7 @@ const findMyProducts = async (actor, query) => {
 };
 /** Every product in any state, for the admin moderation queue. */
 const findAllForAdmin = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
         .search(["name", "description"])
@@ -581,7 +581,7 @@ const findByVendorSlug = async (slug, query) => {
     if (!vendor) {
         throw new customError_1.default(404, "Store not found");
     }
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter((0, vendor_1.publicProductFilter)({ vendorId: vendor.id }))
         .search(["name", "description"])

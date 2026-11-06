@@ -167,7 +167,7 @@ const updateMyStore = async (userId, payload) => {
 // ---------------------------------------------------------------- public reads
 /** Approved, non-deleted stores for the storefront's vendor directory. */
 const findAllPublic = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Vendor" });
     const prismaArgs = builder
         .withDefaultFilter({
         status: prisma_client_1.VendorStatus.APPROVED,
@@ -205,7 +205,7 @@ const findBySlug = async (slug) => {
  * `?status=PENDING` narrows it via the standard filter handling.
  */
 const findAllForAdmin = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Vendor" });
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
         .search(["storeName", "businessEmail", "description"])

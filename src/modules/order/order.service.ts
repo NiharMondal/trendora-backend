@@ -237,7 +237,7 @@ const summariseVendorGroup = (vendor: {
  * All orders, platform-wide. ADMIN only.
  */
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query, { model: "Order" });
 
 	const prismaArgs = builder
 		.filter()
@@ -283,7 +283,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
  * "shipped by Store A, still processing at Store B".
  */
 const getMyOrders = async (userId: string, query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query, { model: "Order" });
 
 	const prismaArgs = builder
 		.addWhere({ userId })
@@ -456,7 +456,7 @@ const getMyVendorOrders = async (
 
 	const { vendorId: _ignored, ...rest } = query;
 
-	const builder = new PrismaQueryBuilder<Prisma.VendorOrderWhereInput>(rest);
+	const builder = new PrismaQueryBuilder<Prisma.VendorOrderWhereInput>(rest, { model: "VendorOrder" });
 
 	const prismaArgs = builder
 		.withDefaultFilter(scope)
