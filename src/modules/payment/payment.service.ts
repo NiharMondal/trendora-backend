@@ -17,6 +17,7 @@ import {
 } from "@/helpers/refund";
 import { round2 } from "@/helpers/money";
 import { persistOrder } from "@/helpers/create-order";
+import { notifyOrderPlaced } from "@/helpers/notifications";
 import { OrderCalculation } from "@/types/common.types";
 
 // Initialize Stripe
@@ -188,6 +189,11 @@ async function handleCheckoutSessionCompleted(
         console.log(
             `Order ${order.orderNumber} created with ${order.vendorOrders.length} vendor order(s)`,
         );
+
+        // Outside the transaction above. Non-fatal: a webhook that already
+        // created the order must not be retried by Stripe because an email
+        // bounced.
+        await notifyOrderPlaced(order.id);
     } catch (error) {
         // A concurrent delivery won the race — that is success, not failure.
         if (error instanceof CustomError && error.statusCode === 409) {

@@ -18,6 +18,7 @@ import {
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
 import CustomError from "@/utils/customError";
+import { notifyVendorApplicationDecision } from "@/helpers/notifications";
 import {
     TRejectVendor,
     TSuspendVendor,
@@ -333,7 +334,7 @@ const approveVendor = async (vendorId: string) => {
         throw new CustomError(400, "This store is already approved");
     }
 
-    return prisma.$transaction(async (tx) => {
+    const approved = await prisma.$transaction(async (tx) => {
         if (vendor.owner.auth && vendor.owner.auth.role !== Role.ADMIN) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
@@ -352,6 +353,13 @@ const approveVendor = async (vendorId: string) => {
             },
         });
     });
+
+    // After the commit. The seller can now reach their dashboard immediately —
+    // `authGuard` reads the role from the database (BE-07), so the mail is not
+    // promising something their old token cannot do.
+    await notifyVendorApplicationDecision(vendorId, true);
+
+    return approved;
 };
 
 /** Reject an application and hand the role back to CUSTOMER. */
@@ -365,7 +373,7 @@ const rejectVendor = async (vendorId: string, payload: TRejectVendor) => {
         throw new CustomError(404, "Vendor not found");
     }
 
-    return prisma.$transaction(async (tx) => {
+    const rejected = await prisma.$transaction(async (tx) => {
         if (vendor.owner.auth && vendor.owner.auth.role === Role.VENDOR) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
@@ -388,6 +396,11 @@ const rejectVendor = async (vendorId: string, payload: TRejectVendor) => {
             },
         });
     });
+
+    // After the commit, so the mail can quote the stored rejection reason.
+    await notifyVendorApplicationDecision(vendorId, false);
+
+    return rejected;
 };
 
 /**

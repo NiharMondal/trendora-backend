@@ -15,6 +15,7 @@ const cod_1 = require("../../helpers/cod.js");
 const checkout_1 = require("../../helpers/checkout.js");
 const money_1 = require("../../helpers/money.js");
 const refund_1 = require("../../helpers/refund.js");
+const notifications_1 = require("../../helpers/notifications.js");
 const vendor_1 = require("../../helpers/vendor.js");
 /** Store identity shown next to each slice of an order. */
 const vendorCardSelect = {
@@ -593,7 +594,11 @@ const updateVendorOrderStatus = async (actor, vendorOrderId, payload, ipAddress)
     // would tell the caller the cancel did not happen, which is false.
     if (refundId) {
         await (0, refund_1.processRefund)(refundId);
+        // Only fires if the refund actually SUCCEEDED; the helper checks.
+        await (0, notifications_1.notifyRefundProcessed)(refundId);
     }
+    // The parcel moved. Non-fatal, and outside the transaction above.
+    await (0, notifications_1.notifyVendorOrderStatusChanged)(vendorOrderId);
     // Re-read so the caller sees the payment status the refund produced
     // (PARTIALLY_REFUNDED / REFUNDED) rather than the pre-refund value.
     if (refundId) {
