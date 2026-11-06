@@ -26,6 +26,18 @@ interface SortConfig {
      * every scalar column of `model`, which is the usual case.
      */
     allowedFields?: string[];
+    /**
+     * Expose a to-one relation's column under a flat name the caller can sort
+     * by, e.g. `{ email: "auth.email" }` lets `?sortBy=email:asc` become
+     * `orderBy: { auth: { email: "asc" } }`.
+     *
+     * Needed where a model's API shape is flatter than its schema: `User` is
+     * split across `User` and `Auth`, so `email` is a column the client can
+     * see but `sortableFieldsFor("User")` will never contain. Aliases are
+     * declared in code, never derived from the query string, so this widens
+     * what is sortable without widening what a caller can inject.
+     */
+    sortAliases?: Record<string, string>;
 }
 
 /**
@@ -105,9 +117,11 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
         defaultField: "createdAt",
         defaultOrder: "desc",
         allowedFields: [],
+        sortAliases: {},
     };
 
-    private orderByCondition: Record<string, "asc" | "desc"> = {};
+    // `any` because a relation alias nests: { auth: { email: "asc" } }.
+    private orderByCondition: Record<string, any> = {};
     private includeFields: Record<string, any> = {};
     private selectFields: Record<string, boolean> = {};
 
@@ -125,6 +139,7 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
             defaultOrder: config.defaultOrder || this.sortConfig.defaultOrder,
             allowedFields:
                 config.allowedFields || this.sortConfig.allowedFields,
+            sortAliases: config.sortAliases || this.sortConfig.sortAliases,
         };
     }
 
@@ -178,23 +193,52 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
     }
 
     /**
-     * Search across multiple fields with case-insensitive matching
-     * @example search(['name', 'email', 'description'])
+     * Search across multiple fields with case-insensitive matching.
+     *
+     * `relationPaths` reaches one level into a to-one relation using dotted
+     * notation — `"auth.email"` becomes
+     * `{ auth: { is: { email: { contains } } } }`. It is a second parameter
+     * rather than a dotted entry in `fields` so that `fields` keeps its
+     * `keyof TWhereInput` typing; a dotted string is not a key of the where
+     * input, and widening the array to `string[]` would drop the compile-time
+     * check on every existing caller.
+     *
+     * The `is:` wrapper is the form that works for an OPTIONAL to-one relation
+     * (`User.auth` is `Auth?`); the bare shorthand only happens to work today.
+     *
+     * @example search(['name', 'phone'], ['auth.email'])
      */
-    search(fields: (keyof TWhereInput)[]): this {
+    search(
+        fields: (keyof TWhereInput)[],
+        relationPaths: string[] = [],
+    ): this {
         const searchValue = this.getQueryParam("search");
 
-        if (!searchValue || fields.length === 0) {
+        if (!searchValue || (fields.length === 0 && relationPaths.length === 0)) {
             return this;
         }
 
+        const match = {
+            contains: String(searchValue),
+            mode: "insensitive",
+        };
+
+        const conditions: any[] = fields.map((field) => ({ [field]: match }));
+
+        for (const path of relationPaths) {
+            const [relation, column] = path.split(".");
+
+            if (!relation || !column) {
+                throw new Error(
+                    `search(): relation path "${path}" must be "relation.column"`,
+                );
+            }
+
+            conditions.push({ [relation]: { is: { [column]: match } } });
+        }
+
         this.whereConditions.push({
-            OR: fields.map((field) => ({
-                [field]: {
-                    contains: String(searchValue),
-                    mode: "insensitive",
-                },
-            })) as any,
+            OR: conditions,
         } as unknown as TWhereInput);
 
         return this;
@@ -342,11 +386,15 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
             const [sortField, sortOrder] = String(sortBy).split(":");
 
             // An explicit `allowedFields` narrows further; otherwise every
-            // scalar column of the model is sortable.
-            const allowed =
-                this.sortConfig.allowedFields.length > 0
-                    ? new Set(this.sortConfig.allowedFields)
-                    : sortableFieldsFor(this.model);
+            // scalar column of the model is sortable. Declared relation
+            // aliases are sortable on top of either.
+            const aliases = this.sortConfig.sortAliases;
+            const allowed = new Set([
+                ...(this.sortConfig.allowedFields.length > 0
+                    ? this.sortConfig.allowedFields
+                    : sortableFieldsFor(this.model)),
+                ...Object.keys(aliases),
+            ]);
 
             if (!allowed.has(sortField)) {
                 // 400, not a silent fallback. Quietly ignoring the caller's
@@ -361,9 +409,17 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
                 );
             }
 
-            this.orderByCondition = {
-                [sortField]: sortOrder === "desc" ? "desc" : "asc",
-            };
+            const direction = sortOrder === "desc" ? "desc" : "asc";
+            const alias = aliases[sortField];
+
+            if (alias) {
+                const [relation, column] = alias.split(".");
+                this.orderByCondition = {
+                    [relation]: { [column]: direction },
+                } as any;
+            } else {
+                this.orderByCondition = { [sortField]: direction };
+            }
         } else {
             this.orderByCondition = { [field]: order };
         }

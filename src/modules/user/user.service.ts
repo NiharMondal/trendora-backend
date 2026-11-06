@@ -6,6 +6,30 @@ import CustomError from "@/utils/customError";
 import { TUserUpdateSchema } from "./user.validation";
 
 /**
+ * Credentials live on `Auth`, not `User` — one row each, split so a password
+ * hash is never in the same table as the profile. The API does not repeat that
+ * split: `email` and `role` are flattened onto the user, because they are
+ * attributes of the person, not of a credentials record, and the admin table
+ * consumes them as `row.email` / `row.role`.
+ *
+ * Flattening here rather than nesting under `auth` also means the response
+ * cannot grow a `password` field by accident — only the two columns named
+ * below ever leave this function.
+ */
+type TUserWithAuth = Prisma.UserGetPayload<{
+	include: { auth: { select: { email: true; role: true } } };
+}>;
+
+const flattenAuth = ({ auth, ...user }: TUserWithAuth) => ({
+	...user,
+	// Nullable because `User.auth` is optional in the schema. A user with no
+	// Auth row cannot sign in at all, so this is a data problem rather than a
+	// normal state — but it must not blank the whole row.
+	email: auth?.email ?? null,
+	role: auth?.role ?? null,
+});
+
+/**
  * Admin-only list of every user. Paginated because it grows without bound —
  * this is the one endpoint whose result set is the whole user base.
  *
@@ -14,22 +38,29 @@ import { TUserUpdateSchema } from "./user.validation";
 const getAllFromDB = async (query: Record<string, unknown>) => {
 	const builder = new PrismaQueryBuilder<Prisma.UserWhereInput>(query, {
 		model: "User",
+		// `email` and `role` are columns of `Auth`, so the DMMF-derived
+		// allowlist would reject them even though the client can see both.
+		sortAliases: { email: "auth.email", role: "auth.role" },
 	});
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
-		.search(["name", "phone"])
+		// Email is the identifier an admin actually has to hand when someone
+		// writes in about their account — searching only name and phone made
+		// the box near-useless for support.
+		.search(["name", "phone"], ["auth.email"])
 		.filter()
 		.paginate()
 		.sort()
+		.include({ auth: { select: { email: true, role: true } } })
 		.build();
 
 	const [users, meta] = await Promise.all([
-		prisma.user.findMany(prismaArgs),
+		prisma.user.findMany(prismaArgs) as Promise<TUserWithAuth[]>,
 		builder.getMeta(prisma.user),
 	]);
 
-	return { meta, users };
+	return { meta, users: users.map(flattenAuth) };
 };
 
 const myProfile = async(userId: string)=> {

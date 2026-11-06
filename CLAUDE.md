@@ -135,10 +135,30 @@ Keep DB/business logic in services, not controllers.
   `Prisma.dmmf` (derived, so it never goes stale as columns are added) and **400s on anything
   else**, naming the valid fields. Pass `allowedFields` only to narrow further than the schema.
 
+  **Reaching one level into a to-one relation** — for a model whose API shape is flatter than its
+  schema, like `User`/`Auth`:
+
+  ```ts
+  new PrismaQueryBuilder<Prisma.UserWhereInput>(query, {
+      model: "User",
+      sortAliases: { email: "auth.email", role: "auth.role" },  // ?sortBy=email:asc
+  }).search(["name", "phone"], ["auth.email"])                  // ?search= also matches email
+  ```
+
+  Both take `"relation.column"` and expand to `{ auth: { is: { email: … } } }` /
+  `orderBy: { auth: { email: "asc" } }`. `relationPaths` is a **second parameter** to `search()`
+  so the first keeps its `keyof TWhereInput` typing. `sortAliases` are declared in code, never
+  read from the query string — they widen what is *sortable*, not what a caller can *inject*.
+
 ### Auth & tokens
 
 - `src/helpers/jwt.ts` — access token expires in **20m**, refresh token in **30d**.
 - User identity is split across two models: **`User`** (profile) and **`Auth`** (email/password/role, one-to-one). OAuth accounts link via `OAuthAccount`. Social users have `Auth.password = null`.
+- **That split is storage, not API shape.** `GET /users` returns `email` and `role` **flattened
+  onto the user**, not nested under `auth` — they are attributes of the person, and no client
+  needs to know they live one table over. `flattenAuth` in `user.service.ts` destructures `auth`
+  away and re-adds exactly two named fields, which is also what keeps `password` from ever
+  appearing if someone later relaxes a `select`. Both are `null` for a user with no `Auth` row.
 - JWT payload shape is `{ id: userId, role, email }`.
 
 ### Password reset is a two-step, email-only flow
