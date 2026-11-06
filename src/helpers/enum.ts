@@ -64,3 +64,12 @@ export const CheckoutSessionStatusEnum = z.enum([
 ]);
 
 export const GenderEnum = z.enum(["MEN", "WOMEN", "KIDS", "UNISEX"]);
+
+/**
+ * The tenth mirror, and the only one that is not also the accepted input of
+ * some endpoint: `EMAIL` is the stored default for password accounts, so it is
+ * a valid *stored* provider but never a valid *OAuth* one. What
+ * `/auth/oauth-login` accepts is a deliberate subset — see `OAUTH_PROVIDERS`
+ * in `modules/auth/auth.validation.ts`.
+ */
+export const AuthProviderEnum = z.enum(["EMAIL", "GOOGLE", "FACEBOOK"]);

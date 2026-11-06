@@ -34,8 +34,8 @@ exports.productSchema = zod_1.z.object({
     discountPrice: utils_1.decimalSchema.optional(),
     stockQuantity: zod_1.z.number().min(0),
     gender: enum_1.GenderEnum,
-    // Required, unlike the shared `uuidSchema` which is nullish — both are
-    // NOT NULL columns and a product with neither cannot be listed.
+    // Both are NOT NULL columns and a product with neither cannot be listed,
+    // so neither is optional here.
     categoryId: zod_1.z.uuid({ version: "v4", error: "Category is required" }),
     brandId: zod_1.z.uuid({ version: "v4", error: "Brand is required" }),
     vendorId: zod_1.z.uuid({ version: "v4" }).optional(),
