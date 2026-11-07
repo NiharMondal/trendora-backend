@@ -66,7 +66,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-32 | No stock reservation; no low-stock alerting | P2 | M | inventory |
 | BE-33 | No search facets or full-text index | P2 | L | catalogue |
 | ~~BE-34~~ | ~~Admin user management is one read-only list~~ | ✅ **FIXED** 2026-09-22 | — | users |
-| BE-35 | No vendor moderation audit log | P2 | M | marketplace |
+| ~~BE-35~~ | ~~No vendor moderation audit log~~ | ✅ **FIXED** 2026-09-22 | — | marketplace |
 | BE-36 | No support tickets, disputes or buyer↔vendor messaging | P2 | L | marketplace |
 | BE-37 | Reporting is two hand-rolled dashboard endpoints | P2 | L | analytics |
 | BE-38 | Flat platform tax rate only | P2 | L | tax |
@@ -1391,7 +1391,7 @@ it already declares is now providable.
 | BE-32 | **Stock reservation and low-stock alerts.** Stock is deducted at COD creation or at the Stripe webhook, so the last unit can be sold twice between checkout and charge — the webhook then fails the stock guard and that charge needs refunding by hand | conditional `updateMany` guard |
 | BE-33 | **Search facets / full-text.** `.search()` is a naive `contains` over `name` and `description` (`product.service.ts:172`). No price/rating/colour/size/in-stock facet counts, no full-text index | `?search=` substring |
 | ~~BE-34~~ | ~~**Admin user management.**~~ ✅ **FIXED 2026-09-22** — see its own section below | `GET /users` |
-| BE-35 | **Vendor moderation audit log.** `Vendor` keeps `rejectionReason`, `approvedAt`, `suspendedAt` (`schema.prisma:107-110`) but not *which* admin acted, nor the history. Copy the `OrderStatusHistory` pattern | three columns |
+| ~~BE-35~~ | ~~**Vendor moderation audit log.**~~ ✅ **FIXED 2026-09-22** — see its own section below | three columns |
 | BE-36 | **Support tickets, disputes, buyer↔vendor messaging.** None. Refund `reason` is free text (`schema.prisma:557`) | — |
 | BE-37 | **Reporting.** Two hand-rolled endpoints: `GET /orders/analytics` and `GET /vendors/me/dashboard`. No date ranges, no export, no sales-by-period, no cohorts | two dashboards |
 | BE-38 | **Tax rules.** One flat platform rate. No jurisdiction, no per-category rate, no exemption, no VAT/GST id on orders | `TAX_RATE` |
@@ -1400,6 +1400,87 @@ it already declares is now providable.
 Also absent: server-side cart (cart lives in frontend localStorage; only `CheckoutSession` exists
 server-side), product Q&A, comparison, recently-viewed, bundles, gift cards, loyalty,
 multi-currency, i18n.
+
+---
+
+### ~~BE-35~~ · Vendor moderation audit log
+**✅ FIXED — 2026-09-22 · marketplace — includes a schema migration**
+
+**Was:** `Vendor` kept `rejectionReason`, `approvedAt` and `suspendedAt`, but each is a single
+*current* value. It could not say **which admin acted**, and it forgot every earlier decision the
+moment the next one overwrote it — a store suspended, reinstated and suspended again looked
+identical to one suspended once.
+
+**Now:** a `VendorStatusHistory` table, built to the entry's own suggestion — the
+`OrderStatusHistory` pattern, field for field (`oldStatus`, `newStatus`, `note`, `ipAddress`,
+`userId`, `createdAt`).
+
+**This is the first schema change in this audit.** Migration
+`20260922141405_add_vendor_status_history` is purely additive: one `CREATE TABLE`, two indexes,
+two foreign keys, nothing existing touched. `userId` is `ON DELETE SET NULL`, so removing a staff
+account never erases the record of what they did; `vendorId` cascades with the store.
+
+#### Every door that changes a store's state now logs
+
+| event | recorded as |
+| --- | --- |
+| seller applies | `— → PENDING`, actor is the **applicant**, not an admin |
+| rejected seller re-applies | `REJECTED → PENDING` |
+| admin approves | `PENDING → APPROVED` |
+| admin rejects | `PENDING → REJECTED`, note is the reason the seller was given |
+| admin suspends | `APPROVED → SUSPENDED`, note is the reason |
+| admin reinstates | `SUSPENDED → APPROVED` |
+| admin deletes the store | `→ SUSPENDED`, "Store deleted by an admin" |
+| **admin disables the owner's account** | `APPROVED → SUSPENDED`, "Owner account disabled" |
+
+That last row is the one worth calling out: `disableUser` (BE-34) suspends a seller's store as a
+side effect, so it is a **second door into the same state change**. Without logging there, a store
+would show as suspended with nothing saying who did it or why.
+
+**Commercial-terms changes are logged too**, which goes slightly beyond "moderation" and is a
+deliberate call: an admin editing someone else's commission is exactly the *"who did this to my
+store, and when?"* question the trail exists to answer. Those rows carry `oldStatus === newStatus`
+and spell the change out — `Terms updated — commission 0.1 → 0.11`. A settings write that changes
+nothing writes **no row**.
+
+Every write shares a transaction with the change it describes (`logVendorStatusChange` takes a
+`TransactionClient`, not the shared client) — a trail that can commit without its event, or the
+reverse, is worse than none. `suspendVendor` and `reinstateVendor` were bare `update` calls and are
+now transactions for this reason.
+
+#### Who sees what
+
+Same narrowing as `sanitizeStatusHistory` for orders, via `sanitizeVendorHistory`:
+
+- **Admin** (`GET /vendors/admin/:id`) — the full trail, newest first, with the acting admin and
+  their IP.
+- **The seller** (`GET /vendors/me`) — their own trail, oldest first, **with the reasons**, which
+  is the point: being told the store was suspended and why. The moderator's personal name and IP
+  are stripped; that is abuse-investigation data and abuse investigation is admin work.
+
+**Verified against a running server — 48 assertions across two runs, all passing.** A throwaway
+account was registered, applied, rejected, re-applied, approved, and then had its owner disabled,
+producing exactly this trail:
+
+```
+        — -> PENDING   | Application submitted
+  PENDING -> REJECTED  | Probe rejection: incomplete details
+ REJECTED -> PENDING   | Application resubmitted
+  PENDING -> APPROVED  | Store approved
+ APPROVED -> SUSPENDED | Owner account disabled
+```
+
+Separately, on a real seeded store: suspend → reinstate → terms change added three rows and a
+no-op settings write added none; the seller's view carried the same rows and reasons with no
+`actor` and no `ipAddress`; a seller reading the admin view got 403. The probe account and store
+were deleted afterwards, the seeded store's commission restored to 0.1, and the rows my own test
+actions left were removed — 8 users, 0 disabled, all three stores APPROVED, 0 history rows.
+
+**Note on existing data:** the three seeded stores predate the table, so their trails start empty.
+Nothing backfills them — there is no record of when they were approved beyond `approvedAt`.
+
+**Still open:** no frontend surfaces the trail yet, on either the admin store detail or the seller's
+own dashboard.
 
 ---
 

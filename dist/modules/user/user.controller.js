@@ -38,7 +38,7 @@ const findById = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     });
 });
 const disableUser = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const data = await user_service_1.userServices.disableUser(req.user.id, req.params.id);
+    const data = await user_service_1.userServices.disableUser({ id: req.user.id, ipAddress: req.ip }, req.params.id);
     (0, sendResponse_1.sendResponse)(res, {
         statusCode: 200,
         message: "Account disabled successfully",

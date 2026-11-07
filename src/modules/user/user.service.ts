@@ -3,6 +3,10 @@ import { prisma } from "@/config/db";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
 import CustomError from "@/utils/customError";
+import {
+	logVendorStatusChange,
+	TModerationActor,
+} from "@/helpers/vendor";
 import { TUpdateUserRole, TUserUpdateSchema } from "./user.validation";
 
 /**
@@ -185,8 +189,8 @@ const findById = async (userId: string) => {
  * to fulfil anything — `publicProductFilter` gates on `Vendor.status`, so
  * suspending is what actually takes the listings down.
  */
-const disableUser = async (actorId: string, userId: string) => {
-	assertNotSelf(actorId, userId, "disable");
+const disableUser = async (actor: TModerationActor, userId: string) => {
+	assertNotSelf(actor.id as string, userId, "disable");
 
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
@@ -203,6 +207,17 @@ const disableUser = async (actorId: string, userId: string) => {
 
 	return prisma.$transaction(async (tx) => {
 		if (user.vendor && user.vendor.status === VendorStatus.APPROVED) {
+			// This is a second door into store suspension, so it has to leave
+			// the same trail the vendor moderation endpoints do — otherwise a
+			// store shows as suspended with nothing saying who did it or why.
+			await logVendorStatusChange(tx, {
+				vendorId: user.vendor.id,
+				oldStatus: user.vendor.status,
+				newStatus: VendorStatus.SUSPENDED,
+				actor,
+				note: "Owner account disabled",
+			});
+
 			await tx.vendor.update({
 				where: { id: user.vendor.id },
 				data: {

@@ -9,6 +9,7 @@ const db_1 = require("../../config/db.js");
 const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 const cloudinary_1 = require("../../utils/cloudinary.js");
 const customError_1 = __importDefault(require("../../utils/customError.js"));
+const vendor_1 = require("../../helpers/vendor.js");
 const flattenAuth = ({ auth, ...user }) => ({
     ...user,
     // Nullable because `User.auth` is optional in the schema. A user with no
@@ -153,8 +154,8 @@ const findById = async (userId) => {
  * to fulfil anything — `publicProductFilter` gates on `Vendor.status`, so
  * suspending is what actually takes the listings down.
  */
-const disableUser = async (actorId, userId) => {
-    assertNotSelf(actorId, userId, "disable");
+const disableUser = async (actor, userId) => {
+    assertNotSelf(actor.id, userId, "disable");
     const user = await db_1.prisma.user.findUnique({
         where: { id: userId },
         include: { auth: true, vendor: true },
@@ -167,6 +168,16 @@ const disableUser = async (actorId, userId) => {
     }
     return db_1.prisma.$transaction(async (tx) => {
         if (user.vendor && user.vendor.status === prisma_client_1.VendorStatus.APPROVED) {
+            // This is a second door into store suspension, so it has to leave
+            // the same trail the vendor moderation endpoints do — otherwise a
+            // store shows as suspended with nothing saying who did it or why.
+            await (0, vendor_1.logVendorStatusChange)(tx, {
+                vendorId: user.vendor.id,
+                oldStatus: user.vendor.status,
+                newStatus: prisma_client_1.VendorStatus.SUSPENDED,
+                actor,
+                note: "Owner account disabled",
+            });
             await tx.vendor.update({
                 where: { id: user.vendor.id },
                 data: {

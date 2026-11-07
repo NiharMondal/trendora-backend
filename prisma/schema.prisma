@@ -29,6 +29,9 @@ model User {
   reviews              Review[]
   wishlist             Wishlist[]
   orderStatusHistories OrderStatusHistory[]
+  /// Moderation actions this user took on a store (admins), plus their own
+  /// application events if they are a seller.
+  vendorStatusHistory  VendorStatusHistory[]
   // A user becomes a seller by owning exactly one Vendor (one store per account).
   vendor               Vendor?
   vendorReviews        VendorReview[]
@@ -158,12 +161,13 @@ model Vendor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  products     Product[]
-  vendorOrders VendorOrder[]
-  orderItems   OrderItem[]
-  payouts      Payout[]
-  reviews      VendorReview[]
+  owner         User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products      Product[]
+  vendorOrders  VendorOrder[]
+  orderItems    OrderItem[]
+  payouts       Payout[]
+  reviews       VendorReview[]
+  statusHistory VendorStatusHistory[]
 
   @@index([slug])
   @@index([status])
@@ -608,6 +612,38 @@ model Refund {
 
 /// Audit trail for status changes. `vendorOrderId` is set for fulfilment
 /// events (the normal case) and null for order-level events.
+/// Moderation trail for a store: who changed its status, from what to what, why
+/// and from where. Mirrors OrderStatusHistory.
+///
+/// `Vendor` already kept `rejectionReason`, `approvedAt` and `suspendedAt`, but
+/// each is a single current value — it could not say which admin acted, nor that
+/// a store had been suspended twice before.
+model VendorStatusHistory {
+  id       String @id @default(uuid())
+  vendorId String
+
+  /// NULL for the application itself, which has no previous status.
+  oldStatus VendorStatus?
+  newStatus VendorStatus
+
+  /// Human-readable reason: a rejection or suspension reason, or what an admin
+  /// changed. Commercial-terms edits are logged with oldStatus == newStatus and
+  /// the change described here.
+  note      String?
+  ipAddress String?
+
+  /// The admin who acted, or the seller for their own application. SetNull so
+  /// removing a staff account never erases the trail of what they did.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  vendor Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([vendorId])
+  @@index([createdAt])
+}
+
 model OrderStatusHistory {
   id            String       @id @default(uuid())
   orderId       String
