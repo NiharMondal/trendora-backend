@@ -158,7 +158,7 @@ const findMyProducts = async (actor, query) => {
         .include({
         images: { select: { id: true, url: true, isMain: true } },
         variants: product_1.liveVariants,
-        category: { select: { id: true, name: true, slug: true } },
+        category: { select: { id: true, name: true, slug: true, taxRate: true } },
         brand: { select: { id: true, name: true } },
         _count: { select: { orderItems: true } },
     })
@@ -181,7 +181,7 @@ const findAllForAdmin = async (query) => {
         .include({
         images: { select: { id: true, url: true, isMain: true } },
         vendor: { select: vendorCardSelect },
-        category: { select: { id: true, name: true } },
+        category: { select: { id: true, name: true, taxRate: true } },
         brand: { select: { id: true, name: true } },
     })
         .build();
@@ -587,7 +587,7 @@ const findByVendorSlug = async (slug, query) => {
         .include({
         images: { select: { id: true, url: true, isMain: true } },
         variants: product_1.liveVariants,
-        category: { select: { id: true, name: true, slug: true } },
+        category: { select: { id: true, name: true, slug: true, taxRate: true } },
         brand: { select: { id: true, name: true } },
     })
         .build();

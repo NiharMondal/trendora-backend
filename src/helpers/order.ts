@@ -118,6 +118,8 @@ export async function validateAndCalculateOrder(
                     },
                 },
             },
+            // Tax is per category, so it has to be read with the product.
+            category: { select: { id: true, taxRate: true } },
         },
     });
 
@@ -186,6 +188,19 @@ export async function validateAndCalculateOrder(
             );
         }
 
+        /**
+         * The category's own rate, falling back to the platform rate when it
+         * has none. `null` means "use the platform rate"; `0` is a real value
+         * meaning zero-rated, so the check is against null, not falsiness.
+         */
+        const taxRate =
+            product.category?.taxRate === null ||
+            product.category?.taxRate === undefined
+                ? TAX_RATE
+                : toNumber(product.category.taxRate);
+
+        const lineSubtotal = round2(actualPrice * item.quantity);
+
         validatedItems.push({
             productId: product.id,
             productName: product.name,
@@ -200,7 +215,9 @@ export async function validateAndCalculateOrder(
             discount: round2(
                 Math.max(originalPrice - actualPrice, 0) * item.quantity,
             ),
-            subtotal: round2(actualPrice * item.quantity),
+            subtotal: lineSubtotal,
+            taxRate,
+            tax: round2(lineSubtotal * taxRate),
         });
     }
 
@@ -240,7 +257,21 @@ export async function validateAndCalculateOrder(
                     ? 0
                     : round2(toNumber(settings.shippingFee));
 
-            const tax = round2(subtotal * TAX_RATE);
+            /**
+             * Summed from the lines, not `subtotal * rate` — two products in
+             * one parcel can be taxed differently.
+             *
+             * The exact per-line products are summed and rounded once, so a
+             * parcel whose categories all use the platform rate still produces
+             * exactly the old `round2(subtotal * TAX_RATE)`. Changing a rate is
+             * the only thing that changes a total.
+             */
+            const tax = round2(
+                vendorItems.reduce(
+                    (total, i) => total + i.subtotal * i.taxRate,
+                    0,
+                ),
+            );
             const totalAmount = round2(subtotal + tax + shippingCost);
 
             const commissionRate = toNumber(settings.commissionRate);

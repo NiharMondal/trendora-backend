@@ -42,6 +42,16 @@ export interface ValidatedOrderItem {
     discount: number;
     /** priceAtPurchase * quantity. */
     subtotal: number;
+    /**
+     * The tax rate applied to this line, already resolved: the owning
+     * category's `taxRate`, or the platform `TAX_RATE` when it has none.
+     *
+     * Resolved per item rather than per order because two lines in the same
+     * vendor's parcel can sit in categories taxed differently.
+     */
+    taxRate: number;
+    /** round2(subtotal * taxRate) — this line's share of the parcel's tax. */
+    tax: number;
 }
 
 /**

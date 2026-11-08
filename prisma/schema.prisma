@@ -227,7 +227,11 @@ model Size {
   id          String           @id @default(uuid())
   name        String
   sizeGroupId String
-  sizeGroup   SizeGroup?       @relation(fields: [sizeGroupId], references: [id], onDelete: SetNull)
+  /// Restrict, not SetNull: `sizeGroupId` is NOT NULL, so SET NULL could never
+  /// execute — Postgres would raise a not-null violation instead of doing what
+  /// the schema appears to promise. A group with sizes in it must not be hard
+  /// deleted; the service soft-deletes (`isDeleted`) and this enforces it.
+  sizeGroup   SizeGroup        @relation(fields: [sizeGroupId], references: [id], onDelete: Restrict)
   isDeleted   Boolean          @default(false)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
@@ -242,6 +246,17 @@ model Category {
   slug        String   @unique
   parentId    String?
   sizeGroupId String?
+  /// Sales tax for goods in this category, as a fraction (0.1800 = 18%).
+  ///
+  /// NULL means "use the platform rate" (`TAX_RATE`), which is what every
+  /// category does until an admin sets one — so the default behaviour is
+  /// exactly what it was before this column existed. 0 is a real value and
+  /// means zero-rated, which is NOT the same as NULL.
+  ///
+  /// Not inherited from `parent`: a child category with NULL falls back to the
+  /// platform rate, not to its parent's. Inheritance would make the effective
+  /// rate depend on where a category sits in a tree an admin can re-parent.
+  taxRate     Decimal? @db.Decimal(5, 4)
   isDeleted   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -438,7 +453,10 @@ model Order {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  shippingAddress Address              @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull)
+  /// Restrict, not SetNull: `shippingAddressId` is NOT NULL, so SET NULL could
+  /// never execute. An address an order points at must survive — which is why
+  /// `Address` is soft-deleted and every order also carries `shippingSnapshot`.
+  shippingAddress Address              @relation(fields: [shippingAddressId], references: [id], onDelete: Restrict)
   user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   vendorOrders    VendorOrder[]
   items           OrderItem[]
@@ -521,6 +539,13 @@ model OrderItem {
   originalPrice   Decimal @default(0) @db.Decimal(10, 2) // Price before any discount
   discount        Decimal @default(0) @db.Decimal(10, 2) // (originalPrice - priceAtPurchase) * quantity
   subtotal        Decimal @default(0) @db.Decimal(10, 2) // priceAtPurchase * quantity
+  /// The tax rate applied to this line, SNAPSHOT at purchase — the same reason
+  /// `VendorOrder.commissionRate` is one. An admin re-rating a category must
+  /// never rewrite what a past invoice charged.
+  taxRate         Decimal @default(0) @db.Decimal(5, 4)
+  /// round2(subtotal * taxRate). `VendorOrder.tax` is the sum of these; without
+  /// them a mixed-rate parcel cannot produce a correct invoice breakdown.
+  tax             Decimal @default(0) @db.Decimal(10, 2)
 
   order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendorOrder VendorOrder     @relation(fields: [vendorOrderId], references: [id], onDelete: Cascade)

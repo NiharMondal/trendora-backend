@@ -69,8 +69,8 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | ~~BE-35~~ | ~~No vendor moderation audit log~~ | ✅ **FIXED** 2026-09-22 | — | marketplace |
 | BE-36 | No support tickets, disputes or buyer↔vendor messaging | P2 | L | marketplace |
 | BE-37 | Reporting is two hand-rolled dashboard endpoints | P2 | L | analytics |
-| BE-38 | Flat platform tax rate only | P2 | L | tax |
-| BE-39 | Two `onDelete: SetNull` warnings on required columns | P2 | M | schema |
+| ~~BE-38~~ | ~~Flat platform tax rate only~~ — **per-category rates done**; jurisdiction / VAT ids deferred | ✅ **PARTIAL** 2026-09-22 | — | tax |
+| ~~BE-39~~ | ~~Two `onDelete: SetNull` warnings on required columns~~ — **premise was wrong**; no column had to become optional | ✅ **FIXED** 2026-09-22 | — | schema |
 
 ---
 
@@ -1394,12 +1394,137 @@ it already declares is now providable.
 | ~~BE-35~~ | ~~**Vendor moderation audit log.**~~ ✅ **FIXED 2026-09-22** — see its own section below | three columns |
 | BE-36 | **Support tickets, disputes, buyer↔vendor messaging.** None. Refund `reason` is free text (`schema.prisma:557`) | — |
 | BE-37 | **Reporting.** Two hand-rolled endpoints: `GET /orders/analytics` and `GET /vendors/me/dashboard`. No date ranges, no export, no sales-by-period, no cohorts | two dashboards |
-| BE-38 | **Tax rules.** One flat platform rate. No jurisdiction, no per-category rate, no exemption, no VAT/GST id on orders | `TAX_RATE` |
-| BE-39 | **Schema warnings.** Two `onDelete: SetNull` on required columns (`Size.sizeGroupId`, `Order.shippingAddressId`) surface on every `prisma validate`. Fixing means making them optional, which is a frontend contract change | — |
+| BE-38 | ~~**Tax rules.** No per-category rate~~ — **done 2026-09-22**, see below. Jurisdiction rates, exemptions and VAT/GST ids on orders remain unbuilt, by choice | `Category.taxRate` |
+| ~~BE-39~~ | ~~**Schema warnings.**~~ ✅ **FIXED 2026-09-22** — see its own section below | — |
 
 Also absent: server-side cart (cart lives in frontend localStorage; only `CheckoutSession` exists
 server-side), product Q&A, comparison, recently-viewed, bundles, gift cards, loyalty,
 multi-currency, i18n.
+
+---
+
+### BE-38 · Flat platform tax rate only
+**✅ PARTIAL — 2026-09-22 · tax — includes two migrations**
+
+BE-38 bundled four separate features: per-category rates, jurisdiction rates, exemptions, and
+VAT/GST ids on orders. **Per-category rates were chosen and built; the other three were not
+started.** The remaining scope is restated at the end of this entry rather than being quietly
+dropped.
+
+#### What exists now
+
+`Category.taxRate Decimal?(5,4)` — a fraction, so `0.1800` is 18%.
+
+**`NULL` and `0` mean different things.** NULL is "use the platform rate" (`TAX_RATE`), which is
+what every category does until an admin sets one; `0` is genuinely zero-rated. The resolution
+checks for null explicitly rather than falsiness, or a zero-rated category would silently fall back
+to charging 5%.
+
+**The rate is not inherited from `parent`.** A child category with NULL falls back to the platform
+rate, not to its parent's — otherwise the effective rate would depend on where a category sits in a
+tree an admin can re-parent at any time.
+
+**Tax is now per line, summed per parcel:**
+
+```
+per item:   taxRate = category.taxRate ?? TAX_RATE
+            tax     = round2(subtotal x taxRate)
+per vendor: tax     = round2( sum over items of subtotal x taxRate )
+```
+
+**This is exactly backward compatible.** When every category is NULL, the sum collapses to
+`round2(subtotal x TAX_RATE)` — algebraically the old formula, not an approximation of it. The
+per-line products are summed exactly and rounded once per parcel, so rounding cannot drift either.
+Verified: a two-store cart quoted 500.90 before and after, to the cent.
+
+**The rate is snapshotted per line.** `OrderItem.taxRate` and `OrderItem.tax` are new columns,
+written by `persistOrder`, for the same reason `VendorOrder.commissionRate` is a snapshot: an admin
+re-rating a category must never rewrite what a past invoice charged. Without the per-line columns a
+mixed-rate parcel could not produce a correct invoice breakdown at all — `VendorOrder.tax` is only
+the total.
+
+Migrations `20260922...category_tax_rate` and `..._order_item_tax_snapshot` are both additive; the
+`OrderItem` columns default to 0 so existing rows are untouched.
+
+#### Two things fixed on the way
+
+- **`PATCH /categories/:id` had no `validateRequest` at all**, and the service passed `req.body`
+  straight into `prisma.category.update` — so `isDeleted`, `id` and `createdAt` were all settable.
+  Exactly the hole BE-21 closed on Brand, and it matters more here because this is the route an
+  admin uses to set a **tax rate**. `categoryUpdateSchema` now guards it, and `taxRate` is range-
+  and precision-checked (0–1, at most 4dp, matching `Decimal(5,4)`) so a value the column would
+  silently truncate is a 400.
+- **Product payloads now carry `category.taxRate`**, on every read a cart line can be built from.
+  Without it the frontend could not mirror the new maths, and `CLAUDE.md` promises the two agree to
+  the cent.
+
+**Verified against a running server — 35 assertions across two runs, all passing.** An all-NULL
+cart prices identically to before; Jeans at 18% and Sneakers zero-rated moved a two-store cart from
+500.90 to 512.84 with the zero-rated parcel paying no tax at all; **two categories inside one
+vendor's parcel** taxed 20% and 0% produced a parcel tax that is the sum of its lines and equals
+neither `subtotal x 0.20` nor `subtotal x 0`; `commissionAmount + vendorEarning == subtotal +
+shippingCost` still held; and re-rating a category afterwards did **not** change the stored order.
+Out-of-range, negative and 6-decimal rates 400; a customer setting a rate 403s. Every category rate
+was cleared afterwards, the test order deleted and its stock restored — 0 orders, 0 rated
+categories.
+
+#### Deliberately not built
+
+- **Jurisdiction rates.** Tax by shipping country/state needs a `TaxRate` table and changes the
+  checkout UX: the cart cannot quote tax until an address is chosen, which is a visible frontend
+  change, not just a mirrored formula.
+- **Exemptions / reverse charge**, and **VAT/GST ids on `Order`**. `Vendor.taxId` exists and is
+  captured at application time; nothing reads it.
+
+#### Still open on the frontend
+
+`calculate-order-total.ts` still multiplies the whole cart by `NEXT_PUBLIC_TAX_RATE`. Until it
+reads each line's `category.taxRate`, **a cart containing a re-rated category will quote a
+different tax than the backend charges** — the backend is authoritative, so the buyer is charged
+correctly, but the displayed figure is wrong. The backend half is safe to deploy on its own only
+while every `Category.taxRate` is NULL, which is the state it ships in.
+
+---
+
+### ~~BE-39~~ · Two `onDelete: SetNull` warnings on required columns
+**✅ FIXED — 2026-09-22 · schema — includes a migration**
+
+**The entry's premise was wrong.** It said fixing this "means making those columns optional, which
+is a frontend contract change". It does not. The columns are right; the **referential action** was
+wrong, and correcting it changes no API shape at all.
+
+`SET NULL` on a `NOT NULL` column is not a policy, it is an impossibility. Postgres would never
+null the column — it would raise a not-null violation instead — so both relations were promising
+behaviour that could not happen, and the only thing a delete could ever produce was a confusing
+500.
+
+**Worth knowing: this was a regression, not an original sin.** The init migration had the correct
+actions — `Size.sizeGroupId` was `CASCADE`, `Order.shippingAddressId` was `RESTRICT`. Migration
+`20260428081248_customise_on_delete_cascade_mode` replaced both with `SET NULL`.
+
+**Now** (migration `20260922142144_restrict_instead_of_setnull_on_required_fks`), both are
+`Restrict`, which is what the code already assumes:
+
+- **`Order.shippingAddressId`** — an address an order points at must survive. That is precisely
+  why `Address` is soft-deleted and why every order carries its own `shippingSnapshot`. `Restrict`
+  is what the init migration had.
+- **`Size.sizeGroupId`** — `Restrict` rather than restoring the original `Cascade`: the service
+  soft-deletes size groups, so a hard delete only happens from a console, and there it should be
+  refused rather than silently destroying every size in the group and nulling `ProductVariant
+  .sizeId` on the variants using them.
+
+`Size.sizeGroup` was also typed `SizeGroup?` while its FK column is `NOT NULL`. It is now
+non-optional, so the generated client matches the database. This only removes null checks; it
+cannot break a caller.
+
+**`P2003` is now handled** in `globalErrorHandler` — a `Restrict` refusal returns **409 "still
+referenced by other data"** instead of falling through to a 500. That branch was unreachable before
+this change.
+
+**Verified against the dev database**, each probe inside a rolled-back transaction: hard-deleting a
+size group with 9 sizes is refused with **P2003** (not a not-null violation), the soft delete the
+API actually uses still works, and `size.sizeGroup` comes back non-null. `pnpm prisma validate` is
+now **warning-free** — it had printed these two on every run. Nothing in the database was changed.
 
 ---
 

@@ -102,6 +102,8 @@ async function validateAndCalculateOrder(items) {
                     },
                 },
             },
+            // Tax is per category, so it has to be read with the product.
+            category: { select: { id: true, taxRate: true } },
         },
     });
     if (products.length !== new Set(productIds).size) {
@@ -150,6 +152,16 @@ async function validateAndCalculateOrder(items) {
         if (availableStock < item.quantity) {
             throw new customError_1.default(400, `Insufficient stock for ${product.name}. Only ${availableStock} available.`);
         }
+        /**
+         * The category's own rate, falling back to the platform rate when it
+         * has none. `null` means "use the platform rate"; `0` is a real value
+         * meaning zero-rated, so the check is against null, not falsiness.
+         */
+        const taxRate = product.category?.taxRate === null ||
+            product.category?.taxRate === undefined
+            ? TAX_RATE
+            : (0, money_1.toNumber)(product.category.taxRate);
+        const lineSubtotal = (0, money_1.round2)(actualPrice * item.quantity);
         validatedItems.push({
             productId: product.id,
             productName: product.name,
@@ -162,7 +174,9 @@ async function validateAndCalculateOrder(items) {
             // Informational only — priceAtPurchase is already the discounted
             // price, so this must never be subtracted from a total again.
             discount: (0, money_1.round2)(Math.max(originalPrice - actualPrice, 0) * item.quantity),
-            subtotal: (0, money_1.round2)(actualPrice * item.quantity),
+            subtotal: lineSubtotal,
+            taxRate,
+            tax: (0, money_1.round2)(lineSubtotal * taxRate),
         });
     }
     // ---- Group into one calculation per vendor -----------------------------
@@ -186,7 +200,16 @@ async function validateAndCalculateOrder(items) {
         const shippingCost = subtotal >= freeShippingThreshold
             ? 0
             : (0, money_1.round2)((0, money_1.toNumber)(settings.shippingFee));
-        const tax = (0, money_1.round2)(subtotal * TAX_RATE);
+        /**
+         * Summed from the lines, not `subtotal * rate` — two products in
+         * one parcel can be taxed differently.
+         *
+         * The exact per-line products are summed and rounded once, so a
+         * parcel whose categories all use the platform rate still produces
+         * exactly the old `round2(subtotal * TAX_RATE)`. Changing a rate is
+         * the only thing that changes a total.
+         */
+        const tax = (0, money_1.round2)(vendorItems.reduce((total, i) => total + i.subtotal * i.taxRate, 0));
         const totalAmount = (0, money_1.round2)(subtotal + tax + shippingCost);
         const commissionRate = (0, money_1.toNumber)(settings.commissionRate);
         const commissionAmount = (0, money_1.round2)(subtotal * commissionRate);
