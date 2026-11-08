@@ -11,6 +11,7 @@ const rootRouter_1 = __importDefault(require("./routes/rootRouter"));
 const notFoundRoute_1 = require("./middleware/notFoundRoute");
 const globalErrorHandler_1 = require("./middleware/globalErrorHandler");
 const payment_route_1 = require("./modules/payment/payment.route");
+const health_route_1 = require("./routes/health.route");
 const rateLimiter_1 = require("./middleware/rateLimiter");
 const env_config_1 = require("./config/env-config");
 const app = (0, express_1.default)();
@@ -41,8 +42,16 @@ app.use((0, cors_1.default)({
 // request the limiter rejects.
 app.use((0, morgan_1.default)(env_config_1.envConfig.node_env === "production" ? "combined" : "dev", {
     // Health probes would otherwise dominate the log.
-    skip: (req) => req.path === "/health",
+    // `originalUrl`, not `path`: morgan's skip runs on the response's
+    // `finish` event, by which point a mounted router has rewritten
+    // `req.path` to be relative to its mount point ("/" for /health).
+    // `originalUrl` is never rewritten.
+    skip: (req) => req.originalUrl.startsWith("/health"),
 }));
+// Probes live outside /api/v1 and above the rate limiter: an orchestrator
+// polling health must never be throttled, or a busy instance gets restarted
+// for looking unhealthy.
+app.use("/health", health_route_1.healthRouter);
 // MUST stay above express.json(): Stripe signature verification needs the raw
 // request bytes. Serves POST /webhook and POST /webhook/stripe.
 //

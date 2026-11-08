@@ -13,6 +13,7 @@ const vendor_1 = require("../../helpers/vendor.js");
 const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
 const cloudinary_1 = require("../../utils/cloudinary.js");
 const customError_1 = __importDefault(require("../../utils/customError.js"));
+const notifications_1 = require("../../helpers/notifications.js");
 /**
  * Promotes a Cloudinary temp upload into its final folder.
  *
@@ -50,7 +51,7 @@ const applyForVendor = async (userId, payload) => {
         // A rejected applicant may re-apply; the same row is reused so the
         // one-store-per-user invariant (Vendor.ownerId is unique) holds.
         if (existing.status === prisma_client_1.VendorStatus.REJECTED) {
-            return reapply(existing.id, payload);
+            return reapply(existing.id, userId, payload);
         }
         throw new customError_1.default(409, existing.status === prisma_client_1.VendorStatus.PENDING
             ? "You already have a vendor application under review"
@@ -61,53 +62,74 @@ const applyForVendor = async (userId, payload) => {
         promoteImage(payload.logo),
         promoteImage(payload.banner),
     ]);
-    return db_1.prisma.vendor.create({
-        data: {
-            ownerId: userId,
-            storeName: payload.storeName,
-            slug,
-            description: payload.description,
-            businessEmail: payload.businessEmail,
-            businessPhone: payload.businessPhone,
-            taxId: payload.taxId,
-            logo: logo?.url,
-            logoPublicId: logo?.publicId,
-            banner: banner?.url,
-            bannerPublicId: banner?.publicId,
-            payoutDetails: payload.payoutDetails,
-            // Platform defaults; an admin can tune them per store afterwards.
-            commissionRate: env_config_1.envConfig.platform_commission_rate,
-            shippingFee: env_config_1.envConfig.shipping_cost,
-            freeShippingThreshold: env_config_1.envConfig.free_shipping_threshold,
-            status: prisma_client_1.VendorStatus.PENDING,
-        },
+    return db_1.prisma.$transaction(async (tx) => {
+        const created = await tx.vendor.create({
+            data: {
+                ownerId: userId,
+                storeName: payload.storeName,
+                slug,
+                description: payload.description,
+                businessEmail: payload.businessEmail,
+                businessPhone: payload.businessPhone,
+                taxId: payload.taxId,
+                logo: logo?.url,
+                logoPublicId: logo?.publicId,
+                banner: banner?.url,
+                bannerPublicId: banner?.publicId,
+                payoutDetails: payload.payoutDetails,
+                // Platform defaults; an admin can tune them per store afterwards.
+                commissionRate: env_config_1.envConfig.platform_commission_rate,
+                shippingFee: env_config_1.envConfig.shipping_cost,
+                freeShippingThreshold: env_config_1.envConfig.free_shipping_threshold,
+                status: prisma_client_1.VendorStatus.PENDING,
+            },
+        });
+        // The trail starts with the seller's own application: no previous
+        // status, and the actor is the applicant rather than an admin.
+        await (0, vendor_1.logVendorStatusChange)(tx, {
+            vendorId: created.id,
+            oldStatus: null,
+            newStatus: prisma_client_1.VendorStatus.PENDING,
+            actor: { id: userId },
+            note: "Application submitted",
+        });
+        return created;
     });
 };
 /** Resubmit a rejected application on the existing row. */
-const reapply = async (vendorId, payload) => {
+const reapply = async (vendorId, ownerId, payload) => {
     const [slug, logo, banner] = await Promise.all([
         (0, slug_1.generateUniqueVendorSlug)(payload.storeName, vendorId),
         promoteImage(payload.logo),
         promoteImage(payload.banner),
     ]);
-    return db_1.prisma.vendor.update({
-        where: { id: vendorId },
-        data: {
-            storeName: payload.storeName,
-            slug,
-            description: payload.description,
-            businessEmail: payload.businessEmail,
-            businessPhone: payload.businessPhone,
-            taxId: payload.taxId,
-            logo: logo?.url,
-            logoPublicId: logo?.publicId,
-            banner: banner?.url,
-            bannerPublicId: banner?.publicId,
-            payoutDetails: payload.payoutDetails,
-            status: prisma_client_1.VendorStatus.PENDING,
-            rejectionReason: null,
-            isDeleted: false,
-        },
+    return db_1.prisma.$transaction(async (tx) => {
+        await (0, vendor_1.logVendorStatusChange)(tx, {
+            vendorId,
+            oldStatus: prisma_client_1.VendorStatus.REJECTED,
+            newStatus: prisma_client_1.VendorStatus.PENDING,
+            actor: { id: ownerId },
+            note: "Application resubmitted",
+        });
+        return tx.vendor.update({
+            where: { id: vendorId },
+            data: {
+                storeName: payload.storeName,
+                slug,
+                description: payload.description,
+                businessEmail: payload.businessEmail,
+                businessPhone: payload.businessPhone,
+                taxId: payload.taxId,
+                logo: logo?.url,
+                logoPublicId: logo?.publicId,
+                banner: banner?.url,
+                bannerPublicId: banner?.publicId,
+                payoutDetails: payload.payoutDetails,
+                status: prisma_client_1.VendorStatus.PENDING,
+                rejectionReason: null,
+                isDeleted: false,
+            },
+        });
     });
 };
 /**
@@ -119,7 +141,15 @@ const getMyStore = async (userId) => {
     if (!vendor) {
         throw new customError_1.default(404, "You do not have a vendor account yet");
     }
-    return vendor;
+    // A seller gets their own moderation trail — being told *why* the store was
+    // rejected or suspended, and when, is the whole point of keeping it. The
+    // moderator's name and IP are stripped (`sanitizeVendorHistory`).
+    const history = await db_1.prisma.vendorStatusHistory.findMany({
+        where: { vendorId: vendor.id },
+        select: vendor_1.vendorStatusHistorySelect,
+        orderBy: { createdAt: "asc" },
+    });
+    return { ...vendor, statusHistory: (0, vendor_1.sanitizeVendorHistory)(history, false) };
 };
 const updateMyStore = async (userId, payload) => {
     const vendor = await getMyStore(userId);
@@ -166,7 +196,7 @@ const updateMyStore = async (userId, payload) => {
 // ---------------------------------------------------------------- public reads
 /** Approved, non-deleted stores for the storefront's vendor directory. */
 const findAllPublic = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Vendor" });
     const prismaArgs = builder
         .withDefaultFilter({
         status: prisma_client_1.VendorStatus.APPROVED,
@@ -204,7 +234,7 @@ const findBySlug = async (slug) => {
  * `?status=PENDING` narrows it via the standard filter handling.
  */
 const findAllForAdmin = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Vendor" });
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
         .search(["storeName", "businessEmail", "description"])
@@ -244,12 +274,21 @@ const findByIdForAdmin = async (vendorId) => {
             _count: {
                 select: { products: true, vendorOrders: true, payouts: true },
             },
+            // The full moderation trail, newest first: who acted, from where,
+            // and every earlier decision the three columns on Vendor forget.
+            statusHistory: {
+                select: vendor_1.vendorStatusHistorySelect,
+                orderBy: { createdAt: "desc" },
+            },
         },
     });
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
     }
-    return vendor;
+    return {
+        ...vendor,
+        statusHistory: (0, vendor_1.sanitizeVendorHistory)(vendor.statusHistory, true),
+    };
 };
 // ------------------------------------------------------------ admin moderation
 /**
@@ -258,7 +297,7 @@ const findByIdForAdmin = async (vendorId) => {
  * An ADMIN owner keeps their role — an admin running a store must not be
  * demoted out of the admin panel.
  */
-const approveVendor = async (vendorId) => {
+const approveVendor = async (vendorId, actor) => {
     const vendor = await db_1.prisma.vendor.findUnique({
         where: { id: vendorId },
         include: { owner: { include: { auth: true } } },
@@ -269,13 +308,20 @@ const approveVendor = async (vendorId) => {
     if (vendor.status === prisma_client_1.VendorStatus.APPROVED) {
         throw new customError_1.default(400, "This store is already approved");
     }
-    return db_1.prisma.$transaction(async (tx) => {
+    const approved = await db_1.prisma.$transaction(async (tx) => {
         if (vendor.owner.auth && vendor.owner.auth.role !== prisma_client_1.Role.ADMIN) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
                 data: { role: prisma_client_1.Role.VENDOR },
             });
         }
+        await (0, vendor_1.logVendorStatusChange)(tx, {
+            vendorId,
+            oldStatus: vendor.status,
+            newStatus: prisma_client_1.VendorStatus.APPROVED,
+            actor,
+            note: "Store approved",
+        });
         return tx.vendor.update({
             where: { id: vendorId },
             data: {
@@ -287,9 +333,14 @@ const approveVendor = async (vendorId) => {
             },
         });
     });
+    // After the commit. The seller can now reach their dashboard immediately —
+    // `authGuard` reads the role from the database (BE-07), so the mail is not
+    // promising something their old token cannot do.
+    await (0, notifications_1.notifyVendorApplicationDecision)(vendorId, true);
+    return approved;
 };
 /** Reject an application and hand the role back to CUSTOMER. */
-const rejectVendor = async (vendorId, payload) => {
+const rejectVendor = async (vendorId, payload, actor) => {
     const vendor = await db_1.prisma.vendor.findUnique({
         where: { id: vendorId },
         include: { owner: { include: { auth: true } } },
@@ -297,13 +348,20 @@ const rejectVendor = async (vendorId, payload) => {
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
     }
-    return db_1.prisma.$transaction(async (tx) => {
+    const rejected = await db_1.prisma.$transaction(async (tx) => {
         if (vendor.owner.auth && vendor.owner.auth.role === prisma_client_1.Role.VENDOR) {
             await tx.auth.update({
                 where: { userId: vendor.ownerId },
                 data: { role: prisma_client_1.Role.CUSTOMER },
             });
         }
+        await (0, vendor_1.logVendorStatusChange)(tx, {
+            vendorId,
+            oldStatus: vendor.status,
+            newStatus: prisma_client_1.VendorStatus.REJECTED,
+            actor,
+            note: payload.reason,
+        });
         // Hide the catalogue: rejected stores must not keep live listings.
         await tx.product.updateMany({
             where: { vendorId },
@@ -318,6 +376,9 @@ const rejectVendor = async (vendorId, payload) => {
             },
         });
     });
+    // After the commit, so the mail can quote the stored rejection reason.
+    await (0, notifications_1.notifyVendorApplicationDecision)(vendorId, false);
+    return rejected;
 };
 /**
  * Suspend a live store.
@@ -327,7 +388,7 @@ const rejectVendor = async (vendorId, payload) => {
  * `publicProductFilter` hides the catalogue from shoppers immediately.
  * In-flight orders are deliberately left alone — buyers are still owed those.
  */
-const suspendVendor = async (vendorId, payload) => {
+const suspendVendor = async (vendorId, payload, actor) => {
     const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
@@ -335,17 +396,27 @@ const suspendVendor = async (vendorId, payload) => {
     if (vendor.status === prisma_client_1.VendorStatus.SUSPENDED) {
         throw new customError_1.default(400, "This store is already suspended");
     }
-    return db_1.prisma.vendor.update({
-        where: { id: vendorId },
-        data: {
-            status: prisma_client_1.VendorStatus.SUSPENDED,
-            suspendedAt: new Date(),
-            rejectionReason: payload.reason,
-        },
+    // One transaction: the trail must not be able to disagree with the row.
+    return db_1.prisma.$transaction(async (tx) => {
+        await (0, vendor_1.logVendorStatusChange)(tx, {
+            vendorId,
+            oldStatus: vendor.status,
+            newStatus: prisma_client_1.VendorStatus.SUSPENDED,
+            actor,
+            note: payload.reason,
+        });
+        return tx.vendor.update({
+            where: { id: vendorId },
+            data: {
+                status: prisma_client_1.VendorStatus.SUSPENDED,
+                suspendedAt: new Date(),
+                rejectionReason: payload.reason,
+            },
+        });
     });
 };
 /** Lift a suspension. Listings stay hidden until the vendor republishes. */
-const reinstateVendor = async (vendorId) => {
+const reinstateVendor = async (vendorId, actor) => {
     const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
@@ -353,32 +424,70 @@ const reinstateVendor = async (vendorId) => {
     if (vendor.status !== prisma_client_1.VendorStatus.SUSPENDED) {
         throw new customError_1.default(400, "This store is not suspended");
     }
-    return db_1.prisma.vendor.update({
-        where: { id: vendorId },
-        data: {
-            status: prisma_client_1.VendorStatus.APPROVED,
-            suspendedAt: null,
-            rejectionReason: null,
-        },
+    return db_1.prisma.$transaction(async (tx) => {
+        await (0, vendor_1.logVendorStatusChange)(tx, {
+            vendorId,
+            oldStatus: vendor.status,
+            newStatus: prisma_client_1.VendorStatus.APPROVED,
+            actor,
+            note: "Suspension lifted",
+        });
+        return tx.vendor.update({
+            where: { id: vendorId },
+            data: {
+                status: prisma_client_1.VendorStatus.APPROVED,
+                suspendedAt: null,
+                rejectionReason: null,
+            },
+        });
     });
 };
 /** Admin-only commercial terms. Only affects orders placed from now on. */
-const updateVendorSettings = async (vendorId, payload) => {
+const updateVendorSettings = async (vendorId, payload, actor) => {
     const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
     }
-    return db_1.prisma.vendor.update({
-        where: { id: vendorId },
-        data: {
-            commissionRate: payload.commissionRate,
-            shippingFee: payload.shippingFee,
-            freeShippingThreshold: payload.freeShippingThreshold,
-        },
+    /**
+     * Commercial terms are not a status change, but they are an admin acting on
+     * someone else's store, and "who cut our margin, and when?" is exactly the
+     * question this trail exists to answer. Logged with `oldStatus ===
+     * newStatus` and the change spelled out.
+     *
+     * `VendorOrder.commissionRate` is a snapshot, so this only affects orders
+     * placed from now on — worth saying in the note.
+     */
+    const changes = [];
+    const describe = (label, before, after) => {
+        if (after === undefined || (0, money_1.toNumber)(before) === after)
+            return;
+        changes.push(`${label} ${(0, money_1.toNumber)(before)} → ${after}`);
+    };
+    describe("commission", vendor.commissionRate, payload.commissionRate);
+    describe("shipping fee", vendor.shippingFee, payload.shippingFee);
+    describe("free shipping threshold", vendor.freeShippingThreshold, payload.freeShippingThreshold);
+    return db_1.prisma.$transaction(async (tx) => {
+        if (changes.length > 0) {
+            await (0, vendor_1.logVendorStatusChange)(tx, {
+                vendorId,
+                oldStatus: vendor.status,
+                newStatus: vendor.status,
+                actor,
+                note: `Terms updated — ${changes.join(", ")}`,
+            });
+        }
+        return tx.vendor.update({
+            where: { id: vendorId },
+            data: {
+                commissionRate: payload.commissionRate,
+                shippingFee: payload.shippingFee,
+                freeShippingThreshold: payload.freeShippingThreshold,
+            },
+        });
     });
 };
 /** Soft-delete a store and unpublish everything it listed. */
-const deleteVendor = async (vendorId) => {
+const deleteVendor = async (vendorId, actor) => {
     const vendor = await db_1.prisma.vendor.findUnique({ where: { id: vendorId } });
     if (!vendor) {
         throw new customError_1.default(404, "Vendor not found");
@@ -398,6 +507,13 @@ const deleteVendor = async (vendorId) => {
         await tx.product.updateMany({
             where: { vendorId },
             data: { isPublished: false, isDeleted: true },
+        });
+        await (0, vendor_1.logVendorStatusChange)(tx, {
+            vendorId,
+            oldStatus: vendor.status,
+            newStatus: prisma_client_1.VendorStatus.SUSPENDED,
+            actor,
+            note: "Store deleted by an admin",
         });
         return tx.vendor.update({
             where: { id: vendorId },

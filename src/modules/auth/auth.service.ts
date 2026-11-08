@@ -37,6 +37,13 @@ const registerUser = async (payload: TRegisterUser) => {
 			data: {
 				name: payload.name,
 			},
+			select: {
+				id: true,
+				name: true,
+				phone: true,
+				createdAt: true,
+				updatedAt: true,
+			},
 		});
 
 		const auth = await tx.auth.create({
@@ -45,9 +52,18 @@ const registerUser = async (payload: TRegisterUser) => {
 				password: hashPassword,
 				userId: user.id,
 			},
+			// Projection, not the row. `password` must never be selected here:
+			// the bcrypt hash would otherwise reach the response body and from
+			// there every access log, proxy log and client error reporter.
+			select: {
+				email: true,
+				role: true,
+			},
 		});
 
-		return { user, auth };
+		// Flat, like `GET /users` — `email` and `role` are attributes of the
+		// person even though they live one table over. See `flattenAuth`.
+		return { ...user, email: auth.email, role: auth.role };
 	});
 
 	return result;
@@ -280,9 +296,18 @@ const refreshToken = async (token: string) => {
 		throw new CustomError(401, "Invalid or expired refresh token");
 	}
 
-	const auth = await prisma.auth.findUniqueOrThrow({
+	const auth = await prisma.auth.findUnique({
 		where: { userId: data.id },
+		include: { user: { select: { isDeleted: true } } },
 	});
+
+	// A disabled account must not be able to mint fresh access tokens for the
+	// remaining 30 days of its refresh token. `authGuard` would reject those
+	// tokens anyway, but a refresh that keeps succeeding tells the client the
+	// session is healthy and quietly renews it forever.
+	if (!auth || auth.user.isDeleted) {
+		throw new CustomError(401, "Invalid or expired refresh token");
+	}
 
 	const tokenPayload = {
 		id: auth.userId,

@@ -3,8 +3,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.userUpdateSchema = void 0;
+exports.userValidation = exports.updateUserRoleSchema = exports.userUpdateSchema = void 0;
 const zod_1 = __importDefault(require("zod"));
+const enum_1 = require("../../helpers/enum.js");
 /**
  * Body of `PATCH /users/my-profile-update`.
  *
@@ -36,3 +37,15 @@ exports.userUpdateSchema = zod_1.default.object({
     })
         .optional(),
 });
+/**
+ * Body of `PATCH /users/:id/role`.
+ *
+ * `Role` is the only field an admin may set on someone else's account here.
+ * Everything else about another user is either theirs to change (profile) or
+ * derived (vendor status), and a wider schema would be a standing invitation to
+ * add something that is not.
+ */
+exports.updateUserRoleSchema = zod_1.default.object({
+    role: enum_1.RoleEnum,
+});
+exports.userValidation = { userUpdateSchema: exports.userUpdateSchema, updateUserRoleSchema: exports.updateUserRoleSchema };

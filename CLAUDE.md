@@ -113,7 +113,9 @@ Keep DB/business logic in services, not controllers.
 - **`src/lib/PrismaQueryBuilder.ts`** — fluent builder for list endpoints (search / filter / paginate / sort / include). Standard usage in a service:
 
   ```ts
-  const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query)
+  const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, {
+      model: "Product",          // REQUIRED — see below
+  })
       .withDefaultFilter({ isDeleted: false })
       .search(["name", "description"])
       .filter().paginate().sort()
@@ -127,10 +129,36 @@ Keep DB/business logic in services, not controllers.
 
   Reserved query params: `search`, `page`, `limit`, `sortBy`/`sort`, `orderBy`/`order`. Any other query key becomes a filter (comma-separated → `in`, `true`/`false` → boolean, numeric strings → number). Sort format is `?sortBy=field:asc`.
 
+  **`model` is required.** `sortBy` comes from the query string and is written straight into
+  Prisma's `orderBy`, so the builder needs to know the model to validate it — and it cannot infer
+  one, because the generic is erased at runtime. It reads the model's scalar and enum fields from
+  `Prisma.dmmf` (derived, so it never goes stale as columns are added) and **400s on anything
+  else**, naming the valid fields. Pass `allowedFields` only to narrow further than the schema.
+
+  **Reaching one level into a to-one relation** — for a model whose API shape is flatter than its
+  schema, like `User`/`Auth`:
+
+  ```ts
+  new PrismaQueryBuilder<Prisma.UserWhereInput>(query, {
+      model: "User",
+      sortAliases: { email: "auth.email", role: "auth.role" },  // ?sortBy=email:asc
+  }).search(["name", "phone"], ["auth.email"])                  // ?search= also matches email
+  ```
+
+  Both take `"relation.column"` and expand to `{ auth: { is: { email: … } } }` /
+  `orderBy: { auth: { email: "asc" } }`. `relationPaths` is a **second parameter** to `search()`
+  so the first keeps its `keyof TWhereInput` typing. `sortAliases` are declared in code, never
+  read from the query string — they widen what is *sortable*, not what a caller can *inject*.
+
 ### Auth & tokens
 
 - `src/helpers/jwt.ts` — access token expires in **20m**, refresh token in **30d**.
 - User identity is split across two models: **`User`** (profile) and **`Auth`** (email/password/role, one-to-one). OAuth accounts link via `OAuthAccount`. Social users have `Auth.password = null`.
+- **That split is storage, not API shape.** `GET /users` returns `email` and `role` **flattened
+  onto the user**, not nested under `auth` — they are attributes of the person, and no client
+  needs to know they live one table over. `flattenAuth` in `user.service.ts` destructures `auth`
+  away and re-adds exactly two named fields, which is also what keeps `password` from ever
+  appearing if someone later relaxes a `select`. Both are `null` for a user with no `Auth` row.
 - JWT payload shape is `{ id: userId, role, email }`.
 
 ### Password reset is a two-step, email-only flow
@@ -160,11 +188,26 @@ public. The rules that hold it together, none of which are optional:
 Bodies live in `src/utils/email-templates.ts` — one exported function per message returning
 `{ subject, html, text }`, so no caller can forget the plain-text fallback or invent a subject.
 
-Adding a notification is a template plus one `sendEmailSafely` call. **Prefer
-`sendEmailSafely` for anything that reports on already-committed work** — an order confirmation
-must not fail the order. Same reasoning as keeping the gateway call outside the refund
-transaction. Requires `EMAIL` / `PASSWORD` (a Gmail *app password*); with them unset, mail is
-skipped and logged rather than throwing.
+Requires `EMAIL` / `PASSWORD` (a Gmail *app password*); with them unset, mail is skipped and
+logged rather than throwing.
+
+**`src/helpers/notifications.ts` decides who gets told what.** Services call one function with an
+id (`notifyOrderPlaced(orderId)`, `notifyVendorOrderStatusChanged(vendorOrderId)`, …) and that
+module does the reading, picks the template and sends. Adding a notification is a template plus one
+entry there — not a new `include` tree in a service.
+
+Two rules, both absolute:
+
+1. **Never throw.** Everything is wrapped in `notify()`, which turns failures into a log line. An
+   order that is already committed is not un-placed because a confirmation email bounced.
+2. **Never call from inside a `$transaction`.** These read from the database and talk to SMTP;
+   doing that inside a transaction holds it open across network round trips. Every hook point is
+   *after* the commit — the same reasoning that keeps the gateway call outside the refund
+   transaction.
+
+Wired today: order placed (buyer + each seller, their own parcel only), parcel SHIPPED / DELIVERED
+/ CANCELED, refund SUCCEEDED, store approved / rejected, payout paid. `PROCESSING` deliberately
+sends nothing, and a cancellation only promises a refund when a `Refund` row actually exists.
 
 ## The marketplace model
 
@@ -173,6 +216,19 @@ skipped and logged rather than throwing.
 `Role` is `CUSTOMER | VENDOR | ADMIN`. A user becomes a seller by owning a
 `Vendor` (`Vendor.ownerId` is unique — **one store per account**); an admin
 approving that store is what flips the role to `VENDOR`.
+
+`PATCH /users/:id/role` exists for admin role assignment, but **VENDOR stays
+owned by store approval**: promoting to VENDOR requires an approved store and
+demoting away from it requires the store not be approved, so `Auth.role` and
+`Vendor.status` cannot disagree. An admin may never act on their own account
+there — that rule is also what guarantees the platform keeps an admin, since the
+caller is always an active admin who is not the target.
+
+`DELETE /users/:id` is a **soft delete and the ban primitive**: `authGuard` and
+`loginUser` both refuse an `isDeleted` user, and `refresh-token` now does too, so
+a banned session cannot renew itself. Disabling a seller **suspends their store
+in the same transaction** (otherwise their catalogue stays sellable); restoring
+the account does not lift the suspension — `PATCH /vendors/:id/reinstate` does.
 
 **A VENDOR is still a shopper.** Every buyer-facing route therefore guards with
 all three roles (`authGuard(Role.CUSTOMER, Role.VENDOR, Role.ADMIN)`), not just
@@ -228,6 +284,40 @@ accepted from the request body.
 stores may both sell "Nike Air Max 90". `slug` stays globally unique and
 `generateUniqueProductSlug` appends the store slug on collision.
 
+### Variants and images are editable as sub-resources
+
+`PATCH /products/:id` takes the **whole** `variants` and `images` arrays and
+deletes any row whose `id` the client did not round-trip — for an image, that
+destroys the Cloudinary asset too. Prefer the per-row endpoints under
+`/products/:productId`, which cannot touch a row the request did not name:
+
+```
+GET|POST /variants        PATCH|DELETE /variants/:variantId
+GET|POST /images          PATCH|DELETE /images/:imageId
+```
+
+Both modules share `src/helpers/product.ts`, and anything added there must keep
+these rules:
+
+- **The GETs are public and gated by `resolveViewableProduct`**, which composes
+  `publicProductFilter`. They 404 on a draft for the same reason
+  `GET /products/:id` does; a vendor reads their own unpublished listing through
+  `/products/vendor/my-products/:id`, which returns both collections nested.
+  Writes go through `resolveEditableProduct` — 404, never 403.
+- **Variants are SOFT deleted.** `OrderItem.variantId` is `ON DELETE SET NULL`,
+  so a hard delete detaches every past order line from the variant it sold.
+  Every read filters through the shared `liveVariants`; forgetting it makes
+  deleted variants reappear on the storefront. Images have no such reference and
+  are hard deleted, because the Cloudinary asset goes with them.
+- **Imagery is material, variants are not.** Adding or removing an image
+  re-opens moderation on an APPROVED listing
+  (`reopenModerationIfApproved`) and the response says so; changing stock, price
+  or which image is the hero does not. This mirrors `MATERIAL_FIELDS` — keep the
+  two in step.
+- Exactly one image is `isMain`, enforced in-transaction because the column is a
+  plain boolean; the last image cannot be deleted; a variant's (size, colour)
+  pair is unique per product, enforced in code because the DB does not.
+
 ### Orders split across two levels
 
 | model | role |
@@ -267,7 +357,7 @@ Per vendor group, in `validateAndCalculateOrder` (`src/helpers/order.ts`):
 ```
 subtotal     = sum(item.subtotal)           // priceAtPurchase x qty, discount already baked in
 shippingCost = subtotal >= vendor.freeShippingThreshold ? 0 : vendor.shippingFee
-tax          = round2(subtotal x TAX_RATE)
+tax          = round2(sum over items of item.subtotal x item.taxRate)
 totalAmount  = subtotal + tax + shippingCost
 
 commissionAmount = round2(subtotal x commissionRate)   // platform's cut
@@ -282,6 +372,16 @@ vendorEarning    = subtotal + shippingCost - commissionAmount
   Tax is the platform's to remit; **shipping belongs to the vendor who ships**.
 - **Shipping is per vendor**, evaluated against each store's own threshold — a
   two-store cart pays two shipping fees.
+- **Tax is per CATEGORY, resolved per line.** `item.taxRate` is
+  `Category.taxRate ?? TAX_RATE`, so two products in one parcel can be taxed
+  differently. `NULL` means "use the platform rate"; **`0` means zero-rated and
+  is not the same as NULL** — resolve with an explicit null check, never
+  falsiness. The rate is not inherited from a parent category. When every
+  category is NULL the sum collapses to exactly `round2(subtotal x TAX_RATE)`,
+  which is why adding this changed no existing total.
+- `OrderItem.taxRate` / `OrderItem.tax` are **snapshots**, like
+  `VendorOrder.commissionRate` — re-rating a category never rewrites a past
+  invoice, and `VendorOrder.tax` is the sum of its lines.
 - `VendorOrder.commissionRate` is a **snapshot**, so changing a store's rate
   never rewrites past orders.
 - Money helpers live in `src/helpers/money.ts` (`round2`, `toNumber`,
@@ -439,12 +539,60 @@ but pointless).
 - `VendorReview` rates a **store** (tied to a delivered vendor order, one per
   order); `Review` rates a **product**. Both maintain denormalised
   `averageRating` / `totalReviews` counters inside the write transaction.
+- **`Payment` and `Refund` are narrowed by caller on order detail, and the
+  `Payment` read endpoints are read-only.** `gatewayResponse` holds the entire
+  Stripe session — including the buyer's name, email and billing address — so
+  `sanitizePayment` / `sanitizeRefund` (`src/helpers/payment.ts`) give it to an
+  **admin only**. A buyer sees their payment minus the blob; a **seller** sees
+  `{ method, status, paidAt }` and refunds on their own parcels only, because one
+  payment spans every store on the order. `GET /payments*` exists for reads
+  (`/me`, `/order/:orderId`, `/admin/all`, `/:id`) and there is deliberately no
+  write route — payment state is the gateway's, reconciled by the webhook and
+  `reconcilePayment`. Note `payment.route.ts` exports **two** routers: only
+  `paymentRouter` belongs in `routes-array.ts`; `stripeWebhookRouter` must stay
+  at `/webhook` above `express.json()`.
+- **`OrderStatusHistory` is returned on order detail, narrowed by caller.**
+  `sanitizeStatusHistory` in `order.service.ts` gives buyers and sellers only the
+  timeline (`oldStatus`, `newStatus`, `note`, `createdAt`); `ipAddress` and the
+  acting user are **ADMIN only**. Both endpoints that return it are reachable by
+  the buyer *and* by any vendor with a slice, so returning the raw row let a
+  seller read the buyer's IP off their own parcel. Never widen that projection
+  without re-checking who can reach the endpoint.
 - Enums live in `prisma/schema.prisma`, as Zod mirrors in `src/helpers/enum.ts`,
   and as frontend constants — all three must stay in sync.
 
 ### Config
 
-All environment access goes through **`src/config/env-config.ts`** (`envConfig` object). Add new env vars there rather than reading `process.env` directly. See `.env.example` for required keys (DB, JWT secrets, Cloudinary, Stripe, SSLCommerz, email).
+All environment access goes through **`src/config/env-config.ts`** (`envConfig` object) — and this
+is now enforced rather than merely encouraged: `grep process.env src/` returns nothing outside that
+file. Add new vars to its Zod schema, not to `process.env` reads.
+
+**The schema is validated at import time and the process refuses to boot on a bad value**, listing
+every problem at once. Three tiers:
+
+- **Required** — `DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`.
+- **Optional with a default** — every number, range-checked. `TAX_RATE=abc` is a boot error, not a
+  `NaN` that silently makes every order's tax `NaN`.
+- **Feature-gated** — Stripe, Cloudinary, SMTP. The server boots without them and
+  `warnAboutDisabledFeatures()` logs which features are off.
+
+See `.env.example`, whose header repeats this contract.
+
+### Boot and shutdown
+
+`src/server.ts` connects to the database **before** opening the port, and only then logs
+"Database connected" — that line used to print unconditionally, so a down database looked like a
+healthy boot.
+
+On SIGTERM/SIGINT it drains in order: **stop the scheduler → close the HTTP server and let
+in-flight requests finish → `prisma.$disconnect()`**. Killing requests mid-flight can abort a
+transaction between the order write and the refund intent. A 10s force-exit timer bounds it, and
+`unhandledRejection`/`uncaughtException` log and exit 1.
+
+Probes are at **`/health`** (liveness, touches nothing external) and **`/health/ready`** (readiness,
+`SELECT 1`, returns 503 when the database is unreachable). They sit outside `/api/v1` and above the
+rate limiter, and are skipped by the request log. **Do not point liveness at the database** — that
+turns a brief DB blip into a restart loop across every instance.
 
 ## Conventions
 
@@ -475,13 +623,23 @@ All environment access goes through **`src/config/env-config.ts`** (`envConfig` 
   another buyer can take the last unit. The webhook then fails the stock guard
   and that charge needs refunding by hand.
 - ~~**Expired checkout drafts are not swept.**~~ **Fixed** — swept hourly.
-- **No vendor moderation audit log.** `Vendor` keeps `rejectionReason`,
-  `approvedAt` and `suspendedAt`, but not *which* admin acted, nor the history.
-  Copy the `OrderStatusHistory` pattern if that becomes necessary.
+- ~~**No vendor moderation audit log.**~~ **Fixed** — `VendorStatusHistory`
+  records every change to a store's state (`logVendorStatusChange` in
+  `helpers/vendor.ts`), including the two non-obvious doors: an admin deleting a
+  store, and `disableUser` suspending a seller's store as a side effect of
+  disabling their account. Commercial-terms edits are logged with
+  `oldStatus === newStatus` and the change in `note`. Every write shares a
+  transaction with the change it describes. Admins see the actor and IP; a seller
+  reading `/vendors/me` gets the same timeline and reasons with both stripped
+  (`sanitizeVendorHistory`) — the `sanitizeStatusHistory` rule again. The three
+  seeded stores predate the table, so their trails start empty.
 - **No per-vendor shipping methods/zones.** One flat fee plus one free-shipping
   threshold per store. A `ShippingMethod` model hanging off `Vendor` is the
   extension point.
-- Two pre-existing `onDelete: SetNull` warnings on required columns
-  (`Size.sizeGroupId`, `Order.shippingAddressId`) surface on every
-  `prisma validate`. Fixing them means making those columns optional, which is
-  a frontend contract change, so they were left as they were.
+- ~~Two pre-existing `onDelete: SetNull` warnings on required columns.~~
+  **Fixed** — both are now `Restrict`, and no column had to become optional:
+  `SET NULL` on a `NOT NULL` column could never execute in the first place. An
+  address an order points at, and a size group that still has sizes, must not be
+  hard-deleted — which is exactly what the soft-delete services already assumed.
+  `prisma validate` is warning-free, and `globalErrorHandler` maps the `P2003`
+  refusal to a 409.

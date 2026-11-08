@@ -25,7 +25,7 @@ type TActor = { id: string; role: string };
 
 /** Every refund, for the admin queue. `?status=FAILED` narrows it. */
 const findAllForAdmin = async (query: Record<string, unknown>) => {
-    const builder = new PrismaQueryBuilder<Prisma.RefundWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.RefundWhereInput>(query, { model: "Refund" });
 
     const prismaArgs = builder
         .filter()
@@ -126,7 +126,7 @@ const findMine = async (actor: TActor, query: Record<string, unknown>) => {
         scope = { order: { userId: actor.id } };
     }
 
-    const builder = new PrismaQueryBuilder<Prisma.RefundWhereInput>(query);
+    const builder = new PrismaQueryBuilder<Prisma.RefundWhereInput>(query, { model: "Refund" });
 
     const prismaArgs = builder
         .withDefaultFilter(scope)

@@ -9,7 +9,8 @@ import {
 	vendorListScope,
 } from "@/helpers/vendor";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
-import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
+import { liveVariants, promoteImages } from "@/helpers/product";
+import { deleteFromCloudinary } from "@/utils/cloudinary";
 import CustomError from "@/utils/customError";
 import {
 	TProductCreate,
@@ -47,21 +48,6 @@ const MATERIAL_FIELDS = [
 	"gender",
 	"images",
 ] as const satisfies readonly (keyof TProductUpdate)[];
-
-const promoteImages = async (
-	images: { id?: string; url: string; publicId: string; altText?: string; isMain?: boolean }[],
-) =>
-	Promise.all(
-		images.map(async (img) => {
-			// Only assets still staged in temp/ are promoted — this guard is
-			// what stops an existing live image from being renamed away.
-			if (!img.id && img.publicId?.includes("/temp/")) {
-				const { publicId, url } = await moveFromTemp(img.publicId);
-				return { ...img, publicId, url };
-			}
-			return img;
-		}),
-	);
 
 const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
 	const {
@@ -152,7 +138,7 @@ const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
 		},
 		include: {
 			images: true,
-			variants: true,
+			variants: liveVariants,
 			vendor: { select: vendorCardSelect },
 		},
 	});
@@ -165,7 +151,7 @@ const createIntoDB = async (actor: TActor, payload: TProductCreate) => {
  * stores — see publicProductFilter for the three gates.
  */
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter(publicProductFilter())
@@ -177,7 +163,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
 			images: {
 				select: { id: true, url: true, isMain: true },
 			},
-			variants: true,
+			variants: liveVariants,
 			category: true,
 			brand: true,
 			vendor: { select: vendorCardSelect },
@@ -208,7 +194,7 @@ const findMyProducts = async (
 	// vendorId is consumed by the scope; leaving it in would double-filter.
 	const { vendorId: _ignored, ...rest } = query;
 
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(rest);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(rest, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false, ...scope })
@@ -218,8 +204,8 @@ const findMyProducts = async (
 		.sort("createdAt", "desc")
 		.include({
 			images: { select: { id: true, url: true, isMain: true } },
-			variants: true,
-			category: { select: { id: true, name: true, slug: true } },
+			variants: liveVariants,
+			category: { select: { id: true, name: true, slug: true, taxRate: true } },
 			brand: { select: { id: true, name: true } },
 			_count: { select: { orderItems: true } },
 		})
@@ -235,7 +221,7 @@ const findMyProducts = async (
 
 /** Every product in any state, for the admin moderation queue. */
 const findAllForAdmin = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
@@ -246,7 +232,7 @@ const findAllForAdmin = async (query: Record<string, unknown>) => {
 		.include({
 			images: { select: { id: true, url: true, isMain: true } },
 			vendor: { select: vendorCardSelect },
-			category: { select: { id: true, name: true } },
+			category: { select: { id: true, name: true, taxRate: true } },
 			brand: { select: { id: true, name: true } },
 		})
 		.build();
@@ -267,7 +253,7 @@ const findById = async (id: string) => {
 	const product = await prisma.product.findFirst({
 		where: publicProductFilter({ id }),
 		include: {
-			variants: true,
+			variants: liveVariants,
 			images: true,
 			vendor: { select: publicVendorSelect },
 		},
@@ -286,7 +272,7 @@ const findMyProductById = async (actor: TActor, id: string) => {
 		const product = await prisma.product.findFirst({
 			where: { id, isDeleted: false },
 			include: {
-				variants: { include: { size: true } },
+				variants: { ...liveVariants, include: { size: true } },
 				images: true,
 				vendor: { select: vendorCardSelect },
 			},
@@ -302,7 +288,7 @@ const findMyProductById = async (actor: TActor, id: string) => {
 	return prisma.product.findUniqueOrThrow({
 		where: { id },
 		include: {
-			variants: { include: { size: true } },
+			variants: { ...liveVariants, include: { size: true } },
 			images: true,
 			vendor: { select: vendorCardSelect },
 		},
@@ -314,6 +300,7 @@ const findBySlug = async (slug: string) => {
 		where: publicProductFilter({ slug }),
 		include: {
 			variants: {
+				...liveVariants,
 				include: {
 					size: {
 						select: {
@@ -357,14 +344,14 @@ const updateData = async (
 	const product = isAdmin
 		? await prisma.product.findFirst({
 			where: { id, isDeleted: false },
-			include: { variants: true, images: true, vendor: true },
+			include: { variants: liveVariants, images: true, vendor: true },
 		})
 		: await (async () => {
 			const vendorId = await resolveVendorScope(actor);
 			await assertVendorOwnsProduct(vendorId, id);
 			return prisma.product.findUnique({
 				where: { id },
-				include: { variants: true, images: true, vendor: true },
+				include: { variants: liveVariants, images: true, vendor: true },
 			});
 		})();
 
@@ -441,10 +428,13 @@ const updateData = async (
 
 	// Begin transaction to ensure atomicity
 	const updatedProduct = await prisma.$transaction(async (tx) => {
-		// Delete removed variants/images
+		// Removed variants are SOFT deleted: `OrderItem.variantId` is
+		// ON DELETE SET NULL, so dropping the row would detach every past
+		// order line that sold it. Reads filter on `liveVariants`.
 		if (variantIdsToDelete.length > 0) {
-			await tx.productVariant.deleteMany({
+			await tx.productVariant.updateMany({
 				where: { id: { in: variantIdsToDelete } },
+				data: { isDeleted: true },
 			});
 		}
 		if (imageIdsToDelete.length > 0) {
@@ -517,7 +507,7 @@ const updateData = async (
 					: {}),
 			},
 			include: {
-				variants: true,
+				variants: liveVariants,
 				images: true,
 				vendor: { select: vendorCardSelect },
 			},
@@ -664,7 +654,7 @@ const newArrivalProducts = async () => {
 		take: 10,
 		include: {
 			images: true,
-			variants: true,
+			variants: liveVariants,
 			vendor: { select: vendorCardSelect },
 		},
 	});
@@ -732,7 +722,7 @@ const findByVendorSlug = async (
 		throw new CustomError(404, "Store not found");
 	}
 
-	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.ProductWhereInput>(query, { model: "Product" });
 
 	const prismaArgs = builder
 		.withDefaultFilter(publicProductFilter({ vendorId: vendor.id }))
@@ -742,8 +732,8 @@ const findByVendorSlug = async (
 		.sort()
 		.include({
 			images: { select: { id: true, url: true, isMain: true } },
-			variants: true,
-			category: { select: { id: true, name: true, slug: true } },
+			variants: liveVariants,
+			category: { select: { id: true, name: true, slug: true, taxRate: true } },
 			brand: { select: { id: true, name: true } },
 		})
 		.build();

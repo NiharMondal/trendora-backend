@@ -27,9 +27,14 @@ import {
 import { round2, toNumber } from "@/helpers/money";
 import { processRefund, recordRefundIntent } from "@/helpers/refund";
 import {
+	notifyRefundProcessed,
+	notifyVendorOrderStatusChanged,
+} from "@/helpers/notifications";
+import {
 	assertVendorOwnsVendorOrder,
 	requireApprovedVendor,
 } from "@/helpers/vendor";
+import { sanitizePayment, sanitizeRefund } from "@/helpers/payment";
 import { TCreateOrderSchema, TUpdateVendorOrderStatus } from "./order.validation";
 
 export type TBasicInfo = {
@@ -41,6 +46,51 @@ export type TBasicInfo = {
 type TActor = { id: string; role: string };
 
 /** Store identity shown next to each slice of an order. */
+/**
+ * What `OrderStatusHistory` may leave the server as.
+ *
+ * The rows carry `ipAddress` and the acting `userId`. Both endpoints that
+ * return history are reachable by the **buyer and by any vendor with a slice**
+ * of the order, so returning the raw row let a seller read the buyer's IP
+ * address off their own order — and let a buyer read the seller's. The trail is
+ * fetched with everything and then narrowed per caller.
+ */
+const statusHistorySelect = {
+	id: true,
+	oldStatus: true,
+	newStatus: true,
+	note: true,
+	createdAt: true,
+	ipAddress: true,
+	user: { select: { id: true, name: true } },
+} satisfies Prisma.OrderStatusHistorySelect;
+
+type TRawStatusHistory = {
+	id: string;
+	oldStatus: OrderStatus;
+	newStatus: OrderStatus;
+	note: string | null;
+	createdAt: Date;
+	ipAddress: string | null;
+	user: { id: string; name: string } | null;
+};
+
+/**
+ * Everyone sees the timeline; only an ADMIN sees who did it and from where.
+ *
+ * A buyer does not need the seller's personal name (the store name is already
+ * on the parcel), a seller does not need the buyer's, and nobody outside the
+ * platform needs an IP address — that field exists for abuse investigation,
+ * which is an admin activity.
+ */
+const sanitizeStatusHistory = (
+	history: TRawStatusHistory[],
+	isAdmin: boolean,
+) =>
+	history.map(({ ipAddress, user, ...event }) =>
+		isAdmin ? { ...event, ipAddress, actor: user } : event,
+	);
+
 const vendorCardSelect = {
 	id: true,
 	storeName: true,
@@ -188,7 +238,7 @@ const summariseVendorGroup = (vendor: {
  * All orders, platform-wide. ADMIN only.
  */
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query, { model: "Order" });
 
 	const prismaArgs = builder
 		.filter()
@@ -234,7 +284,7 @@ const findAllFromDB = async (query: Record<string, unknown>) => {
  * "shipped by Store A, still processing at Store B".
  */
 const getMyOrders = async (userId: string, query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.OrderWhereInput>(query, { model: "Order" });
 
 	const prismaArgs = builder
 		.addWhere({ userId })
@@ -321,7 +371,10 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 							},
 						},
 					},
-					statusHistory: { orderBy: { createdAt: "asc" } },
+					statusHistory: {
+						select: statusHistorySelect,
+						orderBy: { createdAt: "asc" },
+					},
 					// Whether the money for a cancelled parcel actually went
 					// back — a cancelled parcel with a FAILED refund is a
 					// buyer who has not been paid.
@@ -349,8 +402,36 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 		throw new CustomError(404, "Order not found");
 	}
 
-	if (actor.role === Role.ADMIN || order.userId === actor.id) {
-		return order;
+	const isAdmin = actor.role === Role.ADMIN;
+
+	/**
+	 * Re-attach each parcel's history and refund, narrowed for this caller.
+	 *
+	 * `refund` is the raw row, which carries `gatewayResponse` and our
+	 * `idempotencyKey` — gateway internals nobody outside the platform needs.
+	 */
+	const withSafeSlices = (slices: typeof order.vendorOrders) =>
+		slices.map((slice) => ({
+			...slice,
+			statusHistory: sanitizeStatusHistory(slice.statusHistory, isAdmin),
+			refund: slice.refund
+				? sanitizeRefund(slice.refund, isAdmin)
+				: slice.refund,
+		}));
+
+	if (isAdmin) {
+		return { ...order, vendorOrders: withSafeSlices(order.vendorOrders) };
+	}
+
+	if (order.userId === actor.id) {
+		return {
+			...order,
+			vendorOrders: withSafeSlices(order.vendorOrders),
+			payment: order.payment && sanitizePayment(order.payment, "buyer"),
+			refunds: order.refunds.map((refund) =>
+				sanitizeRefund(refund, false),
+			),
+		};
 	}
 
 	if (actor.role === Role.VENDOR) {
@@ -363,11 +444,27 @@ const getOrderById = async (orderId: string, actor: TActor) => {
 			throw new CustomError(404, "Order not found");
 		}
 
+		const mineIds = new Set(mine.map((slice) => slice.id));
+
 		// Narrow to this vendor's slice, and drop the money fields that
 		// describe the whole basket.
 		return {
 			...order,
-			vendorOrders: mine,
+			vendorOrders: withSafeSlices(mine),
+			// One payment covers every store on this order, so a seller is
+			// told only whether the buyer paid — never the basket total, and
+			// never the Stripe session, which carries the buyer's billing
+			// address.
+			payment: order.payment && sanitizePayment(order.payment, "seller"),
+			// Order-level refunds include other stores' parcels. A seller sees
+			// refunds against their own slices and nothing else.
+			refunds: order.refunds
+				.filter(
+					(refund) =>
+						refund.vendorOrderId !== null &&
+						mineIds.has(refund.vendorOrderId),
+				)
+				.map((refund) => sanitizeRefund(refund, false)),
 			subtotal: undefined,
 			tax: undefined,
 			shippingCost: undefined,
@@ -395,7 +492,7 @@ const getMyVendorOrders = async (
 
 	const { vendorId: _ignored, ...rest } = query;
 
-	const builder = new PrismaQueryBuilder<Prisma.VendorOrderWhereInput>(rest);
+	const builder = new PrismaQueryBuilder<Prisma.VendorOrderWhereInput>(rest, { model: "VendorOrder" });
 
 	const prismaArgs = builder
 		.withDefaultFilter(scope)
@@ -451,7 +548,10 @@ const getVendorOrderById = async (actor: TActor, vendorOrderId: string) => {
 					},
 				},
 			},
-			statusHistory: { orderBy: { createdAt: "asc" } },
+			statusHistory: {
+				select: statusHistorySelect,
+				orderBy: { createdAt: "asc" },
+			},
 			order: {
 				select: {
 					id: true,
@@ -471,7 +571,15 @@ const getVendorOrderById = async (actor: TActor, vendorOrderId: string) => {
 		throw new CustomError(404, "Order not found");
 	}
 
-	return vendorOrder;
+	// Vendor-facing, so the seller must not read the buyer's IP off their own
+	// parcel's trail. Admins keep the full audit view.
+	return {
+		...vendorOrder,
+		statusHistory: sanitizeStatusHistory(
+			vendorOrder.statusHistory,
+			actor.role === Role.ADMIN,
+		),
+	};
 };
 
 /**
@@ -716,7 +824,12 @@ const updateVendorOrderStatus = async (
 	// would tell the caller the cancel did not happen, which is false.
 	if (refundId) {
 		await processRefund(refundId);
+		// Only fires if the refund actually SUCCEEDED; the helper checks.
+		await notifyRefundProcessed(refundId);
 	}
+
+	// The parcel moved. Non-fatal, and outside the transaction above.
+	await notifyVendorOrderStatusChanged(vendorOrderId);
 
 	// Re-read so the caller sees the payment status the refund produced
 	// (PARTIALLY_REFUNDED / REFUNDED) rather than the pre-refund value.

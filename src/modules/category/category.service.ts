@@ -1,11 +1,12 @@
-import { Category, Prisma } from "@/lib/prisma-client";
+import { Prisma } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
 import { generateSlug } from "@/helpers/slug";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 
 import { capitalizeFirstLetter } from "@/utils/utils";
+import { TCategory, TCategoryUpdate } from "./category.validation";
 
-const createIntoDB = async (payload: Category) => {
+const createIntoDB = async (payload: TCategory) => {
 
 	const name = capitalizeFirstLetter(payload.name.trim());
 	const slug = generateSlug(payload.name);
@@ -18,7 +19,7 @@ const createIntoDB = async (payload: Category) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.CategoryWhereInput>(query, { model: "Category" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
@@ -73,7 +74,7 @@ const findById = async (id: string) => {
 	return category;
 };
 
-const updateData = async (id: string, payload: Partial<Category>) => {
+const updateData = async (id: string, payload: TCategoryUpdate) => {
 	const category = await prisma.category.findUniqueOrThrow({
 		where: { id },
 	});

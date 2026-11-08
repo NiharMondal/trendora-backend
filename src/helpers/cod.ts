@@ -6,6 +6,7 @@ import {
 import { prisma } from "@/config/db";
 import { OrderCalculation } from "@/types/common.types";
 import { persistOrder } from "./create-order";
+import { notifyOrderPlaced } from "./notifications";
 
 /**
  * Cash on delivery: the order is created inline, unpaid. Payment flips to PAID
@@ -20,7 +21,7 @@ export async function createCODOrder(input: {
 	ipAddress?: string;
 	userAgent?: string;
 }) {
-	return prisma.$transaction(async (tx) =>
+	const order = await prisma.$transaction(async (tx) =>
 		persistOrder(tx, {
 			orderNumber: input.orderNumber,
 			userId: input.userId,
@@ -34,4 +35,10 @@ export async function createCODOrder(input: {
 			userAgent: input.userAgent,
 		}),
 	);
+
+	// AFTER the commit, never inside it — this reads and talks to SMTP, and it
+	// must not be able to fail an order that already exists.
+	await notifyOrderPlaced(order.id);
+
+	return order;
 }

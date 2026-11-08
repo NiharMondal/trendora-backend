@@ -102,8 +102,7 @@ const findByVendorSlug = async (
     }
 
     const builder = new PrismaQueryBuilder<Prisma.VendorReviewWhereInput>(
-        query,
-    );
+        query, { model: "VendorReview" });
 
     const prismaArgs = builder
         .withDefaultFilter({ vendorId: vendor.id, isDeleted: false })

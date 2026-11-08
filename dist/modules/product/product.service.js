@@ -9,6 +9,7 @@ const db_1 = require("../../config/db.js");
 const slug_1 = require("../../helpers/slug.js");
 const vendor_1 = require("../../helpers/vendor.js");
 const PrismaQueryBuilder_1 = __importDefault(require("../../lib/PrismaQueryBuilder.js"));
+const product_1 = require("../../helpers/product.js");
 const cloudinary_1 = require("../../utils/cloudinary.js");
 const customError_1 = __importDefault(require("../../utils/customError.js"));
 /** Store identity attached to every product read, so cards can link to it. */
@@ -38,15 +39,6 @@ const MATERIAL_FIELDS = [
     "gender",
     "images",
 ];
-const promoteImages = async (images) => Promise.all(images.map(async (img) => {
-    // Only assets still staged in temp/ are promoted — this guard is
-    // what stops an existing live image from being renamed away.
-    if (!img.id && img.publicId?.includes("/temp/")) {
-        const { publicId, url } = await (0, cloudinary_1.moveFromTemp)(img.publicId);
-        return { ...img, publicId, url };
-    }
-    return img;
-}));
 const createIntoDB = async (actor, payload) => {
     const { variants, images, discountPrice, submitForReview, vendorId: requestedVendorId, ...others } = payload;
     // Who does this listing belong to? A vendor can only ever create for
@@ -77,7 +69,7 @@ const createIntoDB = async (actor, payload) => {
     if (duplicate) {
         throw new customError_1.default(409, "You already have a product with this name in your store");
     }
-    const movedImages = await promoteImages(images);
+    const movedImages = await (0, product_1.promoteImages)(images);
     const slug = await (0, slug_1.generateUniqueProductSlug)(payload.name, vendor.slug);
     const dis_Price = discountPrice !== null &&
         discountPrice !== undefined &&
@@ -114,7 +106,7 @@ const createIntoDB = async (actor, payload) => {
         },
         include: {
             images: true,
-            variants: true,
+            variants: product_1.liveVariants,
             vendor: { select: vendorCardSelect },
         },
     });
@@ -125,7 +117,7 @@ const createIntoDB = async (actor, payload) => {
  * stores — see publicProductFilter for the three gates.
  */
 const findAllFromDB = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter((0, vendor_1.publicProductFilter)())
         .search(["name", "description"])
@@ -136,7 +128,7 @@ const findAllFromDB = async (query) => {
         images: {
             select: { id: true, url: true, isMain: true },
         },
-        variants: true,
+        variants: product_1.liveVariants,
         category: true,
         brand: true,
         vendor: { select: vendorCardSelect },
@@ -156,7 +148,7 @@ const findMyProducts = async (actor, query) => {
     const scope = await (0, vendor_1.vendorListScope)(actor, query.vendorId ? String(query.vendorId) : undefined);
     // vendorId is consumed by the scope; leaving it in would double-filter.
     const { vendorId: _ignored, ...rest } = query;
-    const builder = new PrismaQueryBuilder_1.default(rest);
+    const builder = new PrismaQueryBuilder_1.default(rest, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false, ...scope })
         .search(["name", "description"])
@@ -165,8 +157,8 @@ const findMyProducts = async (actor, query) => {
         .sort("createdAt", "desc")
         .include({
         images: { select: { id: true, url: true, isMain: true } },
-        variants: true,
-        category: { select: { id: true, name: true, slug: true } },
+        variants: product_1.liveVariants,
+        category: { select: { id: true, name: true, slug: true, taxRate: true } },
         brand: { select: { id: true, name: true } },
         _count: { select: { orderItems: true } },
     })
@@ -179,7 +171,7 @@ const findMyProducts = async (actor, query) => {
 };
 /** Every product in any state, for the admin moderation queue. */
 const findAllForAdmin = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter({ isDeleted: false })
         .search(["name", "description"])
@@ -189,7 +181,7 @@ const findAllForAdmin = async (query) => {
         .include({
         images: { select: { id: true, url: true, isMain: true } },
         vendor: { select: vendorCardSelect },
-        category: { select: { id: true, name: true } },
+        category: { select: { id: true, name: true, taxRate: true } },
         brand: { select: { id: true, name: true } },
     })
         .build();
@@ -207,7 +199,7 @@ const findById = async (id) => {
     const product = await db_1.prisma.product.findFirst({
         where: (0, vendor_1.publicProductFilter)({ id }),
         include: {
-            variants: true,
+            variants: product_1.liveVariants,
             images: true,
             vendor: { select: vendor_1.publicVendorSelect },
         },
@@ -223,7 +215,7 @@ const findMyProductById = async (actor, id) => {
         const product = await db_1.prisma.product.findFirst({
             where: { id, isDeleted: false },
             include: {
-                variants: { include: { size: true } },
+                variants: { ...product_1.liveVariants, include: { size: true } },
                 images: true,
                 vendor: { select: vendorCardSelect },
             },
@@ -237,7 +229,7 @@ const findMyProductById = async (actor, id) => {
     return db_1.prisma.product.findUniqueOrThrow({
         where: { id },
         include: {
-            variants: { include: { size: true } },
+            variants: { ...product_1.liveVariants, include: { size: true } },
             images: true,
             vendor: { select: vendorCardSelect },
         },
@@ -248,6 +240,7 @@ const findBySlug = async (slug) => {
         where: (0, vendor_1.publicProductFilter)({ slug }),
         include: {
             variants: {
+                ...product_1.liveVariants,
                 include: {
                     size: {
                         select: {
@@ -277,14 +270,14 @@ const updateData = async (actor, id, payload) => {
     const product = isAdmin
         ? await db_1.prisma.product.findFirst({
             where: { id, isDeleted: false },
-            include: { variants: true, images: true, vendor: true },
+            include: { variants: product_1.liveVariants, images: true, vendor: true },
         })
         : await (async () => {
             const vendorId = await (0, vendor_1.resolveVendorScope)(actor);
             await (0, vendor_1.assertVendorOwnsProduct)(vendorId, id);
             return db_1.prisma.product.findUnique({
                 where: { id },
-                include: { variants: true, images: true, vendor: true },
+                include: { variants: product_1.liveVariants, images: true, vendor: true },
             });
         })();
     if (!product) {
@@ -328,7 +321,7 @@ const updateData = async (actor, id, payload) => {
     const imagesToDelete = product.images.filter((img) => imageIdsToDelete.includes(img.id));
     await Promise.all(imagesToDelete.map((img) => (0, cloudinary_1.deleteFromCloudinary)(img.publicId)));
     // 2. Move new temp images to final folder
-    const processedImages = await promoteImages(images);
+    const processedImages = await (0, product_1.promoteImages)(images);
     // 3. Decide whether this edit needs re-moderation.
     const changedMaterially = MATERIAL_FIELDS.some((field) => {
         if (field === "images")
@@ -339,10 +332,13 @@ const updateData = async (actor, id, payload) => {
     const needsReReview = changedMaterially && product.status === prisma_client_1.ProductStatus.APPROVED;
     // Begin transaction to ensure atomicity
     const updatedProduct = await db_1.prisma.$transaction(async (tx) => {
-        // Delete removed variants/images
+        // Removed variants are SOFT deleted: `OrderItem.variantId` is
+        // ON DELETE SET NULL, so dropping the row would detach every past
+        // order line that sold it. Reads filter on `liveVariants`.
         if (variantIdsToDelete.length > 0) {
-            await tx.productVariant.deleteMany({
+            await tx.productVariant.updateMany({
                 where: { id: { in: variantIdsToDelete } },
+                data: { isDeleted: true },
             });
         }
         if (imageIdsToDelete.length > 0) {
@@ -414,7 +410,7 @@ const updateData = async (actor, id, payload) => {
                     : {}),
             },
             include: {
-                variants: true,
+                variants: product_1.liveVariants,
                 images: true,
                 vendor: { select: vendorCardSelect },
             },
@@ -524,7 +520,7 @@ const newArrivalProducts = async () => {
         take: 10,
         include: {
             images: true,
-            variants: true,
+            variants: product_1.liveVariants,
             vendor: { select: vendorCardSelect },
         },
     });
@@ -581,7 +577,7 @@ const findByVendorSlug = async (slug, query) => {
     if (!vendor) {
         throw new customError_1.default(404, "Store not found");
     }
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Product" });
     const prismaArgs = builder
         .withDefaultFilter((0, vendor_1.publicProductFilter)({ vendorId: vendor.id }))
         .search(["name", "description"])
@@ -590,8 +586,8 @@ const findByVendorSlug = async (slug, query) => {
         .sort()
         .include({
         images: { select: { id: true, url: true, isMain: true } },
-        variants: true,
-        category: { select: { id: true, name: true, slug: true } },
+        variants: product_1.liveVariants,
+        category: { select: { id: true, name: true, slug: true, taxRate: true } },
         brand: { select: { id: true, name: true } },
     })
         .build();

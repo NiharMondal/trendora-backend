@@ -51,7 +51,7 @@ const createIntoDB = async (payload) => {
     return result;
 };
 const findAllFromDB = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query);
+    const builder = new PrismaQueryBuilder_1.default(query, { model: "Review" });
     const prismaArgs = builder
         .search(["comment"])
         .filter()

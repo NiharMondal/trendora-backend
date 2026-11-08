@@ -1,9 +1,10 @@
-import { Brand, Prisma } from "@/lib/prisma-client";
+import { Prisma } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import CustomError from "@/utils/customError";
+import { TBrandCreate, TBrandUpdate } from "./brand.validation";
 
-const createIntoDB = async (payload: Brand) => {
+const createIntoDB = async (payload: TBrandCreate) => {
 	const data = await prisma.brand.create({
 		data: payload,
 	});
@@ -12,7 +13,7 @@ const createIntoDB = async (payload: Brand) => {
 };
 
 const findAllFromDB = async (query: Record<string, unknown>) => {
-	const builder = new PrismaQueryBuilder<Prisma.BrandWhereInput>(query);
+	const builder = new PrismaQueryBuilder<Prisma.BrandWhereInput>(query, { model: "Brand" });
 
 	const prismaArgs = builder
 		.withDefaultFilter({ isDeleted: false })
@@ -41,7 +42,7 @@ const findById = async (id: string) => {
 	return brand;
 };
 
-const updateData = async (id: string, payload: Brand) => {
+const updateData = async (id: string, payload: TBrandUpdate) => {
 	await prisma.brand.findUniqueOrThrow({ where: { id } }); // find brand or throw error
 
 	const updatedData = await prisma.brand.update({
