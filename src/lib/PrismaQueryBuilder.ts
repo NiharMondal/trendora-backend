@@ -66,6 +66,18 @@ interface ModelConfig {
  */
 const sortableFieldCache = new Map<string, Set<string>>();
 
+/**
+ * Nullable columns per model, cached alongside the sortable ones.
+ *
+ * Postgres orders NULLs FIRST on a descending sort, so `?sortBy=averageRating:desc`
+ * ("top rated") led with every product nobody has reviewed yet. Prisma can ask
+ * for NULLs last, but only on an optional field — the `{ sort, nulls }` form is
+ * rejected for a required one — so the builder has to know which is which
+ * before it can emit it. Read from the schema for the same reason the sortable
+ * set is: a hand-maintained list goes stale the first time a column changes.
+ */
+const nullableFieldCache = new Map<string, Set<string>>();
+
 const sortableFieldsFor = (model: string): Set<string> => {
     const cached = sortableFieldCache.get(model);
     if (cached) return cached;
@@ -85,6 +97,29 @@ const sortableFieldsFor = (model: string): Set<string> => {
     );
 
     sortableFieldCache.set(model, fields);
+    return fields;
+};
+
+const nullableFieldsFor = (model: string): Set<string> => {
+    const cached = nullableFieldCache.get(model);
+    if (cached) return cached;
+
+    const definition = Prisma.dmmf.datamodel.models.find(
+        (candidate) => candidate.name === model,
+    );
+
+    const fields = new Set(
+        (definition?.fields ?? [])
+            .filter(
+                (field) =>
+                    (field.kind === "scalar" || field.kind === "enum") &&
+                    !field.isList &&
+                    !field.isRequired,
+            )
+            .map((field) => field.name),
+    );
+
+    nullableFieldCache.set(model, fields);
     return fields;
 };
 
@@ -417,6 +452,12 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
                 this.orderByCondition = {
                     [relation]: { [column]: direction },
                 } as any;
+            } else if (nullableFieldsFor(this.model).has(sortField)) {
+                // "Highest first" must not lead with the rows that have no
+                // value at all — see nullableFieldsFor.
+                this.orderByCondition = {
+                    [sortField]: { sort: direction, nulls: "last" },
+                };
             } else {
                 this.orderByCondition = { [sortField]: direction };
             }
