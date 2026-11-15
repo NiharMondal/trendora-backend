@@ -23,6 +23,7 @@ exports.STOREFRONT_FILTER_KEYS = [
     "maxPrice",
     "minRating",
     "inStock",
+    "onSale",
 ];
 /** `?brandId=a,b,c` — the multi-select form every facet uses. */
 const splitValues = (value) => String(value ?? "")
@@ -68,7 +69,16 @@ const storefrontFilterClauses = (query) => {
     const clauses = {};
     const categoryIds = splitValues(query.categoryId);
     if (categoryIds.length) {
-        clauses.category = { categoryId: { in: categoryIds } };
+        // Self OR children. The taxonomy is two deep (Footwear -> Sneakers)
+        // and products hang off the LEAF, so matching `categoryId` alone makes
+        // every parent category return nothing — which is exactly what the
+        // storefront's "shop by category" tiles link to.
+        clauses.category = {
+            OR: [
+                { categoryId: { in: categoryIds } },
+                { category: { parentId: { in: categoryIds } } },
+            ],
+        };
     }
     const brandIds = splitValues(query.brandId);
     if (brandIds.length) {
@@ -118,6 +128,13 @@ const storefrontFilterClauses = (query) => {
     }
     if (query.inStock === "true") {
         clauses.stock = { stockQuantity: { gt: 0 } };
+    }
+    if (query.onSale === "true") {
+        // "Discounted" is `discountPrice IS NOT NULL`, which no generic column
+        // filter can express — `?discountPrice=` can only ever test equality.
+        // The create service already normalises a nonsense discount (<= 1) to
+        // NULL, so a non-null value here is a real markdown.
+        clauses.sale = { discountPrice: { not: null } };
     }
     return clauses;
 };

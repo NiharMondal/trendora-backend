@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+/**
+ * The Cloudinary temp-folder handshake: the client uploads straight to
+ * Cloudinary and sends us both halves, so the service can promote the asset
+ * out of `temp/` on save and destroy the one it replaces.
+ */
+const imageSchema = z.object({
+	url: z.string().trim(),
+	publicId: z.string().trim(),
+});
+
 export const categorySchema = z.object({
 	name: z
 		.string("Category name is required")
@@ -24,6 +34,13 @@ export const categorySchema = z.object({
 			error: "Tax rate supports at most 4 decimal places",
 		})
 		.nullish(),
+	/**
+	 * Merchandising artwork for the storefront's category tiles. `null`
+	 * clears it — which is why this is nullable rather than merely optional:
+	 * an admin has to be able to take a picture back off a category, and
+	 * `undefined` on a PATCH means "leave it alone".
+	 */
+	image: imageSchema.nullish(),
 });
 
 /**

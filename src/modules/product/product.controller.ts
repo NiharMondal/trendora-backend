@@ -44,6 +44,19 @@ const findFilterFacets = asyncHandler(async (req: Request, res: Response) => {
     });
 });
 
+/** The storefront's best-sellers rail. Public; takes ?limit= and ?days=. */
+const bestSellingProducts = asyncHandler(
+    async (req: Request, res: Response) => {
+        const data = await productServices.bestSellingProducts(req.query);
+
+        sendResponse(res, {
+            statusCode: 200,
+            message: "Best selling products fetched successfully",
+            data,
+        });
+    },
+);
+
 const findById = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
     const data = await productServices.findById(id);
@@ -227,6 +240,7 @@ export const productControllers = {
     rejectProduct,
     //
     newArrivalProducts,
+    bestSellingProducts,
     relatedProducts,
     findByVendorSlug,
 };
