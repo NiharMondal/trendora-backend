@@ -361,6 +361,12 @@ The home page is built from public reads that already existed (`/slides`, `/prod
   three cases that are easy to conflate: `undefined` means "not in the request, change nothing",
   `null` means "the admin removed it, clear both columns and destroy the asset", and an object
   means "set it and destroy whatever it replaced".
+- **`Slide.photoPublicId`** — the same handshake for hero slides (BE-43). **Writes take
+  `photo: { url, publicId }`, not `photoUrl`**; reads still return `photoUrl` (plus
+  `photoPublicId`). An empty `publicId` means an image hosted outside Cloudinary — the seeded
+  banners are Unsplash URLs — and stores a null publicId. `PATCH /slides/:id` is validated now
+  (`slideUpdateSchema`), so only `title`, `subtitle`, `photo`, `url`, `sortOrder` and `isActive`
+  reach Prisma.
 
 ### Variants and images are editable as sub-resources
 

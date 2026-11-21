@@ -1,11 +1,57 @@
-import { Prisma, Slide } from "@/lib/prisma-client";
+import { Prisma } from "@/lib/prisma-client";
 import { prisma } from "@/config/db";
 import PrismaQueryBuilder from "@/lib/PrismaQueryBuilder";
 import CustomError from "@/utils/customError";
+import { deleteFromCloudinary, moveFromTemp } from "@/utils/cloudinary";
 
-const createIntoDB = async (payload: Slide) => {
+import { TSlide, TSlideUpdate } from "./slide.validation";
+
+type TPhotoPayload = TSlide["photo"] | undefined;
+
+/**
+ * Turn the client's `{ url, publicId }` into the two columns that store it,
+ * promoting a Cloudinary upload out of `temp/` on the way — the same shape as
+ * `resolveImageColumns` in the category service.
+ *
+ * A slide is live on the storefront hero, and a publicId still containing
+ * `/temp/` is deletable by anyone through the unauthenticated
+ * `/cloudinary/delete-temp` (BE-41), so a save must never persist one.
+ *
+ *   `undefined`    -> not in the request; change nothing.
+ *   empty publicId -> an image hosted elsewhere; store the URL, no publicId.
+ *   an object      -> set it, and destroy the Cloudinary asset it replaced.
+ */
+const resolvePhotoColumns = async (
+	photo: TPhotoPayload,
+	previousPublicId?: string | null,
+): Promise<{ photoUrl?: string; photoPublicId?: string | null }> => {
+	if (photo === undefined) return {};
+
+	const stored = !photo.publicId
+		? { url: photo.url, publicId: null }
+		: photo.publicId.includes("/temp/")
+			? await moveFromTemp(photo.publicId)
+			: { url: photo.url, publicId: photo.publicId };
+
+	// Unchanged photo on an unrelated edit — nothing to clean up.
+	if (previousPublicId && previousPublicId !== stored.publicId) {
+		await deleteFromCloudinary(previousPublicId);
+	}
+
+	return { photoUrl: stored.url, photoPublicId: stored.publicId };
+};
+
+const createIntoDB = async (payload: TSlide) => {
+	// `photo` is a nested object mapping onto two scalar columns, so it must
+	// not reach Prisma inside the spread.
+	const { photo, ...rest } = payload;
+
 	const data = await prisma.slide.create({
-		data: payload,
+		data: {
+			...rest,
+			photoUrl: photo.url,
+			...(await resolvePhotoColumns(photo)),
+		},
 	});
 
 	return data;
@@ -18,7 +64,8 @@ const createIntoDB = async (payload: Slide) => {
  * storefront slider asks for 5 and silently got 4. Now paginated like every
  * other list, so the request is honoured.
  *
- * `isActive` and `sortOrder` are still not applied — that is BE-16.
+ * `isActive` and `sortOrder` are applied since BE-16: the public list hard-filters
+ * `isActive`, and both lists sort by `sortOrder`.
  */
 /**
  * Runs a slide list query.
@@ -86,12 +133,17 @@ const findById = async (id: string) => {
 	return slide;
 };
 
-const updateData = async (id: string, payload: Slide) => {
-	await prisma.slide.findUniqueOrThrow({ where: { id } }); // find slide or throw error
+const updateData = async (id: string, payload: TSlideUpdate) => {
+	const slide = await prisma.slide.findUniqueOrThrow({ where: { id } });
+
+	const { photo, ...rest } = payload;
 
 	const updatedData = await prisma.slide.update({
 		where: { id },
-		data: payload,
+		data: {
+			...rest,
+			...(await resolvePhotoColumns(photo, slide.photoPublicId)),
+		},
 	});
 	return updatedData;
 };
