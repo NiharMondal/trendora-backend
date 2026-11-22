@@ -242,6 +242,7 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
      * (`User.auth` is `Auth?`); the bare shorthand only happens to work today.
      *
      * @example search(['name', 'phone'], ['auth.email'])
+     * @example search(['vendorOrderNumber'], ['order.user.auth.email'])
      */
     search(
         fields: (keyof TWhereInput)[],
@@ -261,15 +262,26 @@ class PrismaQueryBuilder<TWhereInput = any, TModel = any> {
         const conditions: any[] = fields.map((field) => ({ [field]: match }));
 
         for (const path of relationPaths) {
-            const [relation, column] = path.split(".");
+            const segments = path.split(".");
 
-            if (!relation || !column) {
+            if (segments.length < 2 || segments.some((segment) => !segment)) {
                 throw new Error(
-                    `search(): relation path "${path}" must be "relation.column"`,
+                    `search(): relation path "${path}" must be "relation.column" or deeper`,
                 );
             }
 
-            conditions.push({ [relation]: { is: { [column]: match } } });
+            // Every segment but the last is a to-ONE relation, walked with
+            // `is`; the last is the column. `order.user.auth.email` becomes
+            // { order: { is: { user: { is: { auth: { is: { email } } } } } } }.
+            // A to-many relation needs `some` instead and is not supported
+            // here — Prisma rejects `is` on a list at runtime.
+            const column = segments.pop() as string;
+            conditions.push(
+                segments.reduceRight<Record<string, unknown>>(
+                    (inner, relation) => ({ [relation]: { is: inner } }),
+                    { [column]: match },
+                ),
+            );
         }
 
         this.whereConditions.push({

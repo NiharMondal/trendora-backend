@@ -140,8 +140,8 @@ Keep DB/business logic in services, not controllers.
   `Prisma.dmmf` (derived, so it never goes stale as columns are added) and **400s on anything
   else**, naming the valid fields. Pass `allowedFields` only to narrow further than the schema.
 
-  **Reaching one level into a to-one relation** — for a model whose API shape is flatter than its
-  schema, like `User`/`Auth`:
+  **Reaching into to-one relations** — for a model whose API shape is flatter than its schema, like
+  `User`/`Auth`:
 
   ```ts
   new PrismaQueryBuilder<Prisma.UserWhereInput>(query, {
@@ -151,7 +151,17 @@ Keep DB/business logic in services, not controllers.
   ```
 
   Both take `"relation.column"` and expand to `{ auth: { is: { email: … } } }` /
-  `orderBy: { auth: { email: "asc" } }`. `relationPaths` is a **second parameter** to `search()`
+  `orderBy: { auth: { email: "asc" } }`. **`search()` paths may go deeper** — every segment but the
+  last is walked with `is` — so `.search(["orderNumber"], ["user.name", "user.auth.email"])` finds
+  an order by its buyer's email. Every segment must be a **to-one** relation: a to-many needs
+  `some`, which `search()` does not emit, and Prisma rejects `is` on a list at runtime.
+  (`sortAliases` stays one level.)
+
+  **Every list endpoint that the frontend gives a search box must call `.search()`.** The builder
+  treats `search` as a reserved key, so an endpoint without `.search()` accepts `?search=`, ignores
+  it and returns the full list with no error. That was BE-44: orders, payouts and refunds, with
+  six live search boxes. Scoped lists are safe to search: `build()` ANDs every condition, including
+  the `withDefaultFilter` / `addWhere` scope, so a search can never widen a vendor's or buyer's view. `relationPaths` is a **second parameter** to `search()`
   so the first keeps its `keyof TWhereInput` typing. `sortAliases` are declared in code, never
   read from the query string — they widen what is *sortable*, not what a caller can *inject*.
 
