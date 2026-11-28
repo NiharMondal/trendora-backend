@@ -25,14 +25,23 @@ const flattenAuth = ({ auth, ...user }) => ({
  * Soft-deleted users are excluded; they were previously returned.
  */
 const getAllFromDB = async (query) => {
-    const builder = new PrismaQueryBuilder_1.default(query, {
+    // `?isDeleted=true` lists DISABLED accounts — the only way an admin can
+    // find one to restore. It has to replace the default rather than pass
+    // through to `.filter()`: the default is always ANDed in, so
+    // `isDeleted: false AND isDeleted: true` would match nothing. Absent, the
+    // list stays active-only, exactly as before.
+    const { isDeleted, ...rest } = query;
+    if (isDeleted !== undefined && isDeleted !== "true" && isDeleted !== "false") {
+        throw new customError_1.default(400, "isDeleted must be true or false");
+    }
+    const builder = new PrismaQueryBuilder_1.default(rest, {
         model: "User",
         // `email` and `role` are columns of `Auth`, so the DMMF-derived
         // allowlist would reject them even though the client can see both.
         sortAliases: { email: "auth.email", role: "auth.role" },
     });
     const prismaArgs = builder
-        .withDefaultFilter({ isDeleted: false })
+        .withDefaultFilter({ isDeleted: isDeleted === "true" })
         // Email is the identifier an admin actually has to hand when someone
         // writes in about their account — searching only name and phone made
         // the box near-useless for support.

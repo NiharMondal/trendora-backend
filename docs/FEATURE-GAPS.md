@@ -37,6 +37,7 @@ uses `FE-nn` and the same `XR-nn` numbers.
 | BE-42 | The unsigned Cloudinary preset is an open upload endpoint | P1 | M | media |
 | ~~BE-43~~ | ~~Slide writes: no photo `publicId`, no temp promotion, unvalidated `PATCH`~~ | ✅ **FIXED** 2026-09-24 | — | content |
 | ~~BE-44~~ | ~~Orders, payouts and refunds ignore `?search=`~~ | ✅ **FIXED** 2026-09-24 | — | query |
+| ~~BE-45~~ | ~~Disabled users can never be listed, so never restored~~ | ✅ **FIXED** 2026-09-24 | — | users |
 | ~~BE-05~~ | ~~No rate limiting, helmet, body cap or request logging~~ | ✅ **FIXED** 2026-09-22 | — | security |
 | BE-06 | `globalErrorHandler` returns the thrown object to the client | P0 | S | security |
 | ~~BE-07~~ | ~~`authGuard` trusts the role in the JWT, not the DB~~ | ✅ **FIXED** 2026-09-22 | — | security |
@@ -882,6 +883,31 @@ vendor1's store. 17 of 17 checks passed:
 Afterwards the parcel was cancelled and the variant's stock was confirmed back at 35, its
 value before the order. The order and
 its inline address were hard-deleted. The dev database has zero orders again, as before.
+
+
+---
+
+### ~~BE-45~~ · Disabled users can never be listed, so never restored
+**✅ FIXED 2026-09-24 · users** (branch `BE-user-admin-list`; frontend half: **FE-16**)
+
+**Was:** `getAllFromDB` in `user.service.ts` applied `withDefaultFilter({ isDeleted: false })`.
+`PrismaQueryBuilder` **ANDs the default filter with every other condition** and never replaces it,
+so `?isDeleted=true` built `isDeleted = false AND isDeleted = true`. It returned an empty page,
+not an error. `PATCH /users/:id/restore` (BE-34) existed, but an admin had no way to find the
+account to restore. `GET /users/:id` does return disabled users, but only if you already hold the
+id.
+
+**Now:** `isDeleted` is lifted out of the query before the builder sees it, and it *chooses* the
+default: `withDefaultFilter({ isDeleted: isDeleted === "true" })`. When absent, the list is
+active-only, byte-identical to before. `true` lists disabled accounts, and search, sort and
+pagination still apply. Any other value is a 400: "isDeleted must be true or false".
+
+**The general trap:** a `withDefaultFilter` on a column is a floor a caller can never lower. To
+let a caller choose a value, pull the param out and pass it to `withDefaultFilter`, as here.
+Leaving it to `.filter()` only ever narrows.
+
+**Verified live:** see FE-16. 14 of 14 checks passed, including the disabled list, search within
+it, restore, and the 400.
 
 ---
 
